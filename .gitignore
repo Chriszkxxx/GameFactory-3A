@@ -1,0 +1,40 @@
+# Ignore heavy assets, envs, model weights, cloned agents
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Models / assets (leave placeholders only)
+*.ckpt
+*.safetensors
+*.bin
+*.pth
+
+# Heavy media (allow small samples in benchmark/samples)
+*.mp4
+*.mov
+*.fbx
+*.glb
+*.obj
+!benchmark/samples/**/ref_*/**
+!assets/**
+
+# Cloned code agents
+third_party/*/
+!third_party/README.md
+!third_party/.gitkeep
+
+_cache_code/
+.DS_Store
