@@ -13,7 +13,6 @@ consistent constructor, device handling, and `__call__` / `predict` API.
 """
 
 from models.tools.base import BaseToolModel
-from models.tools.depth_anything import DepthAnythingModel
-from models.tools.rmbg import RMBGModel
+from models.tools.image_matting import DepthAnythingModel, RMBGModel
 
 __all__ = ["BaseToolModel", "DepthAnythingModel", "RMBGModel"]

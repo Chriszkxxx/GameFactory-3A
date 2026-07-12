@@ -1,7 +1,7 @@
 """
-operators/gen_tpose/funcs/gen_tpose.py
+operators/gen_tpose_image/funcs/gen_tpose_image.py
 
-gen_tpose — Generate a game-CG T-pose RGBA image from a reference character image.
+gen_tpose_image — Generate a game-CG T-pose RGBA image from a reference character image.
 
 Pipeline:
   1. Use a GenImageModel (e.g. QwenEditModel) to turn the reference image into
@@ -200,7 +200,7 @@ def _postprocess_for_trellis(
 # Public API
 # ---------------------------------------------------------------------------
 
-def gen_tpose(
+def gen_tpose_image(
     ref_image: Image.Image,
     description: str,
     gen_model,

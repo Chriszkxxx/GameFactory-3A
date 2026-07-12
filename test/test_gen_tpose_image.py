@@ -1,7 +1,7 @@
 """
-test/test_tpose_gen.py
+test/test_gen_tpose_image.py
 
-Integration test: loads QwenEditModel + RMBGModel, runs the gen_tpose
+Integration test: loads QwenEditModel + RMBGModel, runs the gen_tpose_image
 pipeline on the tasks in tpose_gen_collect.jsonl, asserts that transparent
 T-pose PNG files are created.
 
@@ -30,11 +30,11 @@ TASKS = _REPO_ROOT / "test_data" / "test_samples" / "tpose_gen_collect.jsonl"
 OUT_DIR = _REPO_ROOT / "outputs" / "test_tpose"
 
 
-class TestGenTPosePipeline(unittest.TestCase):
+class TestGenTPoseImagePipeline(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from pipeline.assets_gen.gen_tpose.run import (
+        from pipeline.assets_gen.gen_tpose_image.run import (
             load_gen_model,
             load_mask_model,
             make_operator,
@@ -53,7 +53,7 @@ class TestGenTPosePipeline(unittest.TestCase):
         self.assertGreaterEqual(len(tasks), 1, "Expected at least 1 test task in jsonl.")
 
     def test_run_all_tasks(self):
-        from pipeline.assets_gen.gen_tpose.run import run_from_jsonl
+        from pipeline.assets_gen.gen_tpose_image.run import run_from_jsonl
         results = run_from_jsonl(str(TASKS), self.operator)
 
         self.assertGreaterEqual(len(results), 1)

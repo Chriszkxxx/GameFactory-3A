@@ -1,7 +1,7 @@
 """
-operators/gen_tpose/operator.py
+operators/gen_tpose_image/operator.py
 
-GenTPoseOperator — accepts a loaded image-edit model (and an optional
+GenTPoseImageOperator — accepts a loaded image-edit model (and an optional
 foreground / matting model) and processes an input dict into a T-pose RGBA
 image saved as PNG.
 
@@ -13,12 +13,12 @@ can be swapped in without touching this file.
 
 Usage:
     from models.gen_image.qwen_edit import QwenEditModel
-    from models.tools.rmbg import RMBGModel
-    from operators.gen_tpose.operator import GenTPoseOperator
+    from models.tools.image_matting.rmbg import RMBGModel
+    from operators.gen_tpose_image.operator import GenTPoseImageOperator
 
     gen_model  = QwenEditModel(model_path="Qwen/Qwen-Image-Edit-2511")
     mask_model = RMBGModel(model_path="briaai/RMBG-1.4")
-    op = GenTPoseOperator(
+    op = GenTPoseImageOperator(
         gen_model=gen_model,
         mask_model=mask_model,
         output_dir="outputs/tpose",
@@ -41,7 +41,7 @@ from typing import Any, Optional
 from PIL import Image
 
 
-class GenTPoseOperator:
+class GenTPoseImageOperator:
     """
     Operator for character T-pose image generation.
 
@@ -107,7 +107,7 @@ class GenTPoseOperator:
                 - tpose_rgba_path (str): path to the transparent-bg T-pose PNG
                 - elapsed_sec (float)
         """
-        from operators.gen_tpose.funcs.gen_tpose import gen_tpose
+        from operators.gen_tpose_image.funcs.gen_tpose_image import gen_tpose_image
 
         task_id           = inp.get("task_id", f"task_{int(time.time())}")
         description       = inp.get("description", "")
@@ -119,7 +119,7 @@ class GenTPoseOperator:
         ref_image = self._load_image(inp)
 
         t0 = time.time()
-        result = gen_tpose(
+        result = gen_tpose_image(
             ref_image,
             description=description,
             gen_model=self.gen_model,

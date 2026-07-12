@@ -1,28 +1,28 @@
 """
-pipeline/assets_gen/gen_tpose/run.py
+pipeline/assets_gen/gen_tpose_image/run.py
 
-T-pose generation demo runner.
+T-pose image generation demo runner.
 
 Loads QwenEditModel + RMBGModel (or DepthAnythingModel), injects them into
-GenTPoseOperator, reads tasks from
+GenTPoseImageOperator, reads tasks from
 test_data/test_samples/tpose_gen_collect.jsonl, and writes PNG outputs.
 
 Usage:
     # Run all tasks in the default jsonl
-    python pipeline/assets_gen/gen_tpose/run.py
+    python pipeline/assets_gen/gen_tpose_image/run.py
 
     # Override model checkpoints
-    python pipeline/assets_gen/gen_tpose/run.py \
+    python pipeline/assets_gen/gen_tpose_image/run.py \
         --gen-ckpt Qwen/Qwen-Image-Edit-2511 \
         --mask-ckpt briaai/RMBG-1.4
 
     # Run from a different jsonl
-    python pipeline/assets_gen/gen_tpose/run.py \
+    python pipeline/assets_gen/gen_tpose_image/run.py \
         --tasks test_data/test_samples/tpose_gen_collect.jsonl \
         --out-dir outputs/tpose
 
     # Single demo (image only, no jsonl)
-    python pipeline/assets_gen/gen_tpose/run.py \
+    python pipeline/assets_gen/gen_tpose_image/run.py \
         --image path/to/character.png --task-id my_test \
         --description "A cheerful anime character with a red hat."
 """
@@ -56,17 +56,17 @@ def load_gen_model(ckpt: str, device: str = "cuda"):
 def load_mask_model(ckpt: str, device: str = "cuda", model_type: str = "rmbg"):
     """Load the foreground / matting model. `model_type` ∈ {"rmbg", "depth"}."""
     if model_type == "depth":
-        from models.tools.depth_anything import DepthAnythingModel
+        from models.tools.image_matting.depth_anything import DepthAnythingModel
         print(f"[run] Loading DepthAnythingModel from: {ckpt}")
         return DepthAnythingModel(model_path=ckpt, device=device)
-    from models.tools.rmbg import RMBGModel
+    from models.tools.image_matting.rmbg import RMBGModel
     print(f"[run] Loading RMBGModel from: {ckpt}")
     return RMBGModel(model_path=ckpt, device=device)
 
 
 def make_operator(gen_model, mask_model, output_dir: str):
-    from operators.gen_tpose.operator import GenTPoseOperator
-    return GenTPoseOperator(
+    from operators.gen_tpose_image.operator import GenTPoseImageOperator
+    return GenTPoseImageOperator(
         gen_model=gen_model,
         mask_model=mask_model,
         output_dir=output_dir,

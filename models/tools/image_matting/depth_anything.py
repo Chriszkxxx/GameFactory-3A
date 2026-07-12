@@ -1,8 +1,8 @@
 """
 DepthAnythingModel — depth estimation wrapper (Depth-Anything).
 
-Conforms to `BaseToolModel`. Used by gen_tpose for foreground / background
-separation (combined with white-bg suppression).
+Conforms to `BaseToolModel`. Used by `gen_tpose_image` for foreground /
+background separation (combined with white-bg suppression).
 """
 
 import numpy as np
