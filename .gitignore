@@ -6,6 +6,7 @@ __pycache__/
 *.pyo
 *.egg-info/
 .venv/
+.venv-*/
 .env
 
 # OS
@@ -22,14 +23,22 @@ Thumbs.db
 *.bin
 *.pth
 
-# Heavy media (allow small samples in benchmark/samples)
+# Heavy media (allow the small reference samples in the benchmark test set)
 *.mp4
 *.mov
 *.fbx
 *.glb
 *.obj
-!benchmark/samples/**/ref_*/**
+!test_data/test_samples/**/ref_*/**
+!test_data/test_samples/**/source_motions/**
+!test_data/test_samples/**/target_skeletons/**
 !assets/**
+
+# Generated artifacts — keep the per-game skeleton and the README, ignore contents
+test_data/outputs/**
+!test_data/outputs/README.md
+!test_data/outputs/**/
+!test_data/outputs/**/.gitkeep
 
 # Cloned code agents
 third_party/*/
@@ -37,4 +46,3 @@ third_party/*/
 !third_party/.gitkeep
 
 _cache_code/
-.DS_Store
