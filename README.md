@@ -4,6 +4,8 @@
 
 It covers the full production pipeline — 3D assets, scenes, motion, CG video, mechanics, and UI — and doubles as the evaluation harness for 3A game generation.
 
+> Use `pipeline/assets_gen/<task>/run.py`'s `generate()` for game generation and user testing; it loads/reuses models and calls the Operator. `eval.py` is the Benchmark-only artifact evaluator.
+
 ---
 
 ## Directory layout
@@ -21,7 +23,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   ├── tools/                # Depth, RMBG, segmentation, ...
 │   └── unified_model/        # Composite / multimodal models
 │
-├── operators/                # Task operators (call models via funcs/)
+├── operators/                # Low-level task logic with injected, loaded models
 │   ├── process_input/        # ├── operator.py
 │   ├── gen_3d_object/        # ├── funcs/    ← decoupled steps
 │   ├── gen_3d_scene/         # └── metrics/  ← per-task evaluation
@@ -45,7 +47,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │
 ├── third_party/              # Cloned code-agents (Codex, Claude Code, Aider, …)
 │
-├── pipeline/                 # Full-chain runners
+├── pipeline/                 # `run.generate()` generation entry + Benchmark evaluation
 │   ├── common/paths.py       # ← single source of truth for every input/output path
 │   ├── assets_gen/           # Asset generation
 │   │   ├── gen_3d_object/    {run.py, eval.py}
