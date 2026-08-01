@@ -22,6 +22,7 @@ Full output tree::
             │   ├── 3d_scene/<task_id>/
             │   ├── motion/<task_id>/
             │   ├── cg_video/<task_id>/
+            │   ├── audio/<task_id>/            # dialogue / sound-effect audio + meta.json
             │   └── retarget/<task_id>/
             ├── mechanic/<task_id>/            # engine project + demo_outputs/ + launch.sh
             ├── ui/<task_id>/
@@ -78,6 +79,7 @@ TASK_LAYER: dict[str, str] = {
     "3d_scene": "assets",
     "motion": "assets",
     "cg_video": "assets",
+    "audio": "assets",
     "retarget": "assets",
     # Layer B / C — code generation
     "mechanic": "mechanic",
@@ -93,6 +95,7 @@ TASK_INPUT_DIR: dict[str, str] = {
     "3d_scene": "3D_scene",
     "motion": "motion",
     "cg_video": "cg_video",
+    "audio": "audio",
     "retarget": "retarget",
     "mechanic": "mechanic",
     "ui": "ui",
@@ -106,6 +109,7 @@ TASK_JSONL: dict[str, str] = {
     "3d_scene": "scene_tasks.jsonl",
     "motion": "motion_tasks.jsonl",
     "cg_video": "cg_tasks.jsonl",
+    "audio": "audio_tasks.jsonl",
     "retarget": "retarget_tasks.jsonl",
     "mechanic": "mechanic_tasks.jsonl",
     "ui": "ui_tasks.jsonl",
@@ -119,6 +123,7 @@ TASK_COLLECT_JSONL: dict[str, str] = {
     "3d_scene": "3D_scene_gen_collect.jsonl",
     "motion": "motion_gen_collect.jsonl",
     "cg_video": "cg_video_collect.jsonl",
+    "audio": "audio_gen_collect.jsonl",
     "retarget": "retarget_collect.jsonl",
     "mechanic": "mechanic_collect.jsonl",
     "ui": "ui_collect.jsonl",

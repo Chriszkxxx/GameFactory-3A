@@ -33,6 +33,10 @@ test_samples/
 │   ├── cg_video/
 │   │   ├── requirement.txt
 │   │   └── cg_tasks.jsonl
+│   ├── audio/
+│   │   ├── requirement.txt
+│   │   ├── ref_audio/                ← optional voice / sound references
+│   │   └── audio_tasks.jsonl
 │   ├── mechanic/
 │   │   ├── requirement.txt
 │   │   ├── unity_template/           ← or ue5_template/
@@ -54,6 +58,7 @@ test_samples/
     ├── motion_gen_collect.jsonl
     ├── retarget_collect.jsonl
     ├── cg_video_collect.jsonl
+    ├── audio_gen_collect.jsonl
     ├── mechanic_collect.jsonl
     ├── ui_collect.jsonl
     └── pipeline_collect.jsonl
@@ -88,5 +93,6 @@ latter by `game_id`.
 ## Current status
 
 Only `gameA_cyberpunk_shooter/` is scaffolded. `3D_object/` and `tpose/` have real
-task lines (in the `*_collect.jsonl`); everything else is an empty placeholder.
-Populate `requirement.txt` and `*_tasks.jsonl`, then add gameB / gameC.
+task lines (in the `*_collect.jsonl`); `audio/` is a documented template for dialogue
+and sound-effect tasks; everything else is an empty placeholder. Populate
+`requirement.txt` and `*_tasks.jsonl`, then add gameB / gameC.
