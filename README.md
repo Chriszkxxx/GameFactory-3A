@@ -15,6 +15,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   ├── gen_3d_scene/         # Hunyuan-WorldPlay2, FlashWorld, FantasyWorld
 │   ├── gen_motion/           # MoMask, MDM, MLD, T2M-GPT, MotionGPT
 │   ├── gen_cg_video/         # LTX, HunyuanVideo, Wan, Mochi, CogVideoX, ...
+│   ├── gen_audio/            # Character voice, dialogue, game SFX, ambience
 │   ├── retarget/             # Keemap / IK-based retargeters
 │   ├── reasoning/            # LLMs / VLMs (Claude, GPT, Qwen-VL, ...)
 │   ├── tools/                # Depth, RMBG, segmentation, ...
@@ -26,6 +27,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   ├── gen_3d_scene/         # └── metrics/  ← per-task evaluation
 │   ├── gen_motion/
 │   ├── gen_cg_video/
+│   ├── gen_audio/
 │   ├── retarget/
 │   ├── gen_mechanic/         # code-gen agent system:
 │   │   ├── agent/            #   ├── agent/    ← wraps a code agent (Claude Code / Codex)
@@ -51,6 +53,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   │   ├── gen_3d_scene/     {run.py, eval.py}
 │   │   ├── gen_motion/       {run.py, eval.py}
 │   │   ├── gen_cg_video/     {run.py, eval.py}
+│   │   ├── gen_audio/        {run.py, eval.py}  ← voice / dialogue / game SFX
 │   │   └── retarget/         {run.py, eval.py}
 │   ├── mechanic/             {run.py, eval.py}  ← mechanic code generation
 │   ├── ui/                   {run.py, eval.py}  ← front-end / HUD generation
@@ -85,6 +88,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 | 3D scene          | `gen_3d_scene`        | `gen_3d_scene`    | `pipeline/assets_gen/gen_3d_scene`     |
 | Motion            | `gen_motion`          | `gen_motion`      | `pipeline/assets_gen/gen_motion`       |
 | CG video          | `gen_cg_video`        | `gen_cg_video`    | `pipeline/assets_gen/gen_cg_video`     |
+| Audio             | `gen_audio`           | `gen_audio`       | `pipeline/assets_gen/gen_audio`        |
 | Retarget          | `retarget`            | `retarget`        | `pipeline/assets_gen/retarget`         |
 | Mechanic          | `reasoning`           | `gen_mechanic`    | `pipeline/mechanic`                    |
 | UI                | `reasoning`           | `gen_ui`          | `pipeline/ui`                          |
@@ -123,7 +127,7 @@ test_data/outputs/
         ├── assets/
         │   ├── 3d_object/<task_id>/       # model.glb · meta.json
         │   ├── tpose/<task_id>/           # tpose_fg.png · tpose.png · meta.json
-        │   └── {3d_scene,motion,cg_video,retarget}/<task_id>/
+        │   └── {3d_scene,motion,cg_video,audio,retarget}/<task_id>/
         ├── mechanic/<task_id>/            # engine project · demo_outputs/*.json · launch.sh
         ├── ui/<task_id>/                  # UI code · screenshots/
         ├── pipeline/<task_id>/            # end-to-end vertical slice

@@ -1,0 +1,21 @@
+# Audio generation requirements
+
+Template only — implementation and benchmark tasks are pending.
+
+## Planned task categories
+
+1. **Character voice and dialogue**: generate spoken lines for game characters,
+   with optional speaker, emotion, language, delivery, and reference-audio
+   constraints.
+2. **Game sound effects**: generate diegetic and environmental sounds, including
+   gunfire, lightning, impacts, weather, ambience, and other natural sounds.
+
+## Future task fields
+
+Each entry in `audio_tasks.jsonl` should include `game_id`, `task_id`, `prompt`,
+and `audio_type` (`dialogue` or `sound_effect`). Optional fields may include
+`text`, `speaker_id`, `emotion`, `language`, `duration_sec`, `sample_rate`,
+and `reference_audio_path`.
+
+Reference clips, when available, belong in `ref_audio/`. All paths must be
+relative to the repository root.

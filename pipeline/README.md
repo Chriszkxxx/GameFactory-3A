@@ -22,6 +22,7 @@ pipeline/
 │   ├── gen_3d_scene/{run.py, eval.py}       #   text → 3D scene
 │   ├── gen_motion/{run.py, eval.py}         #   text + skeleton → animation
 │   ├── gen_cg_video/{run.py, eval.py}       #   text / frame → CG video
+│   ├── gen_audio/{run.py, eval.py}          #   text / reference → dialogue or game SFX
 │   └── retarget/{run.py, eval.py}           #   motion + skeleton → retargeted motion
 │
 ├── mechanic/{run.py, eval.py}               # spec + engine template → code + trace
