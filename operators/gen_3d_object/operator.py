@@ -24,7 +24,7 @@ Usage:
     from models.gen_3d_object.trellis_2_model import Trellis2Model
     from operators.gen_3d_object.operator import Gen3DObjectOperator
 
-    model = Trellis2Model(ckpt_path="...")
+    model = Trellis2Model(model_path="...")
 
     # per-game layout
     op = Gen3DObjectOperator(model=model, run_id="20260731_1032")

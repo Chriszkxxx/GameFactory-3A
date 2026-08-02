@@ -7,7 +7,7 @@ GLB export is also provided here for convenience.
 
 Usage:
     from models.gen_3d_object.trellis_2_model import Trellis2Model
-    model = Trellis2Model(ckpt_path="path/to/TRELLIS.2-4B")
+    model = Trellis2Model(model_path="path/to/TRELLIS.2-4B")
     glb = model.infer(image)        # PIL.Image → trimesh.Scene (GLB)
     glb.export("output.glb")
 """
@@ -40,7 +40,7 @@ class Trellis2Model:
     Wraps Trellis2ImageTo3DPipeline for easy load + infer.
 
     Args:
-        ckpt_path (str): Local path or HuggingFace repo id to TRELLIS.2 weights.
+        model_path (str): Local path or HuggingFace repo id to TRELLIS.2 weights.
         device (str): "cuda" or "cpu".
         pipeline_type (str): One of "512", "1024", "1024_cascade", "1536_cascade".
         low_vram (bool): Offload model components to CPU between sampling steps.
@@ -48,7 +48,7 @@ class Trellis2Model:
 
     def __init__(
         self,
-        ckpt_path: str,
+        model_path: str,
         device: str = "cuda",
         pipeline_type: str = "1024_cascade",
         low_vram: bool = True,
@@ -72,7 +72,8 @@ class Trellis2Model:
         self.device = device
         self.pipeline_type = pipeline_type
 
-        self._pipeline = Trellis2ImageTo3DPipeline.from_pretrained(ckpt_path)
+        self.model_path = model_path
+        self._pipeline = Trellis2ImageTo3DPipeline.from_pretrained(model_path)
         self._pipeline.cuda() if device == "cuda" else self._pipeline.to(device)
 
     # --------------------------------------------------------------------------

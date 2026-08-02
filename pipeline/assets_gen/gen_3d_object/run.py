@@ -61,7 +61,7 @@ DEFAULT_TASKS = paths.collect_jsonl(TASK_KIND)
 def load_model(ckpt: str, device: str = "cuda", pipeline_type: str = "1024_cascade"):
     from models.gen_3d_object.trellis_2_model import Trellis2Model
     print(f"[run] Loading Trellis2Model from: {ckpt}")
-    return Trellis2Model(ckpt_path=ckpt, device=device, pipeline_type=pipeline_type)
+    return Trellis2Model(model_path=ckpt, device=device, pipeline_type=pipeline_type)
 
 
 def make_operator(

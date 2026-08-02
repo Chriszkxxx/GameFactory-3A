@@ -4,10 +4,11 @@ A file under `models/` is a **thin wrapper around exactly one model**. It knows
 weights, dtype, device and that model's native API. It knows nothing about
 tasks, jsonl files, game projects or output directories.
 
+> Required interface: every model implements `__init__()` and `infer()`.
 > One file per model: `models/<family>/<model_name>.py`, class `<Name>Model`.
 > Model-specific helpers belong in `models/<family>/<model_name>_utils/`.
 
-Reference implementations:
+Examples:
 - generation: `models/gen_3d_object/trellis_2_model.py`, `models/gen_image/qwen_edit.py`
 - tool model: `models/tools/image_matting/rmbg.py` (inherits `BaseToolModel`)
 
@@ -22,7 +23,7 @@ Reference implementations:
 | R1.3 | **No `argparse`, no `if __name__ == "__main__"` business logic.** | CLI belongs to `run.py`. |
 | R1.4 | **No task semantics.** No `task_id`, no `game_id`, no prompt templates for a specific task. | Prompts belong to `operators/<task>/funcs/`. |
 | R1.5 | Heavy imports (`torch`, `diffusers`, vendored repos) go **inside** `__init__` / `_load()` when they are optional, so the module can be imported on a CPU box. | `test/harness/smoke.py` must import the chain without weights. |
-| R1.6 | Fail fast with an **actionable** message when an environment prerequisite is missing. | See the `o_voxel` check in `trellis_2_model.py`. |
+| R1.6 | Fail fast with an **actionable** message when an environment prerequisite is missing. | Refer to the `o_voxel` check in `trellis_2_model.py`. |
 
 ### R1.2 — the one exception
 
@@ -48,13 +49,13 @@ persistence, and approval.
 ## R2 — Constructor
 
 ```python
-def __init__(self, model_path: str, device: str = "cuda", **model_specific):
+def __init__(self, model_path: str | list[str], device: str = "cuda", **model_specific):
 ```
 
 | # | Rule |
 |---|------|
-| R2.1 | First positional arg is the weight location — a local path **or** a HuggingFace repo id. Both must work. |
-| R2.2 | Name it `model_path`. (`ckpt_path` is grandfathered in `Trellis2Model` only.) |
+| R2.1 | First positional arg is the weight location — a local path or HuggingFace repo id; use `list[str]` when one wrapper loads multiple models. |
+| R2.2 | Name it `model_path`. |
 | R2.3 | `device: str = "cuda"`, and `"cpu"` must be honoured. |
 | R2.4 | Store every constructor arg on `self` before loading, so `unload()`/`load()` can round-trip. |
 | R2.5 | Any extra arg has a working default. `Model(path)` alone must be valid. |
