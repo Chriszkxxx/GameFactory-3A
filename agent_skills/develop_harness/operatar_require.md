@@ -21,7 +21,7 @@ operators/<task>/
 ├── __init__.py
 ├── operator.py       # the class — Gen<Task>Operator
 ├── funcs/            # decoupled algorithm steps, one file per logical step
-└── metrics/          # task-specific evaluation, consumed by pipeline/*/eval.py
+└── metrics/          # task-specific evaluation, exposed by `operator.eval()`
 ```
 
 `metrics/` is co-located on purpose: scoring logic is tightly coupled to that
@@ -87,6 +87,7 @@ The single public entry point. Exactly one task in, one dict out.
 | R3.7 | Measure wall time around the model call only, not around I/O: `t0 = time.time()` … `elapsed = time.time() - t0`. |
 | R3.8 | Write `meta.json` via `paths.write_task_meta()` — per-game mode only. |
 | R3.9 | Also provide `run_batch(self, inputs: list[dict]) -> list[dict]`, which is just a list comprehension over `run`. |
+| R3.10 | Provide `eval(self, result: dict, task: dict) -> dict`; it delegates to `metrics.evaluate(result, task)`, reads existing artifacts only, and is never called by `run()`. |
 
 ### Return dict
 
@@ -172,7 +173,7 @@ Usage:
 - [ ] No existing return key removed or renamed
 - [ ] `meta.json` written in per-game mode
 - [ ] Algorithm steps in `funcs/`, prompts as constants there
-- [ ] `metrics/evaluate(result, task)` present (or an explicit TODO)
+- [ ] `metrics/evaluate(result, task)` and `operator.eval(result, task)` present (or an explicit TODO)
 - [ ] No `argparse`, no model loading, no literal output path
 - [ ] Module imports cleanly on CPU with no weights installed
 - [ ] Stub registered in `test/harness/stubs.py` (`STUB_OPERATOR_KWARGS` + `OPERATOR_LOCATION`)

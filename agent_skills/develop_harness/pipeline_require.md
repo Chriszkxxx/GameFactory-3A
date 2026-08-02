@@ -1,15 +1,20 @@
 # pipeline_require.md — contract for `pipeline/`
 
-A pipeline directory is the **only** place that knows about the command line,
-checkpoint resolution, task lists and result summaries. It wires a `models/`
-wrapper into an `operators/` operator and drives a batch.
+A pipeline directory provides the public generation entry point: `run.generate()` resolves
+checkpoints, loads/reuses models, builds an `operators/` operator, and generates
+assets. `run.py` batch-drives the same entry point for Benchmark; `eval.py` only
+scores existing artifacts.
+
+> Scope: this contract applies to `pipeline/assets_gen/` only. `run.generate()` is the game-generation/user-test entry point; `run.py` batch execution and `eval.py` form the asset-generation Benchmark chain.
+>
+> Use `operators/` for game generation and user testing. `pipeline/` is for batch benchmark evaluation.
 
 ```
 pipeline/
 ├── common/paths.py                  # single source of truth for all I/O paths
 └── assets_gen/<task>/
-    ├── run.py                       # generation only
-    └── eval.py                      # scoring only
+    ├── run.py                       # public `generate()` + Benchmark batch driver
+    └── eval.py                      # Benchmark scoring only
 ```
 
 Reference implementation: `pipeline/assets_gen/gen_3d_object/run.py`.
@@ -22,8 +27,8 @@ Reference implementation: `pipeline/assets_gen/gen_3d_object/run.py`.
 |---|------|-----|
 | R1.1 | Runs correctly **from any CWD** — prepend the repo root to `sys.path` before importing anything local. | Users invoke it as `python pipeline/.../run.py`. |
 | R1.2 | **Never build an output path.** Only `pipeline.common.paths`. | One source of truth. |
-| R1.3 | `run.py` **never** computes a metric; `eval.py` **never** re-implements generation. | Clean split; `eval.py` imports `run.generate`. |
-| R1.4 | Every module-level function below must exist with the exact name. `eval.py` and `test/` import them. | They are an API, not style. |
+| R1.3 | `run.py` generates artifacts only; `eval.py` reads artifacts from an existing `run_id` and computes metrics only. | Clean split; evaluation never imports or triggers generation. |
+| R1.4 | Every required module-level function must exist with the exact name. `test/` imports them. | They are an API, not style. |
 | R1.5 | Model imports go **inside** `load_*()`, operator imports **inside** `make_operator()`. | So `--help` works without CUDA, and the smoke test can import the module. |
 | R1.6 | Zero side effects at import time beyond `sys.path` and constants. | The module is imported by tests. |
 
@@ -38,7 +43,7 @@ def load_model(ckpt, device="cuda", **kw): ...        # one per model slot
 def make_operator(model, output_dir=None,
                   run_id=paths.DEFAULT_RUN_ID,
                   default_game_id=None): ...          # the only wiring point
-def generate(inp: dict, operator) -> dict: ...        # thin, reused by eval.py
+def generate(inp: dict, operator) -> dict: ...        # thin operator wrapper
 def run_from_jsonl(tasks_path, operator,
                    game_filter=None) -> list[dict]: ...
 def main(): ...
@@ -49,7 +54,7 @@ if __name__ == "__main__": main()
 |---|------|
 | R2.1 | One `load_<slot>_model()` per model the task needs (`load_gen_model`, `load_mask_model`, …). Each prints what it is loading. |
 | R2.2 | `make_operator()` mirrors the operator's constructor 1:1 and passes arguments through unchanged. Do not invent defaults here. |
-| R2.3 | `generate(inp, operator)` is a one-liner `return operator.run(inp)`. Its only job is to be a stable import target for `eval.py`. |
+| R2.3 | `generate(inp, operator)` is a one-liner `return operator.run(inp)`. |
 | R2.4 | `run_from_jsonl()` iterates via `paths.iter_tasks(tasks_path, game_filter=...)` — never open and `json.loads` the file by hand. |
 | R2.5 | Log one line per task before running and one after, including `game_id`, `task_id` and `elapsed_sec`. |
 | R2.6 | `main()` does argparse → load models → make operator → branch (single demo vs. batch) → write summaries. Nothing else. |
@@ -93,14 +98,14 @@ mixes games — it defeats the per-project layout.
 ## R5 — `eval.py`
 
 ```python
-from .run import generate, load_model, make_operator
-from operators.<task>.metrics import evaluate
+# Locate existing artifacts for (game_id, run_id, TASK_KIND, task_id).
+# Score them through operator.eval(result, task).
 ```
 
 | # | Rule |
 |---|------|
-| R5.1 | Reuse `run.py`'s generation path. Zero duplicated inference code. |
-| R5.2 | Support `--skip-generation` to score artifacts from an existing `run_id`. Benchmarks re-score far more often than they re-generate. |
+| R5.1 | Read existing artifacts for the requested `--game` / `--run-id`; never import `run.py`, load generation models, or trigger generation. |
+| R5.2 | Build the minimal result dict required by `operator.eval(result, task)` from the resolved artifact directory. |
 | R5.3 | Per-task scores → `paths.eval_output_dir(game, kind, task_id, run_id)/metrics.json`. |
 | R5.4 | Aggregate → `paths.eval_summary_path(game, run_id)`, including per-metric mean and the task count. |
 | R5.5 | One task failing must not abort the sweep: record the error in that task's `metrics.json` and continue. |
@@ -140,6 +145,6 @@ operator and the on-disk layout all agree.
 - [ ] `--game`, `--tasks`, `--run-id`, `--out-dir`, `--device` all accepted
 - [ ] Task iteration via `paths.iter_tasks`
 - [ ] Summaries via `paths.write_results_summary` (per-game mode)
-- [ ] `eval.py` imports `run.generate`, doesn't duplicate it
+- [ ] `eval.py` reads existing artifacts only; it does not import `run.py` or trigger generation
 - [ ] `python pipeline/assets_gen/<task>/run.py --help` works without CUDA
 - [ ] `python test/harness/smoke.py --kind <kind>` passes

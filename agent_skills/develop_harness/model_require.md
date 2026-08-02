@@ -4,9 +4,11 @@ A file under `models/` is a **thin wrapper around exactly one model**. It knows
 weights, dtype, device and that model's native API. It knows nothing about
 tasks, jsonl files, game projects or output directories.
 
-> One file per model. `models/<family>/<model_name>.py`, class `<Name>Model`.
+> Required interface: every model implements `__init__()` and `infer()`.
+> One file per model: `models/<family>/<model_name>.py`, class `<Name>Model`.
+> Model-specific helpers belong in `models/<family>/<model_name>_utils/`.
 
-Reference implementations:
+Examples:
 - generation: `models/gen_3d_object/trellis_2_model.py`, `models/gen_image/qwen_edit.py`
 - tool model: `models/tools/image_matting/rmbg.py` (inherits `BaseToolModel`)
 
@@ -21,7 +23,7 @@ Reference implementations:
 | R1.3 | **No `argparse`, no `if __name__ == "__main__"` business logic.** | CLI belongs to `run.py`. |
 | R1.4 | **No task semantics.** No `task_id`, no `game_id`, no prompt templates for a specific task. | Prompts belong to `operators/<task>/funcs/`. |
 | R1.5 | Heavy imports (`torch`, `diffusers`, vendored repos) go **inside** `__init__` / `_load()` when they are optional, so the module can be imported on a CPU box. | `test/harness/smoke.py` must import the chain without weights. |
-| R1.6 | Fail fast with an **actionable** message when an environment prerequisite is missing. | See the `o_voxel` check in `trellis_2_model.py`. |
+| R1.6 | Fail fast with an **actionable** message when an environment prerequisite is missing. | Refer to the `o_voxel` check in `trellis_2_model.py`. |
 
 ### R1.2 — the one exception
 
@@ -34,18 +36,26 @@ memory (e.g. TRELLIS.2 → GLB with a texture atlas). Requirements:
 - returns the path as `str`;
 - a memory-returning `infer()` exists alongside it.
 
+### R1.2.1 — optional intermediate observation
+
+Optional only; disabled by default. A model may expose
+`observe_intermediates=False` and/or `on_intermediate=None` to return in-memory
+stage metadata or previews for debugging/supervision. It must not compute, print,
+or save intermediates unless explicitly enabled; Operators/Pipelines own display,
+persistence, and approval.
+
 ---
 
 ## R2 — Constructor
 
 ```python
-def __init__(self, model_path: str, device: str = "cuda", **model_specific):
+def __init__(self, model_path: str | list[str], device: str = "cuda", **model_specific):
 ```
 
 | # | Rule |
 |---|------|
-| R2.1 | First positional arg is the weight location — a local path **or** a HuggingFace repo id. Both must work. |
-| R2.2 | Name it `model_path`. (`ckpt_path` is grandfathered in `Trellis2Model` only.) |
+| R2.1 | First positional arg is the weight location — a local path or HuggingFace repo id; use `list[str]` when one wrapper loads multiple models. |
+| R2.2 | Name it `model_path`. |
 | R2.3 | `device: str = "cuda"`, and `"cpu"` must be honoured. |
 | R2.4 | Store every constructor arg on `self` before loading, so `unload()`/`load()` can round-trip. |
 | R2.5 | Any extra arg has a working default. `Model(path)` alone must be valid. |
@@ -54,7 +64,7 @@ def __init__(self, model_path: str, device: str = "cuda", **model_specific):
 
 | # | Rule |
 |---|------|
-| R3.1 | One clearly-named public entry point: `infer()` for generators, `predict()` for tool models, or a domain verb (`edit()`, `retarget()`). |
+| R3.1 | One public inference entry point: **`infer()`**. |
 | R3.2 | Takes the input **object**, not a path. `Image.Image`, `np.ndarray`, `str` prompt — never `"path/to/x.png"`. |
 | R3.3 | Accept `seed: int = 42` whenever the model is stochastic, and actually seed the generator. |
 | R3.4 | Deterministic for a fixed `(input, seed)` on a fixed device. |
@@ -68,7 +78,7 @@ def __init__(self, model_path: str, device: str = "cuda", **model_specific):
 |---|------|
 | R4.1 | Provide `unload()` when the model holds >1 GB of VRAM: move to CPU, `del`, `gc.collect()`, `torch.cuda.empty_cache()`. |
 | R4.2 | `unload()` is idempotent — safe to call twice, and after a failed load. |
-| R4.3 | If `unload()` exists, calling the inference method afterwards must transparently reload (see `QwenEditModel.edit`). |
+| R4.3 | If `unload()` exists, calling `infer()` afterwards must transparently reload. |
 | R4.4 | Support `lazy=True` (defer weight loading) for tool models — `BaseToolModel` already does this. |
 
 ## R5 — Tool models specifically
@@ -79,7 +89,7 @@ Anything auxiliary (depth, segmentation, matting, pose, keypoints) goes in
 
 ```python
 def _load(self) -> None:        # weights + processors onto self.device
-def predict(self, image: Image.Image, **kwargs) -> Any:
+def infer(self, image: Image.Image, **kwargs) -> Any:
 ```
 
 You get `__init__(model_path, device, lazy)`, `_ensure_loaded()`, `__call__`
@@ -87,19 +97,19 @@ and `unload()` for free.
 
 | # | Rule |
 |---|------|
-| R5.1 | `predict()` starts with `self._ensure_loaded()`. |
-| R5.2 | `predict()` accepts an RGB `PIL.Image` and normalizes internally (`image.convert("RGB")`). |
+| R5.1 | `infer()` starts with `self._ensure_loaded()`. |
+| R5.2 | `infer()` accepts an RGB `PIL.Image` and normalizes internally (`image.convert("RGB")`). |
 | R5.3 | Return a plain `np.ndarray` (`float32`), **at the original image resolution** — resize back after inference. |
 | R5.4 | Document the value range in the docstring. Masks → `[0, 1]`. Depth → state whether normalized. |
 | R5.5 | Decorate with `@torch.no_grad()`. |
 | R5.6 | Export the class from the group's `__init__.py` **and** `models/tools/__init__.py`. |
-| R5.7 | Convenience helpers that return a PIL image (e.g. `remove_background()`) are welcome, but `predict()` stays the raw-array contract. |
+| R5.7 | Convenience helpers that return a PIL image (e.g. `remove_background()`) are welcome, but `infer()` stays the raw-array contract. |
 
 ## R6 — Swappability
 
 Two wrappers used for the same operator slot must be interchangeable without the
 operator changing. Concretely, `RMBGModel` and `DepthAnythingModel` both satisfy
-`predict(PIL.Image) -> np.ndarray[H, W] float32`, which is why
+`infer(PIL.Image) -> np.ndarray[H, W] float32`, which is why
 `operators/gen_tpose_image/funcs/gen_tpose_image.py` can dispatch on class name
 alone.
 

@@ -1,0 +1,1 @@
+Use `pipeline.assets_gen.<task>.run.generate()` for game generation and user testing: it loads/reuses models, builds the Operator, and generates assets. `operator.run()` is the lower-level injected-model API. `run.py` batch-drives generation for Benchmark; `eval.py` evaluates existing artifacts.
