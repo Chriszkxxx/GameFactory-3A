@@ -1,2 +1,13 @@
 # requirements.txt
 # To be filled in per module. Placeholder only.
+
+# --- CPU-only development harness (test/harness/smoke.py) --------------------
+pillow
+numpy
+scipy
+
+# --- closed-source API model wrappers ----------------------------------------
+# models/gen_3d_object/{tripo,meshy}_model.py via models/common/cloud_api.py.
+# Imported lazily, so the local-weight models and the smoke harness still run
+# without it.
+requests

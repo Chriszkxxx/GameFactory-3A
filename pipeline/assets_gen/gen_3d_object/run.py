@@ -9,9 +9,21 @@ object_tasks.jsonl), and writes GLB outputs grouped per game project:
 
     test_data/outputs/<game_id>/<run_id>/assets/3d_object/<task_id>/model.glb
 
+Three interchangeable backends fill the model slot (model_require.md R6):
+
+    --backend trellis2   local TRELLIS.2 weights, needs a GPU        (default)
+    --backend tripo      Tripo3D cloud API,  needs $TRIPO_API_KEY
+    --backend meshy      Meshy cloud API,    needs $MESHY_API_KEY
+
 Usage:
     # Run all tasks in the default jsonl
     python pipeline/assets_gen/gen_3d_object/run.py
+
+    # Cloud API instead of local weights (no GPU required)
+    export TRIPO_API_KEY=...
+    python pipeline/assets_gen/gen_3d_object/run.py --backend tripo \
+        --game gameA_cyberpunk_shooter --run-id auto \
+        --cache-dir test_data/outputs/_api_cache
 
     # Only one game project (prefers that game's own object_tasks.jsonl)
     python pipeline/assets_gen/gen_3d_object/run.py --game gameA_cyberpunk_shooter
@@ -57,11 +69,66 @@ TASK_KIND = "3d_object"
 DEFAULT_CKPT = "microsoft/TRELLIS-image-large"   # HF repo id — downloads weights on first run
 DEFAULT_TASKS = paths.collect_jsonl(TASK_KIND)
 
+#: backend -> (default "ckpt", env var holding an override).
+#: For the cloud backends the "ckpt" is a model **version id**, not a weight
+#: location (api_model_require.md R9.1) — the flag stays `--ckpt` so the operator
+#: and every caller keep one vocabulary.
+BACKENDS: dict[str, tuple[str, str]] = {
+    "trellis2": (DEFAULT_CKPT, "TRELLIS2_CKPT"),
+    "tripo": ("v3.1-20260211", "TRIPO_MODEL"),
+    "meshy": ("meshy-6", "MESHY_MODEL"),
+}
 
-def load_model(ckpt: str, device: str = "cuda", pipeline_type: str = "1024_cascade"):
-    from models.gen_3d_object.trellis_2_model import Trellis2Model
-    print(f"[run] Loading Trellis2Model from: {ckpt}")
-    return Trellis2Model(model_path=ckpt, device=device, pipeline_type=pipeline_type)
+
+def resolve_ckpt(backend: str, cli_value: str | None) -> str:
+    """Checkpoint / model-version precedence: CLI flag > env var > default (R3.1)."""
+    import os
+
+    default, env_var = BACKENDS[backend]
+    return cli_value or os.environ.get(env_var) or default
+
+
+def load_model(
+    ckpt: str,
+    device: str = "cuda",
+    pipeline_type: str = "1024_cascade",
+    backend: str = "trellis2",
+    **backend_kwargs,
+):
+    """
+    Load the 3D-object backend named by `backend` (R2.1).
+
+    Args:
+        ckpt: Weight path / HF repo id for `trellis2`; model version id for the
+              cloud backends.
+        device: Honoured by `trellis2`; accepted and ignored by the cloud
+              backends (api_model_require.md R9.2).
+        pipeline_type: `trellis2` only.
+        backend: One of `BACKENDS`.
+        **backend_kwargs: Passed to the wrapper — `cache_dir`, `low_poly`,
+              `output_format`, `timeout`, … for the cloud backends.
+
+    Returns:
+        A model exposing `infer_and_save(image, output_path, seed,
+        decimation_target, texture_size)`.
+    """
+    if backend == "trellis2":
+        from models.gen_3d_object.trellis_2_model import Trellis2Model
+        print(f"[run] Loading Trellis2Model from: {ckpt}")
+        return Trellis2Model(model_path=ckpt, device=device,
+                             pipeline_type=pipeline_type)
+
+    if backend == "tripo":
+        from models.gen_3d_object.tripo_model import TripoModel
+        print(f"[run] Using TripoModel (cloud API), model={ckpt}")
+        return TripoModel(model_path=ckpt, device=device, **backend_kwargs)
+
+    if backend == "meshy":
+        from models.gen_3d_object.meshy_model import MeshyModel
+        print(f"[run] Using MeshyModel (cloud API), model={ckpt}")
+        return MeshyModel(model_path=ckpt, device=device, **backend_kwargs)
+
+    raise ValueError(f"Unknown backend {backend!r}. Known: {sorted(BACKENDS)}")
 
 
 def make_operator(
@@ -98,6 +165,12 @@ def run_from_jsonl(tasks_path: str, operator, game_filter: str | None = None) ->
               f"image={task.get('image_path', '?')}")
         result = generate(task, operator)
         print(f"       → glb={result['glb_path']}  ({result['elapsed_sec']}s)")
+        # Cloud backends record what the call cost and produced (R9.8).
+        call = getattr(getattr(operator, "model", None), "last_call_info", None)
+        if call:
+            print(f"       → task_id={call.get('task_id')}  "
+                  f"credits={call.get('credits')}  tris={call.get('triangles')}  "
+                  f"cached={call.get('cached')}")
         results.append(result)
     return results
 
@@ -106,7 +179,22 @@ def main():
     import os
 
     parser = argparse.ArgumentParser(description="Run 3D object generation.")
-    parser.add_argument("--ckpt",      default=os.environ.get("TRELLIS2_CKPT", DEFAULT_CKPT))
+    parser.add_argument("--backend",   default=os.environ.get("AAAGF_3D_BACKEND", "trellis2"),
+                        choices=sorted(BACKENDS),
+                        help="Model slot backend: local weights or a cloud API")
+    parser.add_argument("--ckpt",      default=None,
+                        help="Weights (trellis2) or model version id (cloud). "
+                             "Precedence: this flag > env var > backend default")
+    parser.add_argument("--cache-dir", default=os.environ.get("AAAGF_API_CACHE"),
+                        help="Cloud backends: reuse identical requests instead of "
+                             "paying for them twice")
+    parser.add_argument("--low-poly",  action="store_true",
+                        help="Cloud backends: ask the service for low-poly "
+                             "topology (mesh-particle VFX); better than local decimation")
+    parser.add_argument("--format",    default="glb", dest="output_format",
+                        help="Cloud backends: output format (meshy also does fbx/obj/usdz)")
+    parser.add_argument("--timeout",   type=int, default=1800,
+                        help="Cloud backends: seconds to wait for one task")
     parser.add_argument("--game",      default=None,
                         help=f"Game project id. Known: {paths.list_games() or '<none>'}")
     parser.add_argument("--tasks",     default=None,
@@ -122,18 +210,37 @@ def main():
     parser.add_argument("--image",     default=None, help="Path to a single image (demo mode)")
     parser.add_argument("--task-id",   default="demo")
     parser.add_argument("--seed",      type=int, default=42)
+    parser.add_argument("--decimation-target", type=int, default=None,
+                        help="Target face count for the single-demo run. Maps to "
+                             "face_limit (Tripo) / target_polycount (Meshy); the "
+                             "operator's default of 1e6 is too large for both")
     args = parser.parse_args()
 
     run_id = paths.new_run_id() if args.run_id == "auto" else args.run_id
+    ckpt = resolve_ckpt(args.backend, args.ckpt)
 
-    model = load_model(args.ckpt, device=args.device, pipeline_type=args.pipeline_type)
+    backend_kwargs = {}
+    if args.backend != "trellis2":
+        backend_kwargs = {
+            "cache_dir": args.cache_dir,
+            "low_poly": args.low_poly,
+            "output_format": args.output_format,
+            "timeout": args.timeout,
+            "verbose": True,
+        }
+
+    model = load_model(ckpt, device=args.device, pipeline_type=args.pipeline_type,
+                       backend=args.backend, **backend_kwargs)
     operator = make_operator(model, output_dir=args.out_dir,
                              run_id=run_id, default_game_id=args.game)
 
     if args.image:
         # Single demo
-        result = generate({"image_path": args.image, "task_id": args.task_id,
-                           "seed": args.seed, "game_id": args.game}, operator)
+        task = {"image_path": args.image, "task_id": args.task_id,
+                "seed": args.seed, "game_id": args.game}
+        if args.decimation_target:
+            task["decimation_target"] = args.decimation_target
+        result = generate(task, operator)
         print(f"[run] Done: {result}")
         return
 

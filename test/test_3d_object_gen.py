@@ -37,7 +37,7 @@ class TestGen3DObjectPipeline(unittest.TestCase):
 
     def test_tasks_jsonl_has_two_entries(self):
         import json
-        tasks = [json.loads(l) for l in TASKS.read_text().splitlines() if l.strip()]
+        tasks = [json.loads(l) for l in TASKS.read_text(encoding="utf-8").splitlines() if l.strip()]
         self.assertEqual(len(tasks), 2, "Expected exactly 2 test tasks in jsonl.")
 
     def test_run_all_tasks(self):

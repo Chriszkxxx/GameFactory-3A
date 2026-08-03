@@ -49,7 +49,7 @@ class TestGenTPoseImagePipeline(unittest.TestCase):
 
     def test_tasks_jsonl_has_entries(self):
         import json
-        tasks = [json.loads(l) for l in TASKS.read_text().splitlines() if l.strip()]
+        tasks = [json.loads(l) for l in TASKS.read_text(encoding="utf-8").splitlines() if l.strip()]
         self.assertGreaterEqual(len(tasks), 1, "Expected at least 1 test task in jsonl.")
 
     def test_run_all_tasks(self):

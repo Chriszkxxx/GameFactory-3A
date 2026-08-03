@@ -5,6 +5,35 @@ Thin wrappers around individual generation models. **One file per model.**
 Each wrapper should expose a uniform interface (e.g., `load()`, `infer()`,
 `unload()`) so operators can swap backends without knowing implementation details.
 
+Two contracts apply, both in `agent_skills/develop_harness/`:
+`model_require.md` for local-weight models, plus `api_model_require.md` (R9) when
+the model is a closed-source cloud API. Shared cloud plumbing (HTTP retry, error
+classification, response cache, submit → poll → download) lives in
+`models/common/cloud_api.py` — do not re-implement it per provider.
+
+## Implemented wrappers
+
+| Slot | Class | File | Kind | Needs |
+|------|-------|------|------|-------|
+| `gen_3d_object` | `Trellis2Model` | `gen_3d_object/trellis_2_model.py` | local weights | GPU + the o-voxel extension |
+| `gen_3d_object` | `TripoModel` | `gen_3d_object/tripo_model.py` | cloud API | `$TRIPO_API_KEY`, `requests` |
+| `gen_3d_object` | `MeshyModel` | `gen_3d_object/meshy_model.py` | cloud API | `$MESHY_API_KEY`, `requests` |
+| `gen_image` | `QwenEditModel` | `gen_image/qwen_edit.py` | local weights | GPU |
+| `tools/image_matting` | `RMBGModel`, `DepthAnythingModel` | `tools/image_matting/` | local weights | — |
+
+All three `gen_3d_object` backends expose the same
+`infer_and_save(image, output_path, seed, decimation_target, texture_size)`, so
+`Gen3DObjectOperator` swaps between them without changing (R6). Pick one with
+`python pipeline/assets_gen/gen_3d_object/run.py --backend {trellis2,tripo,meshy}`.
+
+| | Tripo | Meshy |
+|---|---|---|
+| free tier | 2000 credits on sign-up | 100 credits / month |
+| formats | GLB (conversion endpoint not wired) | GLB, FBX, OBJ, USDZ, STL |
+| text-to-3D | one task | preview + refine (two billed tasks) |
+| low poly | `smart_low_poly`, P-series models | `model_type="lowpoly"` |
+| face budget | `face_limit` | `target_polycount`, 100-300 000 |
+
 ## Sub-modules
 
 | Directory        | Purpose                              | Candidate models |
