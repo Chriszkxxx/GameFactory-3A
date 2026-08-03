@@ -41,7 +41,7 @@ pipeline/
 ### `eval.py`
 1. Iterate the test set from `test_data/test_samples/<game>/<task>/*_tasks.jsonl`
    (or the cross-game `*_collect.jsonl`)
-2. Reuse `run.py`'s generation function (`from .run import generate`)
+2. Locate existing artifacts for the selected `run_id` without regenerating them
 3. Invoke `operators/<task>/metrics/` on each output
 4. Write per-task scores to `paths.eval_output_dir(...)` and the aggregate to
    `paths.eval_summary_path(...)`
@@ -89,8 +89,7 @@ def generate(inp: dict, operator) -> dict: ...
 def run_from_jsonl(tasks_path, operator, game_filter=None) -> list[dict]: ...
 
 # pipeline/assets_gen/gen_3d_object/eval.py
-from .run import generate
-from operators.gen_3d_object.metrics import evaluate
+# Resolve existing artifacts through pipeline.common.paths, then evaluate them.
 ```
 
 These five names are an API — `eval.py` and `test/` import them.

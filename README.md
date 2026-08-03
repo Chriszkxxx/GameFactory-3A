@@ -72,7 +72,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   │   └── pipeline_collect.jsonl
 │   └── outputs/              # Single fixed output root — mirrors test_samples/
 │       └── <game_id>/<run_id>/
-│           ├── assets/{3d_object,tpose,3d_scene,motion,cg_video,retarget}/<task_id>/
+│           ├── assets/{3d_object,tpose,3d_scene,motion,cg_video,audio,retarget}/<task_id>/
 │           ├── mechanic/<task_id>/ · ui/<task_id>/ · pipeline/<task_id>/
 │           └── eval/<task_kind>/<task_id>/
 │
@@ -181,6 +181,5 @@ python test/harness/smoke.py --kind tpose --keep
 
 ## Status
 
-Skeleton — `gen_3d_object` and `gen_tpose_image` are implemented end to end;
-the remaining tasks are directories and empty placeholder files.
-
+Skeleton — `gen_3d_object`, `gen_tpose_image`, and `gen_audio` are implemented
+end to end; the remaining tasks are directories and empty placeholder files.

@@ -13,7 +13,7 @@ Each wrapper should expose a uniform interface (e.g., `load()`, `infer()`,
 | `gen_3d_scene/`  | Whole-scene / world generation       | Hunyuan-WorldPlay2, FlashWorld, FantasyWorld |
 | `gen_motion/`    | Text-to-motion                       | MoMask, MDM, MLD, T2M-GPT, MotionGPT |
 | `gen_cg_video/`  | Cinematic / CG video generation      | LTX-2.3, HunyuanVideo, Wan, Mochi, CogVideoX, Open-Sora, Seedance 2, Kling 3, Veo 3, Sora 2, Runway Gen-4, Hailuo, Vidu |
-| `gen_audio/`     | Character voice, dialogue, and game sound generation | Future speech, voice, and sound-effect backends |
+| `gen_audio/`     | Character voice, dialogue, and game sound generation | Qwen3-TTS, Sony Woosh-DFlow |
 | `retarget/`      | Skeleton motion retargeter           | Keemap-based, IK-based, learning-based |
 | `reasoning/`     | LLMs / VLMs used by the pipeline     | Claude, GPT-5.5, GLM, Kimi, DeepSeek, Gemini, Qwen, Grok, Llama, Mistral |
 | `tools/`         | Utility models (depth, RMBG, seg.)   | Depth-Anything, RMBG, SAM, etc.       |

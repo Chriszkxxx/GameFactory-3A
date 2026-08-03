@@ -1,9 +1,6 @@
-"""Audio generation model wrappers.
+"""Audio generation backends for dialogue and game sound effects."""
 
-Planned scope (template only; implementation pending):
-- Character voice and dialogue audio.
-- Game sound effects, including gunfire, lightning, and natural/environmental sounds.
+from .qwen3_tts import Qwen3TTSModel
+from .woosh_dflow import WooshDFlowModel
 
-Future model wrappers should expose the common ``load()``, ``infer()``, and
-``unload()`` interface used by audio operators.
-"""
+__all__ = ["Qwen3TTSModel", "WooshDFlowModel"]
