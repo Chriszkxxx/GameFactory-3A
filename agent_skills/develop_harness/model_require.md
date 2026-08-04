@@ -8,6 +8,11 @@ tasks, jsonl files, game projects or output directories.
 > One file per model: `models/<family>/<model_name>.py`, class `<Name>Model`.
 > Model-specific helpers belong in `models/<family>/<model_name>_utils/`.
 
+> **Wrapping a closed-source cloud API** (Tripo, Meshy, Rodin, Kling, …)? This
+> contract assumes local weights. Read `api_model_require.md` — it adds **R9**,
+> which overrides R2.1–R2.3, R3.3/R3.4, R3.6 and R4 for remote models, and
+> pins down how a deviation must be marked.
+
 Examples:
 - generation: `models/gen_3d_object/trellis_2_model.py`, `models/gen_image/qwen_edit.py`
 - tool model: `models/tools/image_matting/rmbg.py` (inherits `BaseToolModel`)

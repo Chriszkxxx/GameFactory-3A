@@ -365,14 +365,14 @@ def write_run_meta(
 
     if path.exists():  # merge with an earlier task_kind in the same run
         try:
-            prev = json.loads(path.read_text())
+            prev = json.loads(path.read_text(encoding="utf-8"))
             history = prev.pop("history", [])
             history.append(prev)
             meta["history"] = history
         except (json.JSONDecodeError, OSError):
             pass
 
-    path.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+    path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
 
 
@@ -381,7 +381,8 @@ def write_task_meta(task_dir: str | Path, meta: dict[str, Any]) -> Path:
     d = Path(task_dir)
     d.mkdir(parents=True, exist_ok=True)
     path = d / "meta.json"
-    path.write_text(json.dumps(meta, indent=2, ensure_ascii=False, default=str))
+    path.write_text(json.dumps(meta, indent=2, ensure_ascii=False, default=str),
+                    encoding="utf-8")
     return path
 
 
@@ -402,7 +403,8 @@ def write_results_summary(results: list[dict], task_kind: str,
     for game_id, items in grouped.items():
         path = results_summary_path(game_id, task_kind, run_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(items, indent=2, ensure_ascii=False, default=str))
+        path.write_text(json.dumps(items, indent=2, ensure_ascii=False, default=str),
+                        encoding="utf-8")
         write_run_meta(game_id, run_id, task_kind=task_kind,
                        extra={"num_tasks": len(items)})
         update_latest_link(game_id, run_id)
