@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -25,10 +26,17 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from pipeline.common import paths  # noqa: E402
+from models.gen_audio.woosh_checkpoints import (  # noqa: E402
+    DEFAULT_WOOSH_RELEASE_BASE_URL,
+)
 
 TASK_KIND = "audio"
 DEFAULT_DIALOGUE_CKPT = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
-DEFAULT_SOUND_EFFECT_CKPT = "checkpoints/Woosh-DFlow"
+DEFAULT_SOUND_EFFECT_CKPT = str(_REPO_ROOT / "checkpoints" / "Woosh-DFlow")
+DEFAULT_WOOSH_AE_CKPT = str(_REPO_ROOT / "checkpoints" / "Woosh-AE")
+DEFAULT_WOOSH_TEXT_CONDITIONER_CKPT = str(
+    _REPO_ROOT / "checkpoints" / "TextConditionerA"
+)
 DEFAULT_TASKS = paths.collect_jsonl(TASK_KIND)
 
 
@@ -44,13 +52,27 @@ def load_sound_effect_model(
     device: str = "cuda",
     num_steps: int = 4,
     cfg: float = 4.5,
+    autoencoder_ckpt: str | None = None,
+    text_conditioner_ckpt: str | None = None,
+    auto_download: bool = True,
+    release_base_url: str | None = None,
 ):
     from models.gen_audio.woosh_dflow import WooshDFlowModel
 
+    release_base_url = release_base_url or os.environ.get(
+        "WOOSH_RELEASE_BASE_URL",
+        DEFAULT_WOOSH_RELEASE_BASE_URL,
+    )
     print(f"[run] Loading WooshDFlowModel from: {ckpt}")
+    print(f"[run]   Woosh-AE from: {autoencoder_ckpt}")
+    print(f"[run]   TextConditionerA from: {text_conditioner_ckpt}")
     return WooshDFlowModel(
         model_path=ckpt,
         device=device,
+        autoencoder_path=autoencoder_ckpt,
+        text_conditioner_path=text_conditioner_ckpt,
+        auto_download=auto_download,
+        release_base_url=release_base_url,
         num_steps=num_steps,
         cfg=cfg,
     )
@@ -103,8 +125,6 @@ def run_from_jsonl(
 
 
 def main() -> None:
-    import os
-
     parser = argparse.ArgumentParser(description="Generate offline dialogue and game SFX assets.")
     parser.add_argument(
         "--dialogue-ckpt",
@@ -113,6 +133,31 @@ def main() -> None:
     parser.add_argument(
         "--sound-effect-ckpt",
         default=os.environ.get("WOOSH_DFLOW_CKPT", DEFAULT_SOUND_EFFECT_CKPT),
+    )
+    parser.add_argument(
+        "--woosh-ae-ckpt",
+        default=os.environ.get("WOOSH_AE_CKPT", DEFAULT_WOOSH_AE_CKPT),
+    )
+    parser.add_argument(
+        "--woosh-text-conditioner-ckpt",
+        default=os.environ.get(
+            "WOOSH_TEXT_CONDITIONER_CKPT",
+            DEFAULT_WOOSH_TEXT_CONDITIONER_CKPT,
+        ),
+    )
+    parser.add_argument(
+        "--woosh-release-base-url",
+        default=os.environ.get(
+            "WOOSH_RELEASE_BASE_URL",
+            DEFAULT_WOOSH_RELEASE_BASE_URL,
+        ),
+        help="Official release base URL, or a mirror with the same zip filenames.",
+    )
+    parser.add_argument(
+        "--no-auto-download",
+        action="store_false",
+        dest="auto_download",
+        help="Fail instead of downloading missing Woosh checkpoints.",
     )
     parser.add_argument("--game", default=None,
                         help=f"Game project id. Known: {paths.list_games() or '<none>'}")
@@ -169,6 +214,10 @@ def main() -> None:
             device=args.device,
             num_steps=args.woosh_steps,
             cfg=args.woosh_cfg,
+            autoencoder_ckpt=args.woosh_ae_ckpt,
+            text_conditioner_ckpt=args.woosh_text_conditioner_ckpt,
+            auto_download=args.auto_download,
+            release_base_url=args.woosh_release_base_url,
         )
     operator = make_operator(
         dialogue_model,

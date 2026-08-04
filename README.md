@@ -160,6 +160,13 @@ python pipeline/assets_gen/gen_3d_object/run.py
 python pipeline/assets_gen/gen_3d_object/run.py --game gameA_cyberpunk_shooter --run-id auto
 ```
 
+For sound-effect generation, the first run automatically downloads and extracts
+`Woosh-DFlow`, `Woosh-AE`, and `TextConditionerA` into `checkpoints/`. Override
+the three destinations with `WOOSH_DFLOW_CKPT`, `WOOSH_AE_CKPT`, and
+`WOOSH_TEXT_CONDITIONER_CKPT`. For servers that use a GitHub mirror, set
+`WOOSH_RELEASE_BASE_URL` to the mirrored v1.0.0 release directory. Pass
+`--no-auto-download` to require preinstalled checkpoints instead.
+
 ## Developing a new asset-generation link
 
 `agent_skills/develop_harness/` holds the contracts for the three layers; the

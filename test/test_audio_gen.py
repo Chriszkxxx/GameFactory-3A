@@ -7,6 +7,8 @@ on the tasks in audio_gen_collect.jsonl, and asserts WAV files are created.
 Run from repo root:
     QWEN3_TTS_CKPT=/path/to/Qwen3-TTS-12Hz-0.6B-CustomVoice \
     WOOSH_DFLOW_CKPT=/path/to/Woosh-DFlow \
+    WOOSH_AE_CKPT=/path/to/Woosh-AE \
+    WOOSH_TEXT_CONDITIONER_CKPT=/path/to/TextConditionerA \
     python test/test_audio_gen.py
 """
 from __future__ import annotations
@@ -23,14 +25,22 @@ sys.path.insert(0, str(_REPO_ROOT))
 # -----------------------------------------------------------------------------
 
 # Local paths take priority. Qwen3-TTS can fall back to its Hugging Face repo;
-# Woosh-DFlow is expected to be downloaded to the local checkpoints directory.
+# Missing Woosh checkpoints are downloaded from the official release on first use.
 DIALOGUE_CKPT = os.environ.get(
     "QWEN3_TTS_CKPT",
     "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
 )
 SOUND_EFFECT_CKPT = os.environ.get(
     "WOOSH_DFLOW_CKPT",
-    "checkpoints/Woosh-DFlow",
+    str(_REPO_ROOT / "checkpoints" / "Woosh-DFlow"),
+)
+WOOSH_AE_CKPT = os.environ.get(
+    "WOOSH_AE_CKPT",
+    str(_REPO_ROOT / "checkpoints" / "Woosh-AE"),
+)
+WOOSH_TEXT_CONDITIONER_CKPT = os.environ.get(
+    "WOOSH_TEXT_CONDITIONER_CKPT",
+    str(_REPO_ROOT / "checkpoints" / "TextConditionerA"),
 )
 TASKS = _REPO_ROOT / "test_data" / "test_samples" / "audio_gen_collect.jsonl"
 OUT_DIR = _REPO_ROOT / "outputs" / "test_audio"
@@ -47,7 +57,11 @@ class TestGenAudioPipeline(unittest.TestCase):
         )
 
         cls.dialogue_model = load_dialogue_model(DIALOGUE_CKPT)
-        cls.sound_effect_model = load_sound_effect_model(SOUND_EFFECT_CKPT)
+        cls.sound_effect_model = load_sound_effect_model(
+            SOUND_EFFECT_CKPT,
+            autoencoder_ckpt=WOOSH_AE_CKPT,
+            text_conditioner_ckpt=WOOSH_TEXT_CONDITIONER_CKPT,
+        )
         cls.operator = make_operator(
             cls.dialogue_model,
             cls.sound_effect_model,

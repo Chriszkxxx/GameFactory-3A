@@ -3,14 +3,21 @@ WooshDFlowModel — thin wrapper for Sony AI's distilled text-to-SFX model.
 
 Reference: https://github.com/SonyResearch/Woosh
 
-Woosh currently distributes weights as release archives. Install the upstream
-repository and pass the local ``checkpoints/Woosh-DFlow`` directory as
-``model_path``. The public weights are licensed CC-BY-NC.
+Woosh currently distributes weights as release archives. DFlow inference needs
+three local checkpoint directories: Woosh-DFlow, Woosh-AE, and
+TextConditionerA. Their paths are passed independently so loading never depends
+on the process working directory. The public weights are licensed CC-BY-NC.
 """
 from __future__ import annotations
 
 import gc
+from pathlib import Path
 from typing import Any, Optional
+
+from models.gen_audio.woosh_checkpoints import (
+    DEFAULT_WOOSH_RELEASE_BASE_URL,
+    ensure_woosh_dflow_checkpoints,
+)
 
 
 class WooshDFlowModel:
@@ -22,19 +29,36 @@ class WooshDFlowModel:
         device: str = "cuda",
         num_steps: int = 4,
         cfg: float = 4.5,
+        autoencoder_path: Optional[str] = None,
+        text_conditioner_path: Optional[str] = None,
         renoise: Optional[list[float]] = None,
         latent_channels: int = 128,
         latent_frames: int = 501,
         lazy: bool = False,
+        auto_download: bool = True,
+        release_base_url: str = DEFAULT_WOOSH_RELEASE_BASE_URL,
     ):
-        self.model_path = model_path
+        self.model_path = str(Path(model_path).expanduser().resolve())
         self.device = device
+        checkpoint_root = Path(self.model_path).parent
+        self.autoencoder_path = str(
+            Path(autoencoder_path).expanduser().resolve()
+            if autoencoder_path
+            else (checkpoint_root / "Woosh-AE").resolve()
+        )
+        self.text_conditioner_path = str(
+            Path(text_conditioner_path).expanduser().resolve()
+            if text_conditioner_path
+            else (checkpoint_root / "TextConditionerA").resolve()
+        )
         self.num_steps = num_steps
         self.cfg = cfg
         self.renoise = renoise or [0.0, 0.5, 0.5, 0.3]
         self.latent_channels = latent_channels
         self.latent_frames = latent_frames
         self.lazy = lazy
+        self.auto_download = auto_download
+        self.release_base_url = release_base_url
         self.model: Any = None
         self._sample_euler: Any = None
         if not lazy:
@@ -44,6 +68,27 @@ class WooshDFlowModel:
         """Load or reload Woosh-DFlow from a local checkpoint directory."""
         if self.model is not None:
             return
+
+        ensure_woosh_dflow_checkpoints(
+            self.model_path,
+            self.autoencoder_path,
+            self.text_conditioner_path,
+            auto_download=self.auto_download,
+            release_base_url=self.release_base_url,
+        )
+
+        checkpoint_dirs = {
+            "Woosh-DFlow": Path(self.model_path),
+            "Woosh-AE": Path(self.autoencoder_path),
+            "TextConditionerA": Path(self.text_conditioner_path),
+        }
+        for name, directory in checkpoint_dirs.items():
+            config_path = directory / "config.yaml"
+            if not config_path.is_file():
+                raise FileNotFoundError(
+                    f"{name} checkpoint is missing {config_path}. "
+                    "Automatic download did not produce a valid checkpoint."
+                )
         try:
             from woosh.components.base import LoadConfig
             from woosh.inference.flowmap_sampler import sample_euler
@@ -55,7 +100,19 @@ class WooshDFlowModel:
                 "run AAAGameForge from that environment."
             ) from exc
 
-        self.model = FlowMapFromPretrained(LoadConfig(path=self.model_path))
+        # Woosh's release config contains cwd-relative component paths. LoadConfig
+        # supports recursive overrides, so replace those paths with the explicit
+        # absolute directories supplied to this wrapper.
+        load_config = LoadConfig(
+            path=self.model_path,
+            ldm={
+                "autoencoder": {"path": self.autoencoder_path},
+                "conditioners": {
+                    "text": {"path": self.text_conditioner_path},
+                },
+            },
+        )
+        self.model = FlowMapFromPretrained(load_config)
         self.model = self.model.eval().to(self.device)
         self._sample_euler = sample_euler
 
