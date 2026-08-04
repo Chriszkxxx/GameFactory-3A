@@ -14,7 +14,7 @@ Each wrapper should expose a uniform interface (e.g., `load()`, `infer()`,
 | `gen_motion/`    | Text-to-motion                       | MoMask, MDM, MLD, T2M-GPT, MotionGPT |
 | `gen_cg_video/`  | Cinematic / CG video generation      | LTX-2.3, HunyuanVideo, Wan, Mochi, CogVideoX, Open-Sora, Seedance 2, Kling 3, Veo 3, Sora 2, Runway Gen-4, Hailuo, Vidu |
 | `gen_audio/`     | Character voice, dialogue, and game sound generation | Future speech, voice, and sound-effect backends |
-| `retarget/`      | Skeleton motion retargeter           | Keemap-based, IK-based, learning-based |
+| `retarget/`      | Skeleton motion retargeter           | Puppeteer world-delta; future IK / learning-based backends |
 | `reasoning/`     | LLMs / VLMs used by the pipeline     | Claude, GPT-5.5, GLM, Kimi, DeepSeek, Gemini, Qwen, Grok, Llama, Mistral |
 | `tools/`         | Utility models (depth, RMBG, seg.)   | Depth-Anything, RMBG, SAM, etc.       |
 | `unified_model/` | Composite / multimodal pipelines     | e.g., end-to-end asset+motion models  |

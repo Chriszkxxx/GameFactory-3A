@@ -179,8 +179,45 @@ python test/harness/smoke.py --kind tpose --keep
 | `develop_harness/operatar_require.md` | `operators/` — task dict → artifacts |
 | `develop_harness/pipeline_require.md` | `pipeline/` — CLI, batching, scoring |
 
+## Motion retarget
+
+The `retarget` task transfers a `.bvh` or `.fbx` animation onto a character
+produced by the Puppeteer rigging format. The target is supplied as the
+textured `.glb` plus its Puppeteer `rig.txt`. This first backend supports
+explicit source-to-target mapping JSON and topology-based automatic mapping
+for conventional connected humanoids.
+
+Create the isolated Blender Python runtime (the main project environment does
+not need `bpy`):
+
+```bash
+conda env create -f scripts/installing/retarget_environment.yml
+```
+
+Run a single task:
+
+```bash
+python pipeline/assets_gen/retarget/run.py \
+  --bpy-python /path/to/aaagf-retarget-bpy/python \
+  --source-motion /path/to/motion.bvh \
+  --target-glb /path/to/character.glb \
+  --target-rig /path/to/character_rig.txt \
+  --mapping /path/to/mapping.json \
+  --fps 20 --game gameA_cyberpunk_shooter
+```
+
+Omit `--mapping` to infer one from the two skeleton topologies. Outputs are
+`retargeted.fbx`, an armature-only `animation.fbx`, the mapping actually used,
+and `retarget_info.json`. Retargeting is CPU-only; it does not load Puppeteer
+checkpoints or use GPU memory.
+
+The real integration test reads external assets from
+`AAAGF_RETARGET_SOURCE_MOTION`, `AAAGF_RETARGET_TARGET_GLB`,
+`AAAGF_RETARGET_TARGET_RIG`, optional `AAAGF_RETARGET_MAPPING`, and
+`AAAGF_RETARGET_BPY_PYTHON`. It skips when those assets are not configured.
+
 ## Status
 
-Skeleton — `gen_3d_object` and `gen_tpose_image` are implemented end to end;
-the remaining tasks are directories and empty placeholder files.
-
+Skeleton — `gen_3d_object`, `gen_tpose_image`, and Puppeteer-targeted
+`retarget` are implemented end to end; the remaining tasks are directories and
+empty placeholder files.

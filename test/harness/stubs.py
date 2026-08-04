@@ -21,6 +21,8 @@ Add a stub whenever you add a model slot — `smoke.py` looks them up by task ki
 """
 from __future__ import annotations
 
+import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -101,6 +103,130 @@ class StubTrellis2Model(_StubBase):
         return str(out)
 
 
+class StubRetargetModel(_StubBase):
+    """Mimics ``PuppeteerRetargetModel`` without importing Blender."""
+
+    def infer(
+        self,
+        source_motion: bytes,
+        source_ext: str,
+        target_glb: bytes,
+        target_rig: str,
+        mapping: dict | None = None,
+        **kw,
+    ) -> dict:
+        self.calls.append(
+            {
+                "op": "infer",
+                "source_ext": source_ext,
+                "source_size": len(source_motion),
+                **kw,
+            }
+        )
+        resolved_mapping = mapping or self._mapping()
+        return {
+            "retargeted_fbx": b"Kaydara FBX Binary  \x00" + bytes(128),
+            "anim_only_fbx": b"Kaydara FBX Binary  \x00" + bytes(64),
+            "mapping": resolved_mapping,
+            "retarget_info": self._info(kw.get("fps", 30)),
+        }
+
+    def infer_and_save(
+        self,
+        *,
+        source_motion_path: str,
+        target_glb_path: str,
+        target_rig_path: str,
+        output_path: str,
+        anim_only_output_path: str | None,
+        mapping_path: str | None,
+        mapping_output_path: str,
+        info_output_path: str,
+        fps: int = 30,
+        export_anim_only: bool = True,
+        **kw,
+    ) -> dict[str, str | None]:
+        self.calls.append(
+            {
+                "op": "infer_and_save",
+                "source_motion_path": source_motion_path,
+                "target_glb_path": target_glb_path,
+                "target_rig_path": target_rig_path,
+                "mapping_path": mapping_path,
+                "fps": fps,
+                "export_anim_only": export_anim_only,
+                **kw,
+            }
+        )
+        output = Path(output_path)
+        animation = (
+            Path(anim_only_output_path)
+            if anim_only_output_path is not None
+            else None
+        )
+        mapping_output = Path(mapping_output_path)
+        info_output = Path(info_output_path)
+        for path in (output, animation, mapping_output, info_output):
+            if path is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+
+        output.write_bytes(b"Kaydara FBX Binary  \x00" + bytes(256))
+        if export_anim_only and animation is not None:
+            animation.write_bytes(b"Kaydara FBX Binary  \x00" + bytes(128))
+        if mapping_path:
+            shutil.copyfile(mapping_path, mapping_output)
+        else:
+            mapping_output.write_text(
+                json.dumps(self._mapping(), indent=2),
+                encoding="utf-8",
+            )
+        info_output.write_text(
+            json.dumps(self._info(fps), indent=2),
+            encoding="utf-8",
+        )
+        return {
+            "retargeted_fbx_path": str(output),
+            "anim_only_fbx_path": (
+                str(animation)
+                if export_anim_only and animation is not None
+                else None
+            ),
+            "mapping_path": str(mapping_output),
+            "retarget_info_path": str(info_output),
+        }
+
+    @staticmethod
+    def _mapping() -> dict:
+        return {
+            "root_bones": {"source": "Hips", "puppeteer": "joint0"},
+            "bone_map": {
+                "Hips": "joint0",
+                "Spine": "joint1",
+                "LeftArm": "joint2",
+                "RightArm": "joint3",
+                "LeftLeg": "joint4",
+                "RightLeg": "joint5",
+            },
+            "retarget_chains": {
+                "spine": {"source": ["Hips", "Spine"], "puppeteer": ["joint0", "joint1"]},
+                "left_arm": {"source": ["LeftArm"], "puppeteer": ["joint2"]},
+                "right_arm": {"source": ["RightArm"], "puppeteer": ["joint3"]},
+                "left_leg": {"source": ["LeftLeg"], "puppeteer": ["joint4"]},
+                "right_leg": {"source": ["RightLeg"], "puppeteer": ["joint5"]},
+            },
+        }
+
+    @staticmethod
+    def _info(fps: int) -> dict:
+        return {
+            "source_frame_range": [1, 2],
+            "output_frame_range": [1, 2],
+            "fps": fps,
+            "source_bone_count": 6,
+            "target_bone_count": 6,
+        }
+
+
 class StubQwenEditModel(_StubBase):
     """Mimics `models.gen_image.qwen_edit.QwenEditModel`."""
 
@@ -156,6 +282,7 @@ class StubDepthAnythingModel(_StubBase):
 #: Extend this when you add an asset task, so `smoke.py --kind <new>` works.
 STUB_OPERATOR_KWARGS: dict[str, Any] = {
     "3d_object": lambda: {"model": StubTrellis2Model()},
+    "retarget": lambda: {"model": StubRetargetModel()},
     "tpose": lambda: {"gen_model": StubQwenEditModel(), "mask_model": StubRMBGModel()},
 }
 

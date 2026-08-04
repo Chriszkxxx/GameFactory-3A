@@ -35,6 +35,10 @@ import sys
 import traceback
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 _HERE = Path(__file__).resolve().parent
 _REPO_ROOT = _HERE.parents[1]
 # Repo root for `pipeline.*` / `operators.*`; own dir for `stubs` — imported by
@@ -70,6 +74,47 @@ EXTRA_TASK_FIELDS: dict[str, dict] = {
 }
 
 
+def _make_task(kind: str, task_id: str, game_id: str | None = None) -> dict:
+    """Build the smallest valid task for one stubbed operator."""
+    task = {
+        "task_id": task_id,
+        "image": stubs.make_ref_image(size=128),
+        "seed": 7,
+        **EXTRA_TASK_FIELDS.get(kind, {}),
+    }
+    if game_id is not None:
+        task["game_id"] = game_id
+    if kind == "retarget":
+        fixture_dir = paths.OUTPUT_ROOT / "_smoke_retarget_inputs"
+        fixture_dir.mkdir(parents=True, exist_ok=True)
+        source = fixture_dir / "source.bvh"
+        target = fixture_dir / "target.glb"
+        rig = fixture_dir / "target_rig.txt"
+        mapping = fixture_dir / "mapping.json"
+        source.write_text(
+            "HIERARCHY\nROOT Hips\nMOTION\nFrames: 1\nFrame Time: 0.033333\n",
+            encoding="utf-8",
+        )
+        target.write_bytes(b"glTF" + bytes(64))
+        rig.write_text(
+            "joints joint0 0 0 0\nroot joint0\nskin 0 joint0 1.0\n",
+            encoding="utf-8",
+        )
+        mapping.write_text(
+            json.dumps(stubs.StubRetargetModel._mapping(), indent=2),
+            encoding="utf-8",
+        )
+        task.update(
+            {
+                "source_motion_path": str(source),
+                "target_glb_path": str(target),
+                "target_rig_path": str(rig),
+                "mapping_path": str(mapping),
+            }
+        )
+    return task
+
+
 class SmokeFailure(AssertionError):
     pass
 
@@ -86,13 +131,7 @@ def smoke_per_game_mode(kind: str, task_id: str = "smoke_task_001") -> dict:
     print(f"  [per-game] building operator for {kind!r} with stub models")
     op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID)
 
-    task = {
-        "game_id": SMOKE_GAME,
-        "task_id": task_id,
-        "image": stubs.make_ref_image(size=128),
-        "seed": 7,
-        **EXTRA_TASK_FIELDS.get(kind, {}),
-    }
+    task = _make_task(kind, task_id, game_id=SMOKE_GAME)
     result = op.run(task)
 
     missing = [k for k in REQUIRED_RESULT_KEYS if k not in result]
@@ -145,12 +184,7 @@ def smoke_legacy_flat_mode(kind: str, tmp_dir: Path,
     print(f"  [legacy]   output_dir={paths.rel_to_repo(tmp_dir)}")
     op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID, output_dir=str(tmp_dir))
 
-    result = op.run({
-        "task_id": task_id,
-        "image": stubs.make_ref_image(size=128),
-        "seed": 7,
-        **EXTRA_TASK_FIELDS.get(kind, {}),
-    })
+    result = op.run(_make_task(kind, task_id))
 
     for key in (k for k in result if k.endswith("_path")):
         if result[key] is None:
@@ -198,6 +232,10 @@ def smoke_kind(kind: str, keep: bool) -> None:
     finally:
         if not keep:
             shutil.rmtree(tmp_flat, ignore_errors=True)
+            shutil.rmtree(
+                paths.OUTPUT_ROOT / "_smoke_retarget_inputs",
+                ignore_errors=True,
+            )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
