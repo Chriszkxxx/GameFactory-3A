@@ -25,6 +25,7 @@ Usage:
     python test/harness/smoke.py                    # all stubbed kinds
     python test/harness/smoke.py --kind tpose
     python test/harness/smoke.py --keep             # inspect artifacts
+    python test/harness/smoke.py --kind 3d_object --backend tripo   # API backend
 """
 from __future__ import annotations
 
@@ -105,11 +106,13 @@ def _require(cond: bool, msg: str) -> None:
 def smoke_per_game_mode(
     kind: str,
     task_id: str = "smoke_task_001",
+    backend: str | None = None,
     task_overrides: dict | None = None,
 ) -> dict:
     """Default mode: artifacts grouped under the game project."""
-    print(f"  [per-game] building operator for {kind!r} with stub models")
-    op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID)
+    print(f"  [per-game] building operator for {kind!r} with stub models"
+          + (f" (backend={backend})" if backend else ""))
+    op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID, model_key=backend)
 
     task = {
         "game_id": SMOKE_GAME,
@@ -155,7 +158,7 @@ def smoke_per_game_mode(
 
     meta = expected_dir / "meta.json"
     _require(meta.exists(), f"{kind}: meta.json not written to {expected_dir}")
-    meta_data = json.loads(meta.read_text())
+    meta_data = json.loads(meta.read_text(encoding="utf-8"))
     for key in ("run_id", "task_id", "game_id", "task_kind"):
         _require(key in meta_data, f"{kind}: meta.json missing {key!r}")
     _require(meta_data["run_id"] == SMOKE_RUN_ID,
@@ -166,10 +169,12 @@ def smoke_per_game_mode(
 
 
 def smoke_legacy_flat_mode(kind: str, tmp_dir: Path,
-                           task_id: str = "smoke_legacy_001") -> dict:
+                           task_id: str = "smoke_legacy_001",
+                           backend: str | None = None) -> dict:
     """Backward compatibility: an explicit output_dir keeps the old flat naming."""
     print(f"  [legacy]   output_dir={paths.rel_to_repo(tmp_dir)}")
-    op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID, output_dir=str(tmp_dir))
+    op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID, output_dir=str(tmp_dir),
+                              model_key=backend)
 
     result = op.run({
         "task_id": task_id,
@@ -201,31 +206,39 @@ def smoke_summaries(kind: str, results: list[dict]) -> None:
     _require(bool(written), f"{kind}: write_results_summary wrote nothing")
     for p in written:
         _require(p.exists(), f"{kind}: summary missing: {p}")
-        data = json.loads(p.read_text())
+        data = json.loads(p.read_text(encoding="utf-8"))
         _require(isinstance(data, list) and data,
                  f"{kind}: summary is not a non-empty list: {p}")
         print(f"  [summary]  {paths.rel_to_repo(p)} ({len(data)} task(s))")
 
     meta = paths.run_meta_path(SMOKE_GAME, SMOKE_RUN_ID)
     _require(meta.exists(), f"{kind}: run_meta.json not written")
-    meta_data = json.loads(meta.read_text())
+    meta_data = json.loads(meta.read_text(encoding="utf-8"))
     for key in ("game_id", "run_id", "task_kind", "created_at", "argv"):
         _require(key in meta_data, f"{kind}: run_meta.json missing {key!r}")
     print(f"  [summary]  run_meta.json ok (git_sha={meta_data.get('git_sha')})")
 
 
-def smoke_kind(kind: str, keep: bool) -> None:
+def smoke_kind(kind: str, keep: bool, backend: str | None = None) -> None:
     print(f"\n\033[1m▶ {kind}\033[0m")
+    # --backend applies only to slots that actually have alternative backends,
+    # so `--backend tripo` with no --kind still smokes every other kind.
+    backend = backend if kind in stubs.STUB_BACKENDS else None
     tmp_flat = paths.OUTPUT_ROOT / f"_smoke_legacy_{kind}"
     try:
-        results = [smoke_per_game_mode(kind)]
+        results = [smoke_per_game_mode(kind, backend=backend)]
         for extra_task in EXTRA_ROUTE_TASKS.get(kind, []):
             route_task = dict(extra_task)
             task_id = route_task.pop("task_id")
             results.append(
-                smoke_per_game_mode(kind, task_id=task_id, task_overrides=route_task)
+                smoke_per_game_mode(
+                    kind,
+                    task_id=task_id,
+                    backend=backend,
+                    task_overrides=route_task,
+                )
             )
-        smoke_legacy_flat_mode(kind, tmp_flat)
+        smoke_legacy_flat_mode(kind, tmp_flat, backend=backend)
         smoke_summaries(kind, results)
     finally:
         if not keep:
@@ -241,6 +254,9 @@ def main() -> int:
                     help="Task kind to smoke (repeatable). Default: every stubbed kind.")
     ap.add_argument("--keep", action="store_true",
                     help="Keep the _smoke artifacts for inspection")
+    ap.add_argument("--backend", default=None,
+                    help="Stub backend for slots with several models, e.g. "
+                         f"{sorted(stubs.STUB_BACKENDS.get('3d_object', {}))}")
     args = ap.parse_args()
 
     kinds = args.kind or sorted(stubs.STUB_OPERATOR_KWARGS)
@@ -253,12 +269,13 @@ def main() -> int:
 
     print("\033[1mAAAGameForge develop_harness — chain smoke test (stub models)\033[0m")
     print(f"output root: {paths.rel_to_repo(paths.OUTPUT_ROOT)}")
-    print(f"run_id: {SMOKE_RUN_ID}   game_id: {SMOKE_GAME}   kinds: {', '.join(kinds)}")
+    print(f"run_id: {SMOKE_RUN_ID}   game_id: {SMOKE_GAME}   kinds: {', '.join(kinds)}"
+          + (f"   backend: {args.backend}" if args.backend else ""))
 
     failures: list[tuple[str, str]] = []
     for kind in kinds:
         try:
-            smoke_kind(kind, keep=args.keep)
+            smoke_kind(kind, keep=args.keep, backend=args.backend)
         except SmokeFailure as e:
             print(f"  \033[31mFAIL\033[0m {e}")
             failures.append((kind, str(e)))
