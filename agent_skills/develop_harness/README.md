@@ -14,6 +14,7 @@ downloading weights**.
 |------|---------|
 | `README.md` | This file — the workflow (SOP) and layering rules |
 | `model_require.md` | Contract a `models/` wrapper must satisfy |
+| `api_model_require.md` | **R9** — what changes when the model is a closed-source cloud API |
 | `operatar_require.md` | Contract an `operators/` operator must satisfy |
 | `pipeline_require.md` | Contract a `pipeline/*/run.py` + `eval.py` must satisfy |
 

@@ -58,6 +58,197 @@ def write_ref_image(path: str | Path, size: int = 128, seed: int = 0) -> Path:
     return p
 
 
+def make_minimal_glb(triangles: int = 2, pad_to: int = 4096) -> bytes:
+    """
+    A *valid* binary glTF with `triangles` unlit triangles.
+
+    Real enough that `models.common.glb_utils`, an engine importer or a viewer
+    accepts it, cheap enough to build in microseconds. The JSON chunk is padded
+    with spaces (legal glTF padding) up to `pad_to` bytes so the artifact clears
+    the ">1 KB looks plausible" assertions in `test/`.
+
+    Args:
+        triangles: Number of triangle primitives to emit.
+        pad_to:    Minimum total size in bytes.
+
+    Returns:
+        GLB file content.
+    """
+    import json
+    import struct
+
+    positions: list[float] = []
+    for i in range(triangles):
+        z = float(i) * 0.1
+        positions += [0.0, 0.0, z, 1.0, 0.0, z, 0.0, 1.0, z]
+    indices = list(range(3 * triangles))
+
+    pos_blob = struct.pack(f"<{len(positions)}f", *positions)
+    idx_blob = struct.pack(f"<{len(indices)}H", *indices)
+    idx_pad = (-len(idx_blob)) % 4
+    bin_blob = pos_blob + idx_blob + b"\x00" * idx_pad
+
+    doc = {
+        "asset": {"version": "2.0", "generator": "AAAGameForge test harness stub"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0, "name": "StubMesh"}],
+        "meshes": [{"name": "StubMesh", "primitives": [
+            {"attributes": {"POSITION": 0}, "indices": 1, "mode": 4}]}],
+        "buffers": [{"byteLength": len(bin_blob)}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(pos_blob), "target": 34962},
+            {"buffer": 0, "byteOffset": len(pos_blob), "byteLength": len(idx_blob),
+             "target": 34963},
+        ],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": 3 * triangles,
+             "type": "VEC3", "min": [0.0, 0.0, 0.0],
+             "max": [1.0, 1.0, max(0.0, (triangles - 1) * 0.1)]},
+            {"bufferView": 1, "componentType": 5123, "count": 3 * triangles,
+             "type": "SCALAR"},
+        ],
+    }
+
+    json_blob = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    header_and_chunks = 12 + 8 + 8 + len(bin_blob)
+    target_json = max(len(json_blob), pad_to - header_and_chunks)
+    json_blob += b" " * ((target_json - len(json_blob)) + (-target_json % 4))
+
+    return _pack_glb(doc, bin_blob, json_pad_to=pad_to)
+
+
+def _pack_glb(doc: dict, bin_blob: bytes, json_pad_to: int = 0) -> bytes:
+    """Assemble a GLB from a glTF document and its binary chunk."""
+    import json
+    import struct
+
+    json_blob = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+    overhead = 12 + 8 + 8 + len(bin_blob)
+    target = max(len(json_blob), json_pad_to - overhead)
+    # Trailing spaces are legal glTF JSON-chunk padding; chunks are 4-byte aligned.
+    json_blob += b" " * ((target - len(json_blob)) + (-target % 4))
+
+    return b"".join([
+        struct.pack("<4sII", b"glTF", 2, 12 + 8 + len(json_blob) + 8 + len(bin_blob)),
+        struct.pack("<I4s", len(json_blob), b"JSON"), json_blob,
+        struct.pack("<I4s", len(bin_blob), b"BIN\x00"), bin_blob,
+    ])
+
+
+#: Cube faces as (normal, four corners in CCW winding seen from outside), with
+#: the cube spanning 0..1 on every axis. Scaled by `size` in `make_textured_glb`.
+_CUBE_FACES = (
+    ((0, 0, 1), ((0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1))),
+    ((0, 0, -1), ((1, 0, 0), (0, 0, 0), (0, 1, 0), (1, 1, 0))),
+    ((1, 0, 0), ((1, 0, 1), (1, 0, 0), (1, 1, 0), (1, 1, 1))),
+    ((-1, 0, 0), ((0, 0, 0), (0, 0, 1), (0, 1, 1), (0, 1, 0))),
+    ((0, 1, 0), ((0, 1, 1), (1, 1, 1), (1, 1, 0), (0, 1, 0))),
+    ((0, -1, 0), ((0, 0, 0), (1, 0, 0), (1, 0, 1), (0, 0, 1))),
+)
+
+
+def make_checker_png(size: int = 64, squares: int = 8) -> bytes:
+    """A checkerboard PNG — obvious enough that a wrong UV or a missing texture
+    is visible at a glance in an engine viewport."""
+    from io import BytesIO
+
+    img = Image.new("RGB", (size, size))
+    step = max(1, size // squares)
+    d = ImageDraw.Draw(img)
+    for y in range(0, size, step):
+        for x in range(0, size, step):
+            dark = ((x // step) + (y // step)) % 2 == 0
+            d.rectangle([x, y, x + step - 1, y + step - 1],
+                        fill=(40, 40, 48) if dark else (220, 120, 40))
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def make_textured_glb(size: float = 1.0, texture_size: int = 64) -> bytes:
+    """
+    A textured, normal-bearing, PBR-material cube as a single GLB.
+
+    `make_minimal_glb` proves an engine importer parses a file; this proves the
+    parts that actually break in an engine: an **embedded** texture, a PBR
+    material, per-vertex normals and UVs. Use it to check that materials and
+    textures survive the import, not just geometry.
+
+    Args:
+        size: Edge length in glTF units (metres).
+        texture_size: Checkerboard resolution.
+
+    Returns:
+        GLB file content: 12 triangles, 24 vertices, 1 material, 1 texture.
+    """
+    import struct
+
+    positions: list[float] = []
+    normals: list[float] = []
+    uvs: list[float] = []
+    indices: list[int] = []
+    for normal, corners in _CUBE_FACES:
+        base = len(positions) // 3
+        for (cx, cy, cz), (u, v) in zip(corners, ((0, 0), (1, 0), (1, 1), (0, 1))):
+            positions += [cx * size, cy * size, cz * size]
+            normals += list(normal)
+            uvs += [u, v]
+        indices += [base, base + 1, base + 2, base, base + 2, base + 3]
+
+    pos_blob = struct.pack(f"<{len(positions)}f", *positions)
+    nrm_blob = struct.pack(f"<{len(normals)}f", *normals)
+    uv_blob = struct.pack(f"<{len(uvs)}f", *uvs)
+    idx_blob = struct.pack(f"<{len(indices)}H", *indices)
+    idx_blob += b"\x00" * ((-len(idx_blob)) % 4)
+    png_blob = make_checker_png(texture_size)
+    png_blob += b"\x00" * ((-len(png_blob)) % 4)
+
+    views, offset = [], 0
+    for blob, target in ((pos_blob, 34962), (nrm_blob, 34962), (uv_blob, 34962),
+                         (idx_blob, 34963), (png_blob, None)):
+        view = {"buffer": 0, "byteOffset": offset, "byteLength": len(blob)}
+        if target:
+            view["target"] = target
+        views.append(view)
+        offset += len(blob)
+    bin_blob = pos_blob + nrm_blob + uv_blob + idx_blob + png_blob
+
+    n = len(positions) // 3
+    doc = {
+        "asset": {"version": "2.0", "generator": "AAAGameForge test harness stub"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0, "name": "StubTexturedCube"}],
+        "meshes": [{"name": "StubTexturedCube", "primitives": [{
+            "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2},
+            "indices": 3, "material": 0, "mode": 4}]}],
+        "materials": [{
+            "name": "StubCheckerMaterial",
+            "pbrMetallicRoughness": {
+                "baseColorTexture": {"index": 0},
+                "metallicFactor": 0.0,
+                "roughnessFactor": 0.8,
+            },
+        }],
+        "textures": [{"sampler": 0, "source": 0}],
+        "images": [{"bufferView": 4, "mimeType": "image/png", "name": "StubChecker"}],
+        "samplers": [{"magFilter": 9729, "minFilter": 9987,
+                      "wrapS": 10497, "wrapT": 10497}],
+        "buffers": [{"byteLength": len(bin_blob)}],
+        "bufferViews": views,
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": n, "type": "VEC3",
+             "min": [0.0, 0.0, 0.0], "max": [size, size, size]},
+            {"bufferView": 1, "componentType": 5126, "count": n, "type": "VEC3"},
+            {"bufferView": 2, "componentType": 5126, "count": n, "type": "VEC2"},
+            {"bufferView": 3, "componentType": 5123, "count": len(indices),
+             "type": "SCALAR"},
+        ],
+    }
+    return _pack_glb(doc, bin_blob)
+
+
 # ── Base ──────────────────────────────────────────────────────────────────────
 
 
@@ -98,9 +289,99 @@ class StubTrellis2Model(_StubBase):
         })
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
-        # Big enough to pass the ">1KB looks plausible" assertions in test/.
-        out.write_bytes(b"glTF\x02\x00\x00\x00" + b"\x00" * 4096)
+        # A real (if trivial) GLB, padded past the ">1KB looks plausible"
+        # assertions in test/ — so engine-side importers can be smoked with it.
+        out.write_bytes(make_minimal_glb())
         return str(out)
+
+
+class _StubCloudModel(_StubBase):
+    """
+    Shared body of the cloud-API stubs (`api_model_require.md` R9 checklist).
+
+    Mimics the *interface* of `TripoModel` / `MeshyModel` including
+    `last_call_info` and `balance()`, and **performs no network I/O whatsoever** —
+    no key, no socket, no `requests` import. That is what makes
+    `smoke.py --kind 3d_object` runnable on a disconnected laptop.
+    """
+
+    provider = "stub"
+    #: Faces the fake asset reports, so face-budget assertions have something real.
+    triangles = 2
+
+    def __init__(self, model_path: str = "stub-v1", device: str = "cpu", **kw):
+        super().__init__(model_path=model_path, device=device, **kw)
+        self.output_format = kw.get("output_format", "glb")
+        self.last_call_info: dict = {}
+
+    def infer(
+        self,
+        image=None,
+        seed: int = 42,
+        decimation_target: int | None = None,
+        texture_size: int | None = None,
+        *,
+        prompt: str | None = None,
+        negative_prompt: str | None = None,
+        image_url: str | None = None,
+        verbose: bool | None = None,
+        **provider_kwargs,
+    ) -> bytes:
+        if image is None and image_url is None and not prompt:
+            raise ValueError(f"{type(self).__name__}.infer needs an image or a prompt")
+        self.calls.append({
+            "op": "infer", "seed": seed, "prompt": prompt,
+            "decimation_target": decimation_target, "texture_size": texture_size,
+            **provider_kwargs,
+        })
+        data = make_minimal_glb(triangles=self.triangles)
+        self.last_call_info = {
+            "provider": self.provider, "model": self.model_path,
+            "task_id": f"stub_task_{len(self.calls):03d}", "elapsed_sec": 0.0,
+            "credits": 0, "cached": False, "triangles": self.triangles,
+            "bytes": len(data),
+        }
+        return data
+
+    def infer_and_save(
+        self,
+        image=None,
+        output_path: str | None = None,
+        seed: int = 42,
+        decimation_target: int | None = None,
+        texture_size: int | None = None,
+        *,
+        prompt: str | None = None,
+        negative_prompt: str | None = None,
+        image_url: str | None = None,
+        verbose: bool | None = None,
+        **provider_kwargs,
+    ) -> str:
+        if not output_path:
+            raise ValueError("output_path is required (model_require.md R1.2)")
+        data = self.infer(image, seed, decimation_target, texture_size,
+                          prompt=prompt, negative_prompt=negative_prompt,
+                          image_url=image_url, verbose=verbose, **provider_kwargs)
+        self.calls.append({"op": "infer_and_save", "output_path": output_path})
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(data)
+        return str(out)
+
+    def balance(self) -> dict:
+        return {"balance": 1_000_000, "frozen": 0}
+
+
+class StubTripoModel(_StubCloudModel):
+    """Mimics `models.gen_3d_object.tripo_model.TripoModel`."""
+
+    provider = "tripo"
+
+
+class StubMeshyModel(_StubCloudModel):
+    """Mimics `models.gen_3d_object.meshy_model.MeshyModel`."""
+
+    provider = "meshy"
 
 
 class StubRetargetModel(_StubBase):
@@ -278,20 +559,39 @@ class StubDepthAnythingModel(_StubBase):
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 
+#: task_kind -> {backend name: stub class} for slots with several backends.
+#: The first entry is the default. Select one with
+#: `build_operator(kind, model_key="tripo")` or `smoke.py --backend tripo`.
+STUB_BACKENDS: dict[str, dict[str, Any]] = {
+    "3d_object": {
+        "trellis2": StubTrellis2Model,
+        "tripo": StubTripoModel,
+        "meshy": StubMeshyModel,
+    },
+}
+
 #: task_kind -> factory returning the kwargs for that task's operator.
 #: Extend this when you add an asset task, so `smoke.py --kind <new>` works.
 STUB_OPERATOR_KWARGS: dict[str, Any] = {
-    "3d_object": lambda: {"model": StubTrellis2Model()},
     "retarget": lambda: {"model": StubRetargetModel()},
-    "tpose": lambda: {"gen_model": StubQwenEditModel(), "mask_model": StubRMBGModel()},
+    "3d_object": lambda model_key=None: {
+        "model": STUB_BACKENDS["3d_object"][model_key or "trellis2"]()},
+    "tpose": lambda model_key=None: {
+        "gen_model": StubQwenEditModel(), "mask_model": StubRMBGModel()},
 }
 
 
 def build_operator(task_kind: str, run_id: str = "_smoke",
                    output_dir: Optional[str] = None,
-                   default_game_id: Optional[str] = None):
+                   default_game_id: Optional[str] = None,
+                   model_key: Optional[str] = None):
     """
     Instantiate the operator for `task_kind`, wired to stub models.
+
+    Args:
+        model_key: Backend to stub for slots that have several (see
+                   `STUB_BACKENDS`). None picks the slot's default, which keeps
+                   every existing caller behaving exactly as before.
 
     Raises a clear error when a task has no stub registered yet.
     """
@@ -301,9 +601,15 @@ def build_operator(task_kind: str, run_id: str = "_smoke",
             f"STUB_OPERATOR_KWARGS in test/harness/stubs.py. "
             f"Available: {sorted(STUB_OPERATOR_KWARGS)}"
         )
+    known = STUB_BACKENDS.get(task_kind, {})
+    if model_key and model_key not in known:
+        raise KeyError(
+            f"No stub backend {model_key!r} for task_kind={task_kind!r}. "
+            f"Available: {sorted(known) or '<single backend>'}"
+        )
 
     operator_cls = _import_operator(task_kind)
-    kwargs = STUB_OPERATOR_KWARGS[task_kind]()
+    kwargs = STUB_OPERATOR_KWARGS[task_kind](model_key)
     return operator_cls(
         **kwargs,
         output_dir=output_dir,

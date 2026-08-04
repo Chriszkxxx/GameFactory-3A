@@ -104,20 +104,33 @@ class Gen3DObjectOperator:
 
     # --------------------------------------------------------------------------
 
+    def _artifact_suffix(self) -> str:
+        """
+        File extension for the artifact — GLB unless the injected model says
+        otherwise (the cloud backends can emit FBX / OBJ / USDZ).
+
+        The result dict keeps the ``glb_path`` key whatever the extension is:
+        renaming a returned key breaks `eval.py` and `test/`.
+        """
+        fmt = getattr(self.model, "output_format", None)
+        return str(fmt).lower().lstrip(".") if fmt else "glb"
+
     def _resolve_out_path(self, inp: dict, task_id: str) -> tuple[str, Path, Path]:
         """
         Return ``(game_id, task_dir, glb_path)`` for either output mode.
 
         Legacy flat mode keeps the historical `<output_dir>/<task_id>.glb`.
         """
+        suffix = self._artifact_suffix()
         if self.output_dir is not None:
             game_id = str(inp.get("game_id") or inp.get("game") or "")
-            return game_id, self.output_dir, self.output_dir / f"{task_id}.glb"
+            return game_id, self.output_dir, self.output_dir / f"{task_id}.{suffix}"
 
         from pipeline.common import paths
         game_id = paths.infer_game_id(inp, fallback=self.default_game_id)
         task_dir = paths.task_output_dir(game_id, TASK_KIND, task_id, run_id=self.run_id)
-        return game_id, task_dir, task_dir / GLB_FILENAME
+        filename = GLB_FILENAME if suffix == "glb" else f"model.{suffix}"
+        return game_id, task_dir, task_dir / filename
 
     # --------------------------------------------------------------------------
 
@@ -174,7 +187,7 @@ class Gen3DObjectOperator:
         # meta.json only in per-game mode, so legacy output dirs stay untouched.
         if self.output_dir is None:
             from pipeline.common import paths
-            paths.write_task_meta(task_dir, {
+            meta = {
                 **result,
                 "run_id": self.run_id,
                 "prompt": inp.get("prompt"),
@@ -183,7 +196,14 @@ class Gen3DObjectOperator:
                 "decimation_target": decimation_target,
                 "texture_size": texture_size,
                 "model": type(self.model).__name__,
-            })
+            }
+            # Cloud backends expose what the call cost and produced — task id,
+            # credits, triangle count (api_model_require.md R9.8). Recording it
+            # here is what makes a billed run reproducible after the fact.
+            call_info = getattr(self.model, "last_call_info", None)
+            if call_info:
+                meta["model_call"] = dict(call_info)
+            paths.write_task_meta(task_dir, meta)
 
         return result
 
