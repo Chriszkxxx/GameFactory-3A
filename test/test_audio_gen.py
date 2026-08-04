@@ -1,53 +1,100 @@
-"""CPU-only contract tests for both logical AudioGen routes."""
+"""
+test/test_audio_gen.py
+
+Integration test: loads Qwen3-TTS + Woosh-DFlow, runs the gen_audio pipeline
+on the tasks in audio_gen_collect.jsonl, and asserts WAV files are created.
+
+Run from repo root:
+    QWEN3_TTS_CKPT=/path/to/Qwen3-TTS-12Hz-0.6B-CustomVoice \
+    WOOSH_DFLOW_CKPT=/path/to/Woosh-DFlow \
+    python test/test_audio_gen.py
+"""
 from __future__ import annotations
 
+import os
 import sys
-import tempfile
 import unittest
 import wave
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-_HARNESS = _REPO_ROOT / "test" / "harness"
-for _path in (str(_REPO_ROOT), str(_HARNESS)):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+# -- repo root on path ---------------------------------------------------------
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+# -----------------------------------------------------------------------------
 
-import stubs  # noqa: E402
+# Local paths take priority. Qwen3-TTS can fall back to its Hugging Face repo;
+# Woosh-DFlow is expected to be downloaded to the local checkpoints directory.
+DIALOGUE_CKPT = os.environ.get(
+    "QWEN3_TTS_CKPT",
+    "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+)
+SOUND_EFFECT_CKPT = os.environ.get(
+    "WOOSH_DFLOW_CKPT",
+    "checkpoints/Woosh-DFlow",
+)
+TASKS = _REPO_ROOT / "test_data" / "test_samples" / "audio_gen_collect.jsonl"
+OUT_DIR = _REPO_ROOT / "outputs" / "test_audio"
 
 
-class AudioGenContractTest(unittest.TestCase):
-    def _assert_wav(self, path: str, expected_rate: int) -> None:
-        audio_path = Path(path)
-        self.assertTrue(audio_path.is_file())
-        with wave.open(str(audio_path), "rb") as wav_file:
-            self.assertEqual(wav_file.getframerate(), expected_rate)
-            self.assertGreater(wav_file.getnframes(), 0)
+class TestGenAudioPipeline(unittest.TestCase):
 
-    def test_dialogue_and_sound_effect_routes(self) -> None:
-        with tempfile.TemporaryDirectory() as output_dir:
-            operator = stubs.build_operator("audio", output_dir=output_dir)
-            dialogue = operator.run({
-                "task_id": "dialogue_001",
-                "audio_type": "dialogue",
-                "text": "发现目标",
-                "language": "Chinese",
-                "speaker_id": "Vivian",
-                "sample_rate": 24_000,
-            })
-            sound_effect = operator.run({
-                "task_id": "rifle_001",
-                "audio_type": "sound_effect",
-                "sound_category": "one_shot",
-                "prompt": "a single futuristic rifle shot",
-                "duration_sec": 0.5,
-                "sample_rate": 48_000,
-            })
-            self._assert_wav(dialogue["audio_path"], 24_000)
-            self._assert_wav(sound_effect["audio_path"], 48_000)
-            self.assertEqual(dialogue["audio_type"], "dialogue")
-            self.assertEqual(sound_effect["audio_type"], "sound_effect")
+    @classmethod
+    def setUpClass(cls):
+        from pipeline.assets_gen.gen_audio.run import (
+            load_dialogue_model,
+            load_sound_effect_model,
+            make_operator,
+        )
+
+        cls.dialogue_model = load_dialogue_model(DIALOGUE_CKPT)
+        cls.sound_effect_model = load_sound_effect_model(SOUND_EFFECT_CKPT)
+        cls.operator = make_operator(
+            cls.dialogue_model,
+            cls.sound_effect_model,
+            output_dir=str(OUT_DIR),
+        )
+
+    def test_tasks_jsonl_has_both_audio_types(self):
+        import json
+
+        tasks = [json.loads(line) for line in TASKS.read_text().splitlines() if line.strip()]
+        self.assertGreaterEqual(len(tasks), 2, "Expected at least 2 audio test tasks.")
+        self.assertEqual(
+            {task.get("audio_type") for task in tasks},
+            {"dialogue", "sound_effect"},
+            "Expected both dialogue and sound_effect tasks in the jsonl.",
+        )
+
+    def test_run_all_tasks(self):
+        from pipeline.assets_gen.gen_audio.run import run_from_jsonl
+
+        results = run_from_jsonl(str(TASKS), self.operator)
+
+        self.assertGreaterEqual(len(results), 2)
+        self.assertEqual(
+            {result["audio_type"] for result in results},
+            {"dialogue", "sound_effect"},
+        )
+        for result in results:
+            audio_path = Path(result["audio_path"])
+            self.assertTrue(audio_path.exists(), f"WAV not found: {audio_path}")
+            self.assertGreater(
+                audio_path.stat().st_size,
+                1024,
+                "WAV file suspiciously small.",
+            )
+            with wave.open(str(audio_path), "rb") as wav_file:
+                self.assertGreater(wav_file.getnframes(), 0)
+                self.assertEqual(wav_file.getsampwidth(), 2)
+                self.assertEqual(wav_file.getframerate(), result["sample_rate"])
+                self.assertEqual(wav_file.getnchannels(), result["channels"])
+            self.assertGreater(result["duration_sec"], 0)
+            self.assertGreaterEqual(result["elapsed_sec"], 0)
+            print(
+                f"  [ok] {result['task_id']} -> {audio_path.name}  "
+                f"({result['elapsed_sec']}s)"
+            )
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(verbosity=2)

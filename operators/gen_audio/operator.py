@@ -178,9 +178,3 @@ class GenAudioOperator:
     def run_batch(self, inputs: list[dict]) -> list[dict]:
         """Run a list of audio tasks sequentially."""
         return [self.run(inp) for inp in inputs]
-
-    def eval(self, result: dict, task: dict) -> dict:
-        """Evaluate an existing WAV without invoking either generation model."""
-        from operators.gen_audio.metrics import evaluate
-
-        return evaluate(result, task)
