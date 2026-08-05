@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 from PIL import Image
 
-from models.gen_cg_video.types import VideoGenerationInput, VideoGenerationMode
+from models.gen_cg_video.utils import VideoGenerationInput, VideoGenerationMode
 
 TASK_KIND = "cg_video"
 VIDEO_FILENAME = "video.mp4"

@@ -79,8 +79,6 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 ├── scripts/installing/
 ├── test/                     # Integration tests + test/harness/ (stub models, CPU smoke test)
 └── docs/
-    ├── cg_video/              # Architecture + per-backend usage
-    └── trellis2_install.sh
 ```
 
 ## Task mapping
@@ -162,11 +160,6 @@ python pipeline/assets_gen/gen_3d_object/run.py
 python pipeline/assets_gen/gen_3d_object/run.py --game gameA_cyberpunk_shooter --run-id auto
 ```
 
-## Component documentation
-
-- [CG video generation](docs/cg_video/README.md) — shared architecture,
-  task modes, operator/pipeline usage, and backend guides.
-
 ## Developing a new asset-generation link
 
 `agent_skills/develop_harness/` holds the contracts for the three layers; the
@@ -188,6 +181,6 @@ python test/harness/smoke.py --kind tpose --keep
 
 ## Status
 
-Skeleton — `gen_3d_object`, `gen_tpose_image`, and the generation path of
-`gen_cg_video` are implemented end to end; the remaining tasks are directories
-and empty placeholder files.
+Skeleton — `gen_3d_object` and `gen_tpose_image` are implemented end to end;
+the remaining tasks are directories and empty placeholder files.
+

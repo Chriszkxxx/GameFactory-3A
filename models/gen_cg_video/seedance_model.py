@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from models.common import cloud_api
-from models.gen_cg_video.types import VideoGenerationInput, VideoGenerationMode
+from models.gen_cg_video.utils import VideoGenerationInput, VideoGenerationMode
 
 logger = logging.getLogger(__name__)
 
