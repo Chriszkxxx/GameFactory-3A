@@ -3,8 +3,15 @@ RMBGModel — background removal wrapper for BRIA `RMBG-1.4`.
 
 Reference: https://huggingface.co/briaai/RMBG-1.4
 
-Conforms to `BaseToolModel`. Given an RGB PIL image, `predict()` returns a
-HxW float32 numpy array in [0, 1] representing the foreground alpha mask.
+Conforms to `BaseToolModel`. Given an RGB PIL image, `infer()` returns a
+HxW float32 numpy array in [0, 1] representing the foreground alpha mask, at
+the original image resolution.
+
+Usage:
+    from models.tools.image_matting.rmbg import RMBGModel
+    model = RMBGModel(model_path="briaai/RMBG-1.4")
+    mask = model.infer(image)          # HxW float32 in [0, 1]
+    rgba = model.remove_background(image)
 """
 
 from typing import Tuple
@@ -13,8 +20,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from torchvision.transforms.functional import normalize
-from transformers import AutoModelForImageSegmentation
 
 from models.tools.base import BaseToolModel
 
@@ -33,6 +38,8 @@ class RMBGModel(BaseToolModel):
         super().__init__(model_path=model_path, device=device, lazy=lazy)
 
     def _load(self) -> None:
+        from transformers import AutoModelForImageSegmentation
+
         self.model = AutoModelForImageSegmentation.from_pretrained(
             self.model_path, trust_remote_code=True
         ).to(self.device).eval()
@@ -43,6 +50,8 @@ class RMBGModel(BaseToolModel):
 
     @staticmethod
     def _preprocess(im: np.ndarray, model_input_size: Tuple[int, int]) -> torch.Tensor:
+        from torchvision.transforms.functional import normalize
+
         if im.ndim < 3:
             im = im[:, :, np.newaxis]
         im_tensor = torch.tensor(im, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0)
@@ -67,7 +76,7 @@ class RMBGModel(BaseToolModel):
     # ------------------------------------------------------------------
 
     @torch.no_grad()
-    def predict(self, image: Image.Image, **kwargs) -> np.ndarray:
+    def infer(self, image: Image.Image, **kwargs) -> np.ndarray:
         """
         Run background removal.
 
@@ -92,8 +101,15 @@ class RMBGModel(BaseToolModel):
         return mask
 
     def remove_background(self, image: Image.Image) -> Image.Image:
-        """Convenience helper: return an RGBA PIL image with the BG removed."""
-        mask = self.predict(image)
+        """Return the input image with the inferred mask applied as alpha.
+
+        Args:
+            image: Input PIL image; converted to RGBA internally.
+
+        Returns:
+            RGBA PIL image at the original resolution.
+        """
+        mask = self.infer(image)
         rgba = np.array(image.convert("RGBA"))
         rgba[..., 3] = (mask * 255).astype(np.uint8)
         return Image.fromarray(rgba, "RGBA")

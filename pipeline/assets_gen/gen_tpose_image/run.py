@@ -77,7 +77,7 @@ def load_mask_model(ckpt: str, device: str = "cuda", model_type: str = "rmbg"):
 
 def make_operator(
     gen_model,
-    mask_model,
+    mask_model=None,
     output_dir: str | None = None,
     run_id: str = paths.DEFAULT_RUN_ID,
     default_game_id: str | None = None,
