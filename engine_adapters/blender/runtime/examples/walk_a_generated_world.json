@@ -1,0 +1,26 @@
+[
+  {"type": "import_scene", "payload": {
+      "scene_path": "/Library/Worlds/world.glb",
+      "collection_name": "generated_world",
+      "scale": 1.0,
+      "location": [0.0, 0.0, 0.0]
+  }},
+  {"type": "ensure_player", "payload": {
+      "entity_id": "scout",
+      "obj_path": "/Library/Avatars/Robot.glb",
+      "spawn_location": [0.0, 0.0, 0.0]
+  }},
+  {"type": "apply_input", "payload": {
+      "entity_id": "scout", "move_y": 1.0, "run": true, "yaw": 0.0
+  }},
+  {"type": "trigger_vfx", "payload": {
+      "vfx_kind": "smoke",
+      "entity_id": "scout",
+      "params": {"resolution": 48}
+  }},
+  {"type": "render_snapshot", "payload": {
+      "engine": "CYCLES", "resolution": [1280, 720], "samples": 32
+  }},
+  {"type": "dump_scene_report", "payload": {}},
+  {"type": "save_blend", "payload": {}}
+]
