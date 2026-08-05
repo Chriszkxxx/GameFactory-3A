@@ -188,6 +188,6 @@ python test/harness/smoke.py --kind tpose --keep
 
 ## Status
 
-`gen_3d_object`, `gen_tpose_image`, and the generation path of `gen_cg_video`
-are implemented end to end. CG-video evaluation is intentionally deferred; the
-remaining task families are still skeletons or partial implementations.
+Skeleton — `gen_3d_object`, `gen_tpose_image`, and the generation path of
+`gen_cg_video` are implemented end to end; the remaining tasks are directories
+and empty placeholder files.
