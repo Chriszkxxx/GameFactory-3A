@@ -40,6 +40,11 @@ CONTEXT_ROOT = (
     / "code_gen"
     / "mechanic"
 )
+ENGINE_CONTEXT_ROOT = (
+    paths.REPO_ROOT
+    / "agent_skills"
+    / "engine_context"
+)
 SKILL_PATH = CONTEXT_ROOT / "game_generation.md"
 PROMPTS_ROOT = CONTEXT_ROOT / "prompts"
 SYSTEM_PROMPT_PATH = PROMPTS_ROOT / "system.md"
@@ -294,11 +299,19 @@ def prepare(
         if general_requirement_path.is_file()
         else ""
     )
-    engine_api_path = resolve_repo_path(
-        str(task.get("engine_api_reference_path") or ""),
-        "engine_api_reference_path",
-        require_file=True,
-    )
+    if not ENGINE_CONTEXT_ROOT.is_dir():
+        raise FileNotFoundError(
+            "Engine Context directory was not found: "
+            f"{ENGINE_CONTEXT_ROOT}"
+        )
+    if not any(
+        path.is_file()
+        for path in ENGINE_CONTEXT_ROOT.glob("*_api.md")
+    ):
+        raise FileNotFoundError(
+            "Engine Context directory contains no API references: "
+            f"{ENGINE_CONTEXT_ROOT}"
+        )
     examples = _resolve_examples(task)
 
     system_prompt = read_required_text(
@@ -354,8 +367,9 @@ def prepare(
             "MOTION_SOURCES": json_text(
                 task.get("motion_sources", [])
             ),
-            "ENGINE_API_REFERENCE_PATH": str(
-                engine_api_path
+            "ENGINE": engine,
+            "ENGINE_CONTEXT_PATH": str(
+                ENGINE_CONTEXT_ROOT
             ),
             "OPTIONAL_EXAMPLE_PATHS": json_text(
                 [str(path) for path in examples]
@@ -386,7 +400,7 @@ def prepare(
         SYSTEM_PROMPT_PATH,
         TASK_PROMPT_PATH,
         REPAIR_PROMPT_PATH,
-        engine_api_path,
+        ENGINE_CONTEXT_ROOT,
         requirement_path,
         *examples,
     ]
@@ -432,8 +446,8 @@ def prepare(
                 task.get("motion_sources", []),
                 "motion_sources",
             ),
-            "engine_api_reference_path": str(
-                engine_api_path
+            "engine_context_path": str(
+                ENGINE_CONTEXT_ROOT
             ),
             "skill_path": str(SKILL_PATH),
             "prompt_template_paths": {
@@ -474,7 +488,8 @@ def prepare(
         "# Prepared Mechanic Code Generation\n\n"
         f"Packet: `{packet_path}`\n\n"
         "Read the Skill and Engine API Reference paths from the packet "
-        "before editing.\n\n"
+        "before editing. Select the one API document that matches the "
+        "task engine from the Engine Context directory.\n\n"
         "## System Guidance\n\n"
         f"{system_prompt.rstrip()}\n\n"
         "## Task Guidance\n\n"
@@ -540,19 +555,11 @@ def _direct_task(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(
             "--engine is required with --requirement-path"
         )
-    if not args.engine_api_reference:
-        raise ValueError(
-            "--engine-api-reference is required with "
-            "--requirement-path"
-        )
     task: dict[str, Any] = {
         "game_id": args.game,
         "task_id": args.task_id or "demo",
         "engine": args.engine,
         "requirement_path": args.requirement_path,
-        "engine_api_reference_path": (
-            args.engine_api_reference
-        ),
         "project_name": args.project_name,
         "gameplay_module_name": args.module_name,
         "example_paths": list(args.example),
@@ -616,9 +623,9 @@ def _prepare_command(args: argparse.Namespace) -> int:
                 "skill_path": packet["context"][
                     "skill_path"
                 ],
-                "engine_api_reference_path": packet[
+                "engine_context_path": packet[
                     "context"
-                ]["engine_api_reference_path"],
+                ]["engine_context_path"],
             },
             indent=2,
             ensure_ascii=False,
@@ -676,10 +683,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_parser.add_argument(
         "--requirement-path",
-        default=None,
-    )
-    prepare_parser.add_argument(
-        "--engine-api-reference",
         default=None,
     )
     prepare_parser.add_argument("--engine", default=None)

@@ -11,36 +11,44 @@ Read all provided context before editing:
 - the general game requirement, when present;
 - acceptance criteria;
 - generated asset and motion descriptors;
-- exactly one selected Engine API Reference;
+- the target Engine identifier;
+- the read-only Engine Context directory;
 - this Skill;
 - optional read-only examples.
 
-Task requirements define behavior. The Engine API Reference defines the
-callable engine surface. Examples are lower-priority implementation references
-only.
+Task requirements define behavior. Inspect the Engine Context directory and
+select exactly one API Reference that matches the target Engine identifier.
+That selected document defines the callable engine surface. Examples are
+lower-priority implementation references only.
 
 ## Workflow
 
 1. Inspect the existing workspace and preserve compatible generated work.
 2. Map every acceptance criterion to game-owned source, observable state, and
    at least one meaningful engine-native test.
-3. Choose architecture appropriate to the selected engine without extending
+3. List the Engine Context directory, identify the API document matching the
+   task Engine, and read it before making concrete engine calls.
+4. Choose architecture appropriate to the selected engine without extending
    or modifying adapter-owned framework internals.
-4. Consume generated inputs through the supplied descriptors.
-5. Generate the game-owned extension, configuration, test source, and any
+5. Consume generated inputs through the supplied descriptors.
+6. Generate the game-owned extension, configuration, test source, and any
    task-required launch or trace files.
-6. Keep behavior deterministic where the requirement needs replay or automated
+7. Keep behavior deterministic where the requirement needs replay or automated
    verification.
-7. Review the generated files against the requirement before finalization.
+8. Review the generated files against the requirement before finalization.
 
 ## Hard Boundaries
 
 - Write only inside the prepared workspace.
-- Treat task inputs, Engine API References, Skills, Prompts, and examples as
+- Treat task inputs, Engine Context documents, Skills, Prompts, and examples as
   read-only.
 - Do not modify `meta.json`, `demo_outputs/`, or evaluation artifacts.
+- Select only the API document matching the task Engine. Do not read concrete
+  APIs from unrelated engine documents. Do not mix APIs from multiple engines.
+- If no matching non-empty API document exists, report the missing context and
+  do not invent an engine API.
 - Use only public APIs and public framework contracts documented in the
-  selected Engine API Reference.
+  selected matching Engine API Reference.
 - Do not import, copy, or modify adapter internals.
 - Do not invent generated asset paths or bypass supplied descriptors.
 - Do not depend on optional examples, inherit their concrete game classes, or

@@ -66,14 +66,22 @@ Generated motion descriptors:
 {{MOTION_SOURCES}}
 ```
 
-Selected Engine API Reference file:
+Target Engine identifier:
 
 ```text
-{{ENGINE_API_REFERENCE_PATH}}
+{{ENGINE}}
 ```
 
-Read the selected API file when concrete engine calls are needed. Do not copy
-the complete API surface into this Prompt or the generated source.
+Engine Context directory:
+
+```text
+{{ENGINE_CONTEXT_PATH}}
+```
+
+List this directory and select exactly one API document matching the target
+Engine identifier. Read that document before making concrete engine calls.
+Do not mix APIs from other engine documents, and do not copy the complete API
+surface into this Prompt or the generated source.
 
 Optional read-only example paths:
 
