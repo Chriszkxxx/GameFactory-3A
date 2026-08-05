@@ -80,7 +80,7 @@ class UERuntimeClient:
                 "-NoSplash",
                 "-Log",
                 (
-                    "-AAAGameRuntimeInputPort="
+                    "-A3GameRuntimeInputPort="
                     f"{self._config.runtime_port}"
                 ),
             ]

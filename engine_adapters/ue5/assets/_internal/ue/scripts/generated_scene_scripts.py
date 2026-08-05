@@ -388,7 +388,7 @@ def build_generated_scene_map_script(
                     ground.set_actor_scale3d(
                         unreal.Vector(20.0, 20.0, 1.0)
                     )
-                    ground.set_actor_label("AAAGame_DefaultGround")
+                    ground.set_actor_label("A3Game_DefaultGround")
                     mesh_collision = _ensure_static_mesh_collision(ground_mesh)
                     component_collision = _component_collision(
                         ground_component
@@ -445,7 +445,7 @@ def build_generated_scene_map_script(
                             max(float(size.z), 1.0) / 100.0,
                         )
                     )
-                    guard.set_actor_label("AAAGame_SafetyFloor")
+                    guard.set_actor_label("A3Game_SafetyFloor")
                     mesh_collision = _ensure_static_mesh_collision(floor_mesh)
                     component_collision = _component_collision(
                         guard_component
@@ -668,7 +668,7 @@ def build_generated_scene_map_script(
             _rotator(spawn_transform.get("rotation")),
         )
         if player_start is not None:
-            player_start.set_actor_label("AAAGame_PlayerStart")
+            player_start.set_actor_label("A3Game_PlayerStart")
         resolved_spawn_transform = dict(spawn_transform)
         resolved_spawn_transform["location"] = _vector_dict(
             resolved_spawn_location
@@ -681,14 +681,14 @@ def build_generated_scene_map_script(
                 _rotator({{"pitch": -45.0, "yaw": -30.0, "roll": 0.0}}),
             )
             if directional is not None:
-                directional.set_actor_label("AAAGame_DirectionalLight")
+                directional.set_actor_label("A3Game_DirectionalLight")
             sky = _spawn_actor(
                 unreal.SkyLight,
                 unreal.Vector(0.0, 0.0, 500.0),
                 _rotator({{}}),
             )
             if sky is not None:
-                sky.set_actor_label("AAAGame_SkyLight")
+                sky.set_actor_label("A3Game_SkyLight")
 
         if placement_failures:
             raise RuntimeError(

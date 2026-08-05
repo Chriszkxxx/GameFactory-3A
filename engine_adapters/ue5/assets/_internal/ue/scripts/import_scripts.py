@@ -15,7 +15,7 @@ def _ue_import_helpers_script() -> str:
                 obj.set_editor_property(property_name, value)
                 return True
             except Exception as exc:
-                unreal.log_warning(f"[AAAGame] 跳过属性 {property_name}: {exc}")
+                unreal.log_warning(f"[A3Game] 跳过属性 {property_name}: {exc}")
                 return False
 
         def _new_import_task(source_path, dest_path, destination_name=""):
@@ -36,7 +36,7 @@ def _ue_import_helpers_script() -> str:
                 raise RuntimeError(f"{label} 导入没有返回任何资产路径，请查看 UE Output Log")
             imported_paths = [str(path) for path in paths]
             for path in imported_paths:
-                unreal.log(f"[AAAGame] Imported {label}: {path}")
+                unreal.log(f"[A3Game] Imported {label}: {path}")
             _save_imported_assets(imported_paths, task.get_editor_property("destination_path"))
             return imported_paths
 
@@ -47,14 +47,14 @@ def _ue_import_helpers_script() -> str:
                     if asset is not None:
                         unreal.EditorAssetLibrary.save_loaded_asset(asset, only_if_is_dirty=False)
                 except Exception as exc:
-                    unreal.log_warning(f"[AAAGame] 保存导入资产失败 {asset_path}: {exc}")
+                    unreal.log_warning(f"[A3Game] 保存导入资产失败 {asset_path}: {exc}")
 
             if dest_path:
                 try:
                     unreal.EditorAssetLibrary.save_directory(dest_path, only_if_is_dirty=False, recursive=True)
-                    unreal.log(f"[AAAGame] Saved import directory: {dest_path}")
+                    unreal.log(f"[A3Game] Saved import directory: {dest_path}")
                 except Exception as exc:
-                    unreal.log_warning(f"[AAAGame] 保存导入目录失败 {dest_path}: {exc}")
+                    unreal.log_warning(f"[A3Game] 保存导入目录失败 {dest_path}: {exc}")
 
         def _static_mesh_collision(asset):
             body_setup = None
@@ -187,7 +187,7 @@ def _build_fbx_import_script(
         _set_property(options, "import_animations", {should_import_animations!r})
         task.set_editor_property("options", options)
         imported_paths = _run_import_task(task, {label!r})
-        print("AAAGAME_IMPORTED:" + repr(imported_paths))
+        print("A3GAME_IMPORTED:" + repr(imported_paths))
     """)
 
 
@@ -217,7 +217,7 @@ def _build_scene_import_script(
             _set_property(options.static_mesh_import_data, "auto_generate_collision", {bool(generate_collision)!r})
             _set_property(options.static_mesh_import_data, "combine_meshes", {bool(combine_meshes)!r})
         except Exception as exc:
-            unreal.log_warning(f"[AAAGame] 设置 FBX StaticMesh 导入选项失败: {{exc}}")
+            unreal.log_warning(f"[A3Game] 设置 FBX StaticMesh 导入选项失败: {{exc}}")
         task.set_editor_property("options", options)
         imported_paths = _run_import_task(task, {label!r})
 
@@ -234,8 +234,8 @@ def _build_scene_import_script(
                 audit["path"] = asset_path
                 collision_audit.append(audit)
 
-        print("AAAGAME_COLLISION_AUDIT:" + repr(collision_audit))
-        print("AAAGAME_IMPORTED:" + repr(imported_paths))
+        print("A3GAME_COLLISION_AUDIT:" + repr(collision_audit))
+        print("A3GAME_IMPORTED:" + repr(imported_paths))
     """)
 
 
@@ -264,8 +264,8 @@ def _build_scene_generic_import_script(
                 )
                 audit["path"] = asset_path
                 collision_audit.append(audit)
-        print("AAAGAME_COLLISION_AUDIT:" + repr(collision_audit))
-        print("AAAGAME_IMPORTED:" + repr(imported_paths))
+        print("A3GAME_COLLISION_AUDIT:" + repr(collision_audit))
+        print("A3GAME_IMPORTED:" + repr(imported_paths))
     """)
 
 
@@ -275,7 +275,7 @@ def _build_generic_import_script(local_path: str, dest_path: str, label: str) ->
         dest_path = {dest_path!r}
         task = _new_import_task(source_path, dest_path)
         imported_paths = _run_import_task(task, {label!r})
-        print("AAAGAME_IMPORTED:" + repr(imported_paths))
+        print("A3GAME_IMPORTED:" + repr(imported_paths))
     """)
 
 
@@ -301,7 +301,7 @@ def _build_motion_import_script(local_path: str, dest_path: str, skeleton_asset_
         skeleton_asset_path = {skeleton_asset_path!r}
         avatar_name = {avatar_name!r}
         if avatar_name:
-            unreal.log("[AAAGame] Motion avatar_name hint: " + avatar_name)
+            unreal.log("[A3Game] Motion avatar_name hint: " + avatar_name)
 
         task = _new_import_task(source_path, dest_path, {motion_name!r})
         options = unreal.FbxImportUI()
@@ -331,5 +331,5 @@ def _build_motion_import_script(local_path: str, dest_path: str, skeleton_asset_
 
         task.set_editor_property("options", options)
         imported_paths = _run_import_task(task, "Motion FBX")
-        print("AAAGAME_IMPORTED_MOTION:" + repr(imported_paths))
+        print("A3GAME_IMPORTED_MOTION:" + repr(imported_paths))
     """)

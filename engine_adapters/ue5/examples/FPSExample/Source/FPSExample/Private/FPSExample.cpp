@@ -12,7 +12,7 @@
 #include "GameFramework/DamageType.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
-#include "Subsystems/AAAGameRuntimeSubsystem.h"
+#include "Subsystems/A3GameRuntimeSubsystem.h"
 
 IMPLEMENT_MODULE(FFPSExampleModule, FPSExample)
 
@@ -22,7 +22,7 @@ AAAFPSCharacter::AAAFPSCharacter()
     bUseControllerRotationYaw = true;
 
     RuntimeEntityComponent =
-        CreateDefaultSubobject<UAAAGameRuntimeEntityComponent>(
+        CreateDefaultSubobject<UA3GameRuntimeEntityComponent>(
             TEXT("RuntimeEntity"));
 
     GetCapsuleComponent()->InitCapsuleSize(42.0f, 88.0f);
@@ -103,7 +103,7 @@ void AAAFPSCharacter::SetRuntimeEntityId_Implementation(
 }
 
 bool AAAFPSCharacter::ApplyRuntimeInput_Implementation(
-    const FAAAGameRuntimeInputState& InputState)
+    const FA3GameRuntimeInputState& InputState)
 {
     if (!RuntimeEntityComponent
         || !RuntimeEntityComponent->ApplyRuntimeInput(InputState))
@@ -131,12 +131,12 @@ bool AAAFPSCharacter::ApplyRuntimeInput_Implementation(
     return true;
 }
 
-FAAAGameEntitySnapshot AAAFPSCharacter::
+FA3GameEntitySnapshot AAAFPSCharacter::
 GetRuntimeSnapshot_Implementation() const
 {
     return RuntimeEntityComponent
         ? RuntimeEntityComponent->GetRuntimeSnapshot()
-        : FAAAGameEntitySnapshot();
+        : FA3GameEntitySnapshot();
 }
 
 void AAAFPSCharacter::ApplyControlInput(
@@ -190,7 +190,7 @@ bool AAAFPSCharacter::FireWeapon()
         : GetActorForwardVector();
     const FVector End = Start + Direction * WeaponRange;
     FCollisionQueryParams Params(
-        SCENE_QUERY_STAT(AAAGameFPSWeapon),
+        SCENE_QUERY_STAT(A3GameFPSWeapon),
         true,
         this);
     Params.AddIgnoredActor(this);
@@ -529,7 +529,7 @@ void AAAFPSGameMode::StartPlay()
     if (Target)
     {
         Target->SetTeamId(1);
-        Target->Tags.AddUnique(FName(TEXT("AAAGameFPSTarget")));
+        Target->Tags.AddUnique(FName(TEXT("A3GameFPSTarget")));
     }
 }
 
@@ -544,7 +544,7 @@ void AAAFPSGameMode::RestartEncounter()
 }
 
 AActor* UAAAFPSEntityFactory::SpawnRuntimeEntity_Implementation(
-    const FAAAGameEntitySpawnRequest& Request)
+    const FA3GameEntitySpawnRequest& Request)
 {
     UWorld* World = GetWorld();
     if (!World)
@@ -559,7 +559,7 @@ AActor* UAAAFPSEntityFactory::SpawnRuntimeEntity_Implementation(
     {
         return nullptr;
     }
-    IAAAGameControllableEntity::Execute_SetRuntimeEntityId(
+    IA3GameControllableEntity::Execute_SetRuntimeEntityId(
         Character,
         Request.EntityId);
     if (const FString* TeamValue =
@@ -581,14 +581,14 @@ void UAAAFPSRuntimeSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 {
     Super::OnWorldBeginPlay(InWorld);
     EntityFactory = NewObject<UAAAFPSEntityFactory>(&InWorld);
-    if (UAAAGameRuntimeSubsystem* Runtime =
-        InWorld.GetSubsystem<UAAAGameRuntimeSubsystem>())
+    if (UA3GameRuntimeSubsystem* Runtime =
+        InWorld.GetSubsystem<UA3GameRuntimeSubsystem>())
     {
         Runtime->SetEntityFactory(EntityFactory);
         UE_LOG(
             LogTemp,
             Display,
-            TEXT("[AAAGame] FPS example factory registered"));
+            TEXT("[A3Game] FPS example factory registered"));
     }
 }
 
@@ -596,8 +596,8 @@ void UAAAFPSRuntimeSubsystem::Deinitialize()
 {
     if (UWorld* World = GetWorld())
     {
-        if (UAAAGameRuntimeSubsystem* Runtime =
-            World->GetSubsystem<UAAAGameRuntimeSubsystem>())
+        if (UA3GameRuntimeSubsystem* Runtime =
+            World->GetSubsystem<UA3GameRuntimeSubsystem>())
         {
             Runtime->SetEntityFactory(nullptr);
         }

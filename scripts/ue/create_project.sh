@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 export PYTHONPATH="${REPOSITORY_ROOT}:${PYTHONPATH:-}"
 
-PYTHON_BIN="${AAAGAME_PYTHON:-}"
+PYTHON_BIN="${A3GAME_PYTHON:-}"
 if [[ -z "${PYTHON_BIN}" ]]; then
   if command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="python3"

@@ -14,7 +14,7 @@ from ..config import UEClientConfig
 from ..contracts import UEOperationResult
 
 
-FRAMEWORK_PLUGIN_NAME = "AAAGamePlayable"
+FRAMEWORK_PLUGIN_NAME = "A3GamePlayable"
 FRAMEWORK_PLUGIN_ROOT = (
     Path(__file__).resolve().parent
     / FRAMEWORK_PLUGIN_NAME
@@ -259,7 +259,7 @@ class UEPluginClient:
         if not descriptor.is_file():
             return UEOperationResult.failure(
                 "plugin.install_framework",
-                "AAAGamePlayable framework source was not found: "
+                "A3GamePlayable framework source was not found: "
                 f"{descriptor}",
             ).to_dict()
         target = (

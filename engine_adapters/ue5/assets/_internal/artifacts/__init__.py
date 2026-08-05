@@ -1,4 +1,4 @@
-"""AAAGame artifact records and registry."""
+"""A3Game artifact records and registry."""
 
 from .models import ArtifactRecord, build_artifact_records
 from .registry import ArtifactRegistry

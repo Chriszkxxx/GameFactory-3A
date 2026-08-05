@@ -12,7 +12,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
-#include "Subsystems/AAAGameRuntimeSubsystem.h"
+#include "Subsystems/A3GameRuntimeSubsystem.h"
 
 IMPLEMENT_MODULE(FArenaFighterExampleModule, ArenaFighterExample)
 
@@ -21,7 +21,7 @@ AAAArenaFighterCharacter::AAAArenaFighterCharacter()
     PrimaryActorTick.bCanEverTick = false;
 
     RuntimeEntityComponent =
-        CreateDefaultSubobject<UAAAGameRuntimeEntityComponent>(
+        CreateDefaultSubobject<UA3GameRuntimeEntityComponent>(
             TEXT("RuntimeEntity"));
 
     GetCapsuleComponent()->InitCapsuleSize(42.0f, 88.0f);
@@ -99,7 +99,7 @@ SetRuntimeEntityId_Implementation(const FString& EntityId)
 }
 
 bool AAAArenaFighterCharacter::ApplyRuntimeInput_Implementation(
-    const FAAAGameRuntimeInputState& InputState)
+    const FA3GameRuntimeInputState& InputState)
 {
     if (!RuntimeEntityComponent
         || !RuntimeEntityComponent->ApplyRuntimeInput(InputState))
@@ -115,12 +115,12 @@ bool AAAArenaFighterCharacter::ApplyRuntimeInput_Implementation(
     return true;
 }
 
-FAAAGameEntitySnapshot AAAArenaFighterCharacter::
+FA3GameEntitySnapshot AAAArenaFighterCharacter::
 GetRuntimeSnapshot_Implementation() const
 {
     return RuntimeEntityComponent
         ? RuntimeEntityComponent->GetRuntimeSnapshot()
-        : FAAAGameEntitySnapshot();
+        : FA3GameEntitySnapshot();
 }
 
 void AAAArenaFighterCharacter::ApplyControlInput(
@@ -547,7 +547,7 @@ void AAAArenaFighterGameMode::StartPlay()
     {
         Opponent->SetTeamId(1);
         Opponent->Tags.AddUnique(
-            FName(TEXT("AAAGameArenaOpponent")));
+            FName(TEXT("A3GameArenaOpponent")));
     }
 }
 
@@ -563,7 +563,7 @@ void AAAArenaFighterGameMode::RestartArena()
 
 AActor* UAAArenaFighterEntityFactory::
 SpawnRuntimeEntity_Implementation(
-    const FAAAGameEntitySpawnRequest& Request)
+    const FA3GameEntitySpawnRequest& Request)
 {
     UWorld* World = GetWorld();
     if (!World)
@@ -579,7 +579,7 @@ SpawnRuntimeEntity_Implementation(
     {
         return nullptr;
     }
-    IAAAGameControllableEntity::Execute_SetRuntimeEntityId(
+    IA3GameControllableEntity::Execute_SetRuntimeEntityId(
         Fighter,
         Request.EntityId);
     if (const FString* TeamValue =
@@ -603,15 +603,15 @@ void UAAArenaFighterRuntimeSubsystem::OnWorldBeginPlay(
     Super::OnWorldBeginPlay(InWorld);
     EntityFactory =
         NewObject<UAAArenaFighterEntityFactory>(&InWorld);
-    if (UAAAGameRuntimeSubsystem* Runtime =
-        InWorld.GetSubsystem<UAAAGameRuntimeSubsystem>())
+    if (UA3GameRuntimeSubsystem* Runtime =
+        InWorld.GetSubsystem<UA3GameRuntimeSubsystem>())
     {
         Runtime->SetEntityFactory(EntityFactory);
         UE_LOG(
             LogTemp,
             Display,
             TEXT(
-                "[AAAGame] Arena Fighter example factory "
+                "[A3Game] Arena Fighter example factory "
                 "registered"));
     }
 }
@@ -620,8 +620,8 @@ void UAAArenaFighterRuntimeSubsystem::Deinitialize()
 {
     if (UWorld* World = GetWorld())
     {
-        if (UAAAGameRuntimeSubsystem* Runtime =
-            World->GetSubsystem<UAAAGameRuntimeSubsystem>())
+        if (UA3GameRuntimeSubsystem* Runtime =
+            World->GetSubsystem<UA3GameRuntimeSubsystem>())
         {
             Runtime->SetEntityFactory(nullptr);
         }

@@ -12,7 +12,7 @@ public class FPSExample : ModuleRules
             "CoreUObject",
             "Engine",
             "InputCore",
-            "AAAGamePlayable"
+            "A3GamePlayable"
         });
     }
 }

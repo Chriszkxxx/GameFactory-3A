@@ -1,9 +1,9 @@
 @echo off
 setlocal EnableExtensions
-for %%I in ("%~dp0..\..") do set "AAAGAME_REPO_ROOT=%%~fI"
-set "PYTHONPATH=%AAAGAME_REPO_ROOT%;%PYTHONPATH%"
-if defined AAAGAME_PYTHON (
-  "%AAAGAME_PYTHON%" -m engine_adapters.ue5.cli import-asset %*
+for %%I in ("%~dp0..\..") do set "A3GAME_REPO_ROOT=%%~fI"
+set "PYTHONPATH=%A3GAME_REPO_ROOT%;%PYTHONPATH%"
+if defined A3GAME_PYTHON (
+  "%A3GAME_PYTHON%" -m engine_adapters.ue5.cli import-asset %*
 ) else (
   python -m engine_adapters.ue5.cli import-asset %*
 )

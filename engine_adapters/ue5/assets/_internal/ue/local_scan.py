@@ -32,7 +32,7 @@ TECHNICAL_AVATAR_SUFFIXES = (
 
 def list_local_imported_assets(asset_type: str) -> list[dict]:
     configured_project = (
-        os.environ.get("AAAGAME_UE_PROJECT", "").strip()
+        os.environ.get("A3GAME_UE_PROJECT", "").strip()
     )
     if not configured_project:
         return []

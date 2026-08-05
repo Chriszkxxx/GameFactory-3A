@@ -1,4 +1,4 @@
-"""Import generated scene sources into an AAAGame world package."""
+"""Import generated scene sources into an A3Game world package."""
 
 from __future__ import annotations
 
@@ -1392,7 +1392,7 @@ class SceneImportService:
         actor_specs = [
             {
                 "entity_id": plan.entity_id,
-                "actor_label": f"AAAGame_{plan.entity_id}",
+                "actor_label": f"A3Game_{plan.entity_id}",
                 "asset_path": plan.backend_path,
                 "backend_class": plan.backend_class,
                 "collision": plan.collision,
@@ -1459,7 +1459,7 @@ class SceneImportService:
                 "spawn_point_source": (
                     "generated_ground_trace"
                     if map_build.get("player_start_grounded")
-                    else "aaagame_scene_package"
+                    else "a3game_scene_package"
                 ),
                 "collidable": bool(
                     (map_build.get("collision") or {}).get("collidable")

@@ -1,4 +1,4 @@
-"""WorldSpec schema definitions for AAAGame world composition."""
+"""WorldSpec schema definitions for A3Game world composition."""
 
 from __future__ import annotations
 

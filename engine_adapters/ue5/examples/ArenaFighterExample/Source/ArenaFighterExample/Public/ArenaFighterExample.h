@@ -1,13 +1,13 @@
 #pragma once
 
-#include "Components/AAAGameRuntimeEntityComponent.h"
+#include "Components/A3GameRuntimeEntityComponent.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/HUD.h"
 #include "GameFramework/PlayerController.h"
-#include "Interfaces/AAAGameControllableEntity.h"
-#include "Interfaces/AAAGameEntityFactory.h"
+#include "Interfaces/A3GameControllableEntity.h"
+#include "Interfaces/A3GameEntityFactory.h"
 #include "Modules/ModuleManager.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "ArenaFighterExample.generated.h"
@@ -18,7 +18,7 @@ class USpringArmComponent;
 UCLASS(Blueprintable)
 class ARENAFIGHTEREXAMPLE_API AAAArenaFighterCharacter
     : public ACharacter
-    , public IAAAGameControllableEntity
+    , public IA3GameControllableEntity
 {
     GENERATED_BODY()
 
@@ -37,77 +37,77 @@ public:
     virtual void SetRuntimeEntityId_Implementation(
         const FString& EntityId) override;
     virtual bool ApplyRuntimeInput_Implementation(
-        const FAAAGameRuntimeInputState& InputState) override;
-    virtual FAAAGameEntitySnapshot
+        const FA3GameRuntimeInputState& InputState) override;
+    virtual FA3GameEntitySnapshot
         GetRuntimeSnapshot_Implementation() const override;
 
-    UFUNCTION(BlueprintCallable, Category = "AAAGame|Arena Fighter")
+    UFUNCTION(BlueprintCallable, Category = "A3Game|Arena Fighter")
     void ApplyControlInput(
         float MoveX,
         float MoveY,
         bool bRun,
         bool bJump);
 
-    UFUNCTION(BlueprintCallable, Category = "AAAGame|Arena Fighter")
+    UFUNCTION(BlueprintCallable, Category = "A3Game|Arena Fighter")
     bool PerformAttack(bool bHeavy);
 
-    UFUNCTION(BlueprintCallable, Category = "AAAGame|Arena Fighter")
+    UFUNCTION(BlueprintCallable, Category = "A3Game|Arena Fighter")
     void ResetFighter();
 
-    UFUNCTION(BlueprintPure, Category = "AAAGame|Arena Fighter")
+    UFUNCTION(BlueprintPure, Category = "A3Game|Arena Fighter")
     float GetHealthPercent() const;
 
-    UFUNCTION(BlueprintPure, Category = "AAAGame|Arena Fighter")
+    UFUNCTION(BlueprintPure, Category = "A3Game|Arena Fighter")
     bool IsDefeated() const
     {
         return Health <= 0.0f;
     }
 
-    UFUNCTION(BlueprintPure, Category = "AAAGame|Arena Fighter")
+    UFUNCTION(BlueprintPure, Category = "A3Game|Arena Fighter")
     int32 GetTeamId() const
     {
         return TeamId;
     }
 
-    UFUNCTION(BlueprintCallable, Category = "AAAGame|Arena Fighter")
+    UFUNCTION(BlueprintCallable, Category = "A3Game|Arena Fighter")
     void SetTeamId(int32 InTeamId)
     {
         TeamId = InTeamId;
     }
 
 private:
-    UPROPERTY(VisibleAnywhere, Category = "AAAGame|Runtime")
-    TObjectPtr<UAAAGameRuntimeEntityComponent>
+    UPROPERTY(VisibleAnywhere, Category = "A3Game|Runtime")
+    TObjectPtr<UA3GameRuntimeEntityComponent>
         RuntimeEntityComponent;
 
-    UPROPERTY(VisibleAnywhere, Category = "AAAGame|Camera")
+    UPROPERTY(VisibleAnywhere, Category = "A3Game|Camera")
     TObjectPtr<USpringArmComponent> CameraBoom;
 
-    UPROPERTY(VisibleAnywhere, Category = "AAAGame|Camera")
+    UPROPERTY(VisibleAnywhere, Category = "A3Game|Camera")
     TObjectPtr<UCameraComponent> FollowCamera;
 
-    UPROPERTY(EditAnywhere, Category = "AAAGame|Arena Fighter")
+    UPROPERTY(EditAnywhere, Category = "A3Game|Arena Fighter")
     float MaxHealth = 100.0f;
 
-    UPROPERTY(VisibleAnywhere, Category = "AAAGame|Arena Fighter")
+    UPROPERTY(VisibleAnywhere, Category = "A3Game|Arena Fighter")
     float Health = 100.0f;
 
-    UPROPERTY(EditAnywhere, Category = "AAAGame|Arena Fighter")
+    UPROPERTY(EditAnywhere, Category = "A3Game|Arena Fighter")
     float WalkSpeed = 520.0f;
 
-    UPROPERTY(EditAnywhere, Category = "AAAGame|Arena Fighter")
+    UPROPERTY(EditAnywhere, Category = "A3Game|Arena Fighter")
     float RunSpeed = 850.0f;
 
-    UPROPERTY(EditAnywhere, Category = "AAAGame|Arena Fighter")
+    UPROPERTY(EditAnywhere, Category = "A3Game|Arena Fighter")
     float AttackRange = 220.0f;
 
-    UPROPERTY(EditAnywhere, Category = "AAAGame|Arena Fighter")
+    UPROPERTY(EditAnywhere, Category = "A3Game|Arena Fighter")
     float LightDamage = 18.0f;
 
-    UPROPERTY(EditAnywhere, Category = "AAAGame|Arena Fighter")
+    UPROPERTY(EditAnywhere, Category = "A3Game|Arena Fighter")
     float HeavyDamage = 30.0f;
 
-    UPROPERTY(VisibleAnywhere, Category = "AAAGame|Arena Fighter")
+    UPROPERTY(VisibleAnywhere, Category = "A3Game|Arena Fighter")
     int32 TeamId = INDEX_NONE;
 
     FTransform InitialTransform = FTransform::Identity;
@@ -178,20 +178,20 @@ public:
     AAAArenaFighterGameMode();
     virtual void StartPlay() override;
 
-    UFUNCTION(BlueprintCallable, Category = "AAAGame|Arena Fighter")
+    UFUNCTION(BlueprintCallable, Category = "A3Game|Arena Fighter")
     void RestartArena();
 };
 
 UCLASS()
 class ARENAFIGHTEREXAMPLE_API UAAArenaFighterEntityFactory
     : public UObject
-    , public IAAAGameEntityFactory
+    , public IA3GameEntityFactory
 {
     GENERATED_BODY()
 
 public:
     virtual AActor* SpawnRuntimeEntity_Implementation(
-        const FAAAGameEntitySpawnRequest& Request) override;
+        const FA3GameEntitySpawnRequest& Request) override;
 };
 
 UCLASS()

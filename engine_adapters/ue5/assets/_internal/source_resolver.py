@@ -1,4 +1,4 @@
-"""Resolve generated AAAGame artifacts from task descriptors."""
+"""Resolve generated A3Game artifacts from task descriptors."""
 
 from __future__ import annotations
 

@@ -300,7 +300,7 @@ def prepare_gaussian_splat_source(
         return
 
     with tempfile.TemporaryDirectory(
-        prefix="aaagame-gaussian-ply-"
+        prefix="a3game-gaussian-ply-"
     ) as temp_dir:
         output = Path(temp_dir) / source.name
         summary = convert_gaussian_splat_ply_for_xv3dgs(

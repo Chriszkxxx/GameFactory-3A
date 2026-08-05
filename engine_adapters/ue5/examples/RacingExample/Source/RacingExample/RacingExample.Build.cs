@@ -12,7 +12,7 @@ public class RacingExample : ModuleRules
             "CoreUObject",
             "Engine",
             "InputCore",
-            "AAAGamePlayable"
+            "A3GamePlayable"
         });
     }
 }

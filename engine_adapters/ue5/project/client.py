@@ -274,7 +274,7 @@ def _write_project_files(
         encoding="utf-8",
     )
     _write_source_files(project_dir, project_name)
-    (project_dir / ".aaagame-ue.json").write_text(
+    (project_dir / ".a3game-ue.json").write_text(
         json.dumps(
             {
                 "engine": "ue5",

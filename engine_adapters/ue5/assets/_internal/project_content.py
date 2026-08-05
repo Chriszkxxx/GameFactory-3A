@@ -9,7 +9,7 @@ from typing import Any
 
 def configured_project_content_dir() -> Path | None:
     project_value = (
-        os.environ.get("AAAGAME_UE_PROJECT", "").strip()
+        os.environ.get("A3GAME_UE_PROJECT", "").strip()
     )
     if not project_value:
         return None

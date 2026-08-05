@@ -24,8 +24,8 @@ class AssetBackendRegistry:
         key = self._normalize_name(
             name
             or os.environ.get(
-                "AAAGAME_UE_ASSET_BACKEND",
-                os.environ.get("AAAGAME_ASSET_BACKEND", "ue"),
+                "A3GAME_UE_ASSET_BACKEND",
+                os.environ.get("A3GAME_ASSET_BACKEND", "ue"),
             )
         )
         with self._lock:

@@ -2,7 +2,7 @@
   "FileVersion": 3,
   "Version": 1,
   "VersionName": "1.0.0",
-  "FriendlyName": "AAAGame Arena Fighter Example",
+  "FriendlyName": "A3Game Arena Fighter Example",
   "Description": "Optional arena fighter reference gameplay plugin.",
   "Category": "AAAGameForge Examples",
   "CreatedBy": "AAAGameForge",
@@ -17,7 +17,7 @@
   ],
   "Plugins": [
     {
-      "Name": "AAAGamePlayable",
+      "Name": "A3GamePlayable",
       "Enabled": true
     }
   ]

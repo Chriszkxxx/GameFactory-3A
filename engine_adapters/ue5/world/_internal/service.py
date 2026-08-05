@@ -236,15 +236,15 @@ class WorldService:
 
     @staticmethod
     def world_actor_prefix(world_id: str) -> str:
-        return f"AAAGame_World_{world_id}_"
+        return f"A3Game_World_{world_id}_"
 
     @staticmethod
     def world_tag(world_id: str) -> str:
-        return f"AAAGameWorld:{world_id}"
+        return f"A3GameWorld:{world_id}"
 
     @staticmethod
     def entity_tag(entity_id: str) -> str:
-        return f"AAAGameEntity:{entity_id}"
+        return f"A3GameEntity:{entity_id}"
 
     @classmethod
     def actor_label(cls, world_id: str, role: str, index: int) -> str:

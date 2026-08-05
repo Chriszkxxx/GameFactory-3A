@@ -295,7 +295,7 @@ def _add_client_arguments(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="aaagame-ue")
+    parser = argparse.ArgumentParser(prog="a3game-ue")
     commands = parser.add_subparsers(
         dest="command",
         required=True,

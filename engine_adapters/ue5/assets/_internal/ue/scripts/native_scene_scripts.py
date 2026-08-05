@@ -377,7 +377,7 @@ def build_native_scene_register_script(
                         ),
                     )
                     if auto_player_start is not None:
-                        auto_player_start.set_actor_label("AAAGame_AutoPlayerStart")
+                        auto_player_start.set_actor_label("A3Game_AutoPlayerStart")
                         player_start = suggested_spawn
                         spawn_source = "auto_player_start:" + spawn_source
                         unreal.EditorLevelLibrary.save_current_level()

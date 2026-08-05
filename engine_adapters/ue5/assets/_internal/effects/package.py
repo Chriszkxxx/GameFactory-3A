@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any
 
 
-EFFECT_PACKAGE_FORMAT = "aaagame_effect"
+EFFECT_PACKAGE_FORMAT = "a3game_effect"
 EFFECT_PACKAGE_VERSION = "1.0"
-EFFECT_PACKAGE_FILENAME = "aaagame.effect.json"
+EFFECT_PACKAGE_FILENAME = "a3game.effect.json"
 LEGACY_EFFECT_PACKAGE_FORMAT = "openwl_effect"
 LEGACY_EFFECT_PACKAGE_FILENAME = "openwl.effect.json"
 EFFECT_PACKAGE_FORMATS = {

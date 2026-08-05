@@ -12,7 +12,7 @@ public class ArenaFighterExample : ModuleRules
             "CoreUObject",
             "Engine",
             "InputCore",
-            "AAAGamePlayable"
+            "A3GamePlayable"
         });
     }
 }

@@ -66,7 +66,7 @@ def _default_python_plugin_path(
     ue_root: Path | None,
 ) -> Path | None:
     configured = _first_environment_value(
-        "AAAGAME_UE_PYTHON_PLUGIN_PATH",
+        "A3GAME_UE_PYTHON_PLUGIN_PATH",
         "UE_PYTHON_PLUGIN_PATH",
     )
     if configured:
@@ -123,19 +123,19 @@ class UEClientConfig:
         resolved_root = _optional_path(
             ue_root
             or _first_environment_value(
-                "AAAGAME_UE_ROOT",
+                "A3GAME_UE_ROOT",
             )
         )
         resolved_project = _optional_path(
             project_path
             or _first_environment_value(
-                "AAAGAME_UE_PROJECT",
+                "A3GAME_UE_PROJECT",
             )
         )
         resolved_host = (
             host
             or _first_environment_value(
-                "AAAGAME_UE_HOST",
+                "A3GAME_UE_HOST",
                 "UE_HOST",
             )
             or DEFAULT_HOST
@@ -143,7 +143,7 @@ class UEClientConfig:
         resolved_port = port
         if resolved_port is None:
             configured_port = _first_environment_value(
-                "AAAGAME_UE_PORT",
+                "A3GAME_UE_PORT",
                 "UE_PORT",
             )
             resolved_port = (
@@ -158,14 +158,14 @@ class UEClientConfig:
         resolved_runtime_host = (
             runtime_host
             or _first_environment_value(
-                "AAAGAME_UE_RUNTIME_HOST",
+                "A3GAME_UE_RUNTIME_HOST",
             )
             or DEFAULT_RUNTIME_HOST
         )
         resolved_runtime_port = runtime_port
         if resolved_runtime_port is None:
             configured_runtime_port = _first_environment_value(
-                "AAAGAME_UE_RUNTIME_PORT",
+                "A3GAME_UE_RUNTIME_PORT",
             )
             resolved_runtime_port = (
                 int(configured_runtime_port)
@@ -180,7 +180,7 @@ class UEClientConfig:
         resolved_transport = (
             python_transport
             or _first_environment_value(
-                "AAAGAME_UE_PYTHON_TRANSPORT",
+                "A3GAME_UE_PYTHON_TRANSPORT",
             )
             or DEFAULT_PYTHON_TRANSPORT
         ).strip().lower()
@@ -244,8 +244,8 @@ class UEClientConfig:
     @property
     def data_root(self) -> Path:
         configured = _first_environment_value(
-            "AAAGAME_UE_DATA_ROOT",
-            "AAAGAME_DATA_ROOT",
+            "A3GAME_UE_DATA_ROOT",
+            "A3GAME_DATA_ROOT",
         )
         if configured:
             return Path(configured).expanduser().resolve(
@@ -256,7 +256,7 @@ class UEClientConfig:
             return (
                 project_file.parent
                 / "Saved"
-                / "AAAGame"
+                / "A3Game"
             )
         return (
             Path(__file__).resolve().parent
@@ -266,8 +266,8 @@ class UEClientConfig:
     @property
     def artifact_registry_path(self) -> Path:
         configured = _first_environment_value(
-            "AAAGAME_UE_ARTIFACT_REGISTRY",
-            "AAAGAME_ARTIFACT_REGISTRY",
+            "A3GAME_UE_ARTIFACT_REGISTRY",
+            "A3GAME_ARTIFACT_REGISTRY",
         )
         if configured:
             return Path(configured).expanduser().resolve(
@@ -278,8 +278,8 @@ class UEClientConfig:
     @property
     def world_registry_root(self) -> Path:
         configured = _first_environment_value(
-            "AAAGAME_UE_WORLD_REGISTRY_ROOT",
-            "AAAGAME_WORLD_REGISTRY_ROOT",
+            "A3GAME_UE_WORLD_REGISTRY_ROOT",
+            "A3GAME_WORLD_REGISTRY_ROOT",
         )
         if configured:
             return Path(configured).expanduser().resolve(

@@ -1334,7 +1334,7 @@ def convert_ply_mesh_to_glb(
             document = {
                 "asset": {
                     "version": "2.0",
-                    "generator": "AAAGame Collider PLY Preprocessor",
+                    "generator": "A3Game Collider PLY Preprocessor",
                 },
                 "scene": 0,
                 "scenes": [{"nodes": [0]}],
@@ -1497,7 +1497,7 @@ def convert_ply_mesh_to_glb_with_world_xy_cutout(
     document = {
         "asset": {
             "version": "2.0",
-            "generator": "AAAGame Collider Arena Cutout",
+            "generator": "A3Game Collider Arena Cutout",
         },
         "scene": 0,
         "scenes": [{"nodes": [0]}],
@@ -1715,7 +1715,7 @@ def prepare_mesh_source(
         )
         return
 
-    with tempfile.TemporaryDirectory(prefix="aaagame-ply-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="a3game-ply-") as temp_dir:
         output = Path(temp_dir) / f"{source.stem}.glb"
         summary = convert_ply_mesh_to_glb(source, output)
         yield PreparedMeshSource(

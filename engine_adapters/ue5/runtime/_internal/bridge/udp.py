@@ -1,4 +1,4 @@
-"""UDP transport for the AAAGamePlayable runtime receiver."""
+"""UDP transport for the A3GamePlayable runtime receiver."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 
 class RuntimeUDPBridge:
-    """Send generic session commands to AAAGamePlayable."""
+    """Send generic session commands to A3GamePlayable."""
 
     def __init__(
         self,

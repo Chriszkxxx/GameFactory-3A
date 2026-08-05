@@ -10,7 +10,7 @@
 #include "Engine/World.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
-#include "Subsystems/AAAGameRuntimeSubsystem.h"
+#include "Subsystems/A3GameRuntimeSubsystem.h"
 
 IMPLEMENT_MODULE(FRacingExampleModule, RacingExample)
 
@@ -27,7 +27,7 @@ AAARacingPawn::AAARacingPawn()
         ECollisionEnabled::QueryAndPhysics);
 
     RuntimeEntityComponent =
-        CreateDefaultSubobject<UAAAGameRuntimeEntityComponent>(
+        CreateDefaultSubobject<UA3GameRuntimeEntityComponent>(
             TEXT("RuntimeEntity"));
 
     VehicleMesh = CreateDefaultSubobject<UStaticMeshComponent>(
@@ -170,7 +170,7 @@ void AAARacingPawn::SetRuntimeEntityId_Implementation(
 }
 
 bool AAARacingPawn::ApplyRuntimeInput_Implementation(
-    const FAAAGameRuntimeInputState& InputState)
+    const FA3GameRuntimeInputState& InputState)
 {
     if (!RuntimeEntityComponent
         || !RuntimeEntityComponent->ApplyRuntimeInput(InputState))
@@ -186,12 +186,12 @@ bool AAARacingPawn::ApplyRuntimeInput_Implementation(
     return true;
 }
 
-FAAAGameEntitySnapshot AAARacingPawn::
+FA3GameEntitySnapshot AAARacingPawn::
 GetRuntimeSnapshot_Implementation() const
 {
-    FAAAGameEntitySnapshot Snapshot = RuntimeEntityComponent
+    FA3GameEntitySnapshot Snapshot = RuntimeEntityComponent
         ? RuntimeEntityComponent->GetRuntimeSnapshot()
-        : FAAAGameEntitySnapshot();
+        : FA3GameEntitySnapshot();
     Snapshot.MotionState = FString::Printf(
         TEXT("drive:%.1f"),
         GetSpeedKph());
@@ -468,7 +468,7 @@ AAARacingGameMode::AAARacingGameMode()
 
 AActor* UAAARacingEntityFactory::
 SpawnRuntimeEntity_Implementation(
-    const FAAAGameEntitySpawnRequest& Request)
+    const FA3GameEntitySpawnRequest& Request)
 {
     UWorld* World = GetWorld();
     if (!World)
@@ -483,7 +483,7 @@ SpawnRuntimeEntity_Implementation(
     {
         return nullptr;
     }
-    IAAAGameControllableEntity::Execute_SetRuntimeEntityId(
+    IA3GameControllableEntity::Execute_SetRuntimeEntityId(
         Vehicle,
         Request.EntityId);
     return Vehicle;
@@ -502,14 +502,14 @@ void UAAARacingRuntimeSubsystem::OnWorldBeginPlay(
     Super::OnWorldBeginPlay(InWorld);
     EntityFactory =
         NewObject<UAAARacingEntityFactory>(&InWorld);
-    if (UAAAGameRuntimeSubsystem* Runtime =
-        InWorld.GetSubsystem<UAAAGameRuntimeSubsystem>())
+    if (UA3GameRuntimeSubsystem* Runtime =
+        InWorld.GetSubsystem<UA3GameRuntimeSubsystem>())
     {
         Runtime->SetEntityFactory(EntityFactory);
         UE_LOG(
             LogTemp,
             Display,
-            TEXT("[AAAGame] Racing example factory registered"));
+            TEXT("[A3Game] Racing example factory registered"));
     }
 }
 
@@ -517,8 +517,8 @@ void UAAARacingRuntimeSubsystem::Deinitialize()
 {
     if (UWorld* World = GetWorld())
     {
-        if (UAAAGameRuntimeSubsystem* Runtime =
-            World->GetSubsystem<UAAAGameRuntimeSubsystem>())
+        if (UA3GameRuntimeSubsystem* Runtime =
+            World->GetSubsystem<UA3GameRuntimeSubsystem>())
         {
             Runtime->SetEntityFactory(nullptr);
         }

@@ -1,4 +1,4 @@
-"""In-memory AAAGame runtime session core.
+"""In-memory A3Game runtime session core.
 
 This service tracks participants,
 controllers, control bindings, persistent entities, and input queues, but it
@@ -196,7 +196,7 @@ class RuntimeSessionService:
                     avatar_asset_path=avatar_asset_path,
                     idle_animation_path=idle_animation_path,
                     move_animation_path=move_animation_path,
-                    actor_label=f"AAAGame_Entity_{entity_id}",
+                    actor_label=f"A3Game_Entity_{entity_id}",
                     spawn_transform=dict(transform or {}),
                     parameters=dict(parameters or {}),
                     persistent=True,
@@ -226,7 +226,7 @@ class RuntimeSessionService:
                         idle_animation_path=participant.idle_animation_path,
                         move_animation_path=participant.move_animation_path,
                         actor_label=(
-                            f"AAAGame_Entity_"
+                            f"A3Game_Entity_"
                             f"{participant.entity_id}"
                         ),
                         spawn_transform=dict(transform or {}),
@@ -457,7 +457,7 @@ class RuntimeSessionService:
                 entity.actor_label
                 if entity is not None
                 else (
-                    f"AAAGame_Entity_{entity_id}"
+                    f"A3Game_Entity_{entity_id}"
                     if entity_id
                     else ""
                 )
@@ -678,7 +678,7 @@ class RuntimeSessionService:
         self._bridge_worker_started = True
         worker = Thread(
             target=self._bridge_worker_loop,
-            name="aaagame-runtime-ue-bridge",
+            name="a3game-runtime-ue-bridge",
             daemon=True,
         )
         worker.start()

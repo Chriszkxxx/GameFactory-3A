@@ -47,7 +47,7 @@ def build_pbr_material_binding_script(
                 return True
             except Exception as exc:
                 unreal.log_warning(
-                    f"[AAAGame] 设置 {{obj}}.{{name}} 失败: {{exc}}"
+                    f"[A3Game] 设置 {{obj}}.{{name}} 失败: {{exc}}"
                 )
                 return False
 

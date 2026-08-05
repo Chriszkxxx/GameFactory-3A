@@ -152,7 +152,7 @@ def _list_skeleton_assets_with_inferred(
                 if skeleton is not None:
                     _add_skeleton(_package_path_from_object(skeleton), mesh_path)
             except Exception as exc:
-                unreal.log_warning(f"[AAAGame] 无法从 SkeletalMesh 推断 Skeleton {{mesh_path}}: {{exc}}")
+                unreal.log_warning(f"[A3Game] 无法从 SkeletalMesh 推断 Skeleton {{mesh_path}}: {{exc}}")
     """)
     return _execute_json(script, transport)
 

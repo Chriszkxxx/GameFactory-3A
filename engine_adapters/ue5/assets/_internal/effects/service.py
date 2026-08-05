@@ -1,4 +1,4 @@
-"""Import native Unreal and generated AAAGame effect packages."""
+"""Import native Unreal and generated A3Game effect packages."""
 
 from __future__ import annotations
 

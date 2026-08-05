@@ -1,4 +1,4 @@
-"""Artifact model helpers for AAAGame-managed asset lifecycle."""
+"""Artifact model helpers for A3Game-managed asset lifecycle."""
 
 from __future__ import annotations
 

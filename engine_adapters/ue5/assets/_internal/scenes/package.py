@@ -1,4 +1,4 @@
-"""Versioned AAAGame generated-scene package validation."""
+"""Versioned A3Game generated-scene package validation."""
 
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ from engine_adapters.ue5.world._internal.specs import (
 )
 
 
-SCENE_PACKAGE_FORMAT = "aaagame_scene"
+SCENE_PACKAGE_FORMAT = "a3game_scene"
 SCENE_PACKAGE_VERSION = "1.0"
-SCENE_PACKAGE_FILENAME = "aaagame.scene.json"
+SCENE_PACKAGE_FILENAME = "a3game.scene.json"
 LEGACY_SCENE_PACKAGE_FORMAT = "openwl_scene"
 LEGACY_SCENE_PACKAGE_FILENAME = "openwl.scene.json"
 SCENE_PACKAGE_FORMATS = {
