@@ -68,6 +68,11 @@ REQUIRED_RESULT_KEYS = ("task_id", "elapsed_sec", "game_id", "task_kind", "outpu
 EXTRA_TASK_FIELDS: dict[str, dict] = {
     "tpose": {"description": "A smoke-test character.", "steps": 2, "target_size": 64},
     "3d_object": {"decimation_target": 1000, "texture_size": 64},
+    "cg_video": {
+        "mode": "text_to_video",
+        "prompt": "A paper dragon flies above a mountain range.",
+        "duration_sec": 5,
+    },
 }
 
 
