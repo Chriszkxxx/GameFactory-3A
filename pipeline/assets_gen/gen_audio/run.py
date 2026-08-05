@@ -26,7 +26,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from pipeline.common import paths  # noqa: E402
-from models.gen_audio.woosh_checkpoints import (  # noqa: E402
+from models.gen_audio.woosh_utils import (  # noqa: E402
     DEFAULT_WOOSH_RELEASE_BASE_URL,
 )
 
@@ -41,7 +41,7 @@ DEFAULT_TASKS = paths.collect_jsonl(TASK_KIND)
 
 
 def load_dialogue_model(ckpt: str, device: str = "cuda"):
-    from models.gen_audio.qwen3_tts import Qwen3TTSModel
+    from models.gen_audio.qwen3_tts_model import Qwen3TTSModel
 
     print(f"[run] Loading Qwen3TTSModel from: {ckpt}")
     return Qwen3TTSModel(model_path=ckpt, device=device)
@@ -57,7 +57,7 @@ def load_sound_effect_model(
     auto_download: bool = True,
     release_base_url: str | None = None,
 ):
-    from models.gen_audio.woosh_dflow import WooshDFlowModel
+    from models.gen_audio.woosh_model import WooshDFlowModel
 
     release_base_url = release_base_url or os.environ.get(
         "WOOSH_RELEASE_BASE_URL",

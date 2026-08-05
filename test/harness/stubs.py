@@ -397,7 +397,7 @@ class StubQwenEditModel(_StubBase):
 
 
 class StubQwen3TTSModel(_StubBase):
-    """Mimics ``models.gen_audio.qwen3_tts.Qwen3TTSModel``."""
+    """Mimics ``models.gen_audio.qwen3_tts_model.Qwen3TTSModel``."""
 
     def infer(self, text: str, seed: int = 42, **kw) -> dict:
         sample_rate = 24_000
@@ -411,7 +411,7 @@ class StubQwen3TTSModel(_StubBase):
 
 
 class StubWooshDFlowModel(_StubBase):
-    """Mimics ``models.gen_audio.woosh_dflow.WooshDFlowModel``."""
+    """Mimics ``models.gen_audio.woosh_model.WooshDFlowModel``."""
 
     def infer(self, prompt: str, seed: int = 42, duration_sec=None, **kw) -> dict:
         sample_rate = 48_000

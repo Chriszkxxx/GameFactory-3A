@@ -72,7 +72,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   │   └── pipeline_collect.jsonl
 │   └── outputs/              # Single fixed output root — mirrors test_samples/
 │       └── <game_id>/<run_id>/
-│           ├── assets/{3d_object,tpose,3d_scene,motion,cg_video,audio,retarget}/<task_id>/
+│           ├── assets/{3d_object,tpose,3d_scene,motion,cg_video,retarget}/<task_id>/
 │           ├── mechanic/<task_id>/ · ui/<task_id>/ · pipeline/<task_id>/
 │           └── eval/<task_kind>/<task_id>/
 │
@@ -160,13 +160,6 @@ python pipeline/assets_gen/gen_3d_object/run.py
 python pipeline/assets_gen/gen_3d_object/run.py --game gameA_cyberpunk_shooter --run-id auto
 ```
 
-For sound-effect generation, the first run automatically downloads and extracts
-`Woosh-DFlow`, `Woosh-AE`, and `TextConditionerA` into `checkpoints/`. Override
-the three destinations with `WOOSH_DFLOW_CKPT`, `WOOSH_AE_CKPT`, and
-`WOOSH_TEXT_CONDITIONER_CKPT`. For servers that use a GitHub mirror, set
-`WOOSH_RELEASE_BASE_URL` to the mirrored v1.0.0 release directory. Pass
-`--no-auto-download` to require preinstalled checkpoints instead.
-
 ## Developing a new asset-generation link
 
 `agent_skills/develop_harness/` holds the contracts for the three layers; the
@@ -188,5 +181,6 @@ python test/harness/smoke.py --kind tpose --keep
 
 ## Status
 
-Skeleton — `gen_3d_object`, `gen_tpose_image`, and `gen_audio` are implemented
-end to end; the remaining tasks are directories and empty placeholder files.
+Skeleton — `gen_3d_object` and `gen_tpose_image` are implemented end to end;
+the remaining tasks are directories and empty placeholder files.
+

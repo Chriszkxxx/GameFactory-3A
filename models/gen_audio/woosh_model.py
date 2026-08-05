@@ -14,7 +14,7 @@ import gc
 from pathlib import Path
 from typing import Any, Optional
 
-from models.gen_audio.woosh_checkpoints import (
+from models.gen_audio.woosh_utils import (
     DEFAULT_WOOSH_RELEASE_BASE_URL,
     ensure_woosh_dflow_checkpoints,
 )

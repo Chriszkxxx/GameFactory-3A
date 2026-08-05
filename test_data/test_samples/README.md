@@ -92,7 +92,7 @@ latter by `game_id`.
 
 ## Current status
 
-Only `gameA_cyberpunk_shooter/` is scaffolded. `3D_object/`, `tpose/`, and
-`audio/` have real task lines (in the `*_collect.jsonl`); everything else is an
-empty placeholder. Populate `requirement.txt` and `*_tasks.jsonl`, then add
-gameB / gameC.
+Only `gameA_cyberpunk_shooter/` is scaffolded. `3D_object/` and `tpose/` have real
+task lines (in the `*_collect.jsonl`); `audio/` is a documented template for dialogue
+and sound-effect tasks; everything else is an empty placeholder. Populate
+`requirement.txt` and `*_tasks.jsonl`, then add gameB / gameC.

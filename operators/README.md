@@ -25,7 +25,7 @@ metrics; 3D-object needs Chamfer + PBR checks; retarget needs foot-skate + jerk)
 | `gen_3d_scene`   | A     | Generate a whole 3D scene (terrain + layout + lighting)    | scene-scale, occlusion, coverage, CLIP         |
 | `gen_motion`     | A     | Generate skeletal animation                                | FID-motion, foot-skate, jerk, loop continuity  |
 | `gen_cg_video`   | A     | Generate CG / cutscene video                               | temporal consistency, optical-flow, CLIP       |
-| `gen_audio`      | A     | Generate character dialogue and game sound effects          | WAV validity, duration, sample rate, silence, loudness, clipping |
+| `gen_audio`      | A     | Generate character dialogue and game sound effects          | intelligibility, prompt alignment, fidelity, loudness |
 | `retarget`       | A     | Retarget motion between skeletons                          | foot-skate, hand-drift, source-timing preservation |
 | `gen_mechanic`   | B     | Generate mechanic code for UE5 / Unity3D                   | build-ok, trace-replay, rubric-judge           |
 | `gen_ui`         | C     | Generate front-end / HUD code                              | resolution robustness, navigability, rubric-judge |

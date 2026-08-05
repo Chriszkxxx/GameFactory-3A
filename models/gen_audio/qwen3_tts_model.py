@@ -12,6 +12,8 @@ from __future__ import annotations
 import gc
 from typing import Any, Optional
 
+from models.gen_audio.qwen3_tts_utils import resolve_mode, resolve_torch_dtype
+
 
 class Qwen3TTSModel:
     """Wrap a single Qwen3-TTS checkpoint behind the AudioGen model contract."""
@@ -36,14 +38,7 @@ class Qwen3TTSModel:
             self.load()
 
     def _resolved_mode(self) -> str:
-        if self.mode != "auto":
-            return self.mode
-        name = self.model_path.lower()
-        if "voicedesign" in name or "voice-design" in name:
-            return "voice_design"
-        if "base" in name:
-            return "voice_clone"
-        return "custom_voice"
+        return resolve_mode(self.model_path, self.mode)
 
     def load(self) -> None:
         """Load or reload the configured checkpoint."""
@@ -59,17 +54,7 @@ class Qwen3TTSModel:
                 "See https://github.com/QwenLM/Qwen3-TTS for supported CUDA/Python versions."
             ) from exc
 
-        if self.dtype:
-            try:
-                resolved_dtype = getattr(torch, self.dtype)
-            except AttributeError as exc:
-                raise ValueError(f"Unsupported torch dtype: {self.dtype!r}") from exc
-        elif self.device.startswith("cuda"):
-            resolved_dtype = (
-                torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            )
-        else:
-            resolved_dtype = torch.float32
+        resolved_dtype = resolve_torch_dtype(torch, self.device, self.dtype)
 
         kwargs: dict[str, Any] = {
             "device_map": "cuda:0" if self.device == "cuda" else self.device,
