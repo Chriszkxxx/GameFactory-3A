@@ -1,0 +1,27 @@
+{
+  "clip_id": "punch_fire_review",
+  "seed": 20260804,
+  "animation": "/Game/WorldFlex/LuffiVFXTest/Animations/Standing_Melee_Run_Jump_Attack__1__1_",
+  "mesh": "/Game/WorldFlex/LuffiVFXTest/Character/luffi__2_",
+  "actor": "Luffi",
+  "skeleton_type": "ue_luffi",
+  "fps": 30.0,
+  "num_frames": 111,
+  "camera": {
+    "preset": "side90",
+    "distance": 5.2,
+    "height": 1.55
+  },
+  "events": [
+    {
+      "category": "fire",
+      "niagara": "/Game/NiagaraExamples/FX_Misc/NS_Fire",
+      "bone_native": "RightHand",
+      "bone_canonical": "right_wrist",
+      "start_frame": 47,
+      "end_frame": 54,
+      "start_mode": "speed_trail",
+      "scale": 0.45
+    }
+  ]
+}
