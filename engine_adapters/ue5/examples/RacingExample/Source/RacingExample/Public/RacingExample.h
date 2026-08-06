@@ -3,12 +3,12 @@
 #include "Components/A3GameRuntimeEntityComponent.h"
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
-#include "GameFramework/HUD.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Interfaces/A3GameControllableEntity.h"
 #include "Interfaces/A3GameEntityFactory.h"
 #include "Modules/ModuleManager.h"
+#include "RacingMechanicContract.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "RacingExample.generated.h"
 
@@ -157,21 +157,13 @@ private:
 };
 
 UCLASS()
-class RACINGEXAMPLE_API AAARacingHUD : public AHUD
-{
-    GENERATED_BODY()
-
-public:
-    virtual void DrawHUD() override;
-};
-
-UCLASS()
 class RACINGEXAMPLE_API AAARacingGameMode : public AGameModeBase
 {
     GENERATED_BODY()
 
 public:
     AAARacingGameMode();
+    virtual void StartPlay() override;
 };
 
 UCLASS()

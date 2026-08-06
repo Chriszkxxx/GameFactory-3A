@@ -93,6 +93,22 @@ Implement the Mechanic in the workspace. Generate game-owned engine source and
 meaningful engine-native gameplay test source for the acceptance criteria.
 Do not execute evaluation-only APIs and do not declare the benchmark result.
 
+Generate Mechanic implementation only. If the general requirement,
+task-specific requirement, or acceptance criteria mention HUDs, widgets,
+menus, visual feedback, screenshots, health bars, ammo displays, victory
+screens, or buttons, convert those statements into required public Mechanic
+state, events, and commands. Do not implement their presentation.
+
+Create `mechanic_contract.json` at the workspace root using schema
+`aaagameforge.mechanic_contract.v1`. Set `gameplay_module` to
+`{{GAMEPLAY_MODULE_NAME}}` and define non-empty versioned `state`, `events`,
+and `commands` collections. Keep the engine-native contract consistent with
+that artifact.
+
+The Mechanic must compile and its gameplay tests must run without any game UI
+plugin, HUD, Widget, Menu, Canvas, UMG, Slate, visual layout, or screenshots.
+Do not assign a concrete game HUD from the Mechanic GameMode.
+
 Use the provided project and game-owned module names. Do not rename them.
 Interpret the module as the selected engine's appropriate package, plugin,
 module, or equivalent extension unit.

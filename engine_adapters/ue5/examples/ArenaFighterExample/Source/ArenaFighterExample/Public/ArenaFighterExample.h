@@ -1,10 +1,10 @@
 #pragma once
 
+#include "ArenaFighterMechanicContract.h"
 #include "Components/A3GameRuntimeEntityComponent.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/GameModeBase.h"
-#include "GameFramework/HUD.h"
 #include "GameFramework/PlayerController.h"
 #include "Interfaces/A3GameControllableEntity.h"
 #include "Interfaces/A3GameEntityFactory.h"
@@ -56,6 +56,18 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "A3Game|Arena Fighter")
     float GetHealthPercent() const;
+
+    UFUNCTION(BlueprintPure, Category = "A3Game|Arena Fighter")
+    float GetHealth() const
+    {
+        return Health;
+    }
+
+    UFUNCTION(BlueprintPure, Category = "A3Game|Arena Fighter")
+    float GetMaxHealth() const
+    {
+        return MaxHealth;
+    }
 
     UFUNCTION(BlueprintPure, Category = "A3Game|Arena Fighter")
     bool IsDefeated() const
@@ -148,24 +160,6 @@ private:
     bool bLeftPressed = false;
     bool bRunPressed = false;
     bool bJumpPressed = false;
-};
-
-UCLASS()
-class ARENAFIGHTEREXAMPLE_API AAAArenaFighterHUD : public AHUD
-{
-    GENERATED_BODY()
-
-public:
-    virtual void DrawHUD() override;
-
-private:
-    void DrawHealthBar(
-        const FString& Label,
-        float HealthPercent,
-        float X,
-        float Y,
-        float Width,
-        const FLinearColor& Color);
 };
 
 UCLASS()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
@@ -34,6 +35,47 @@ from pipeline.common.prepare import (
 
 
 TASK_KIND = "mechanic"
+MECHANIC_CONTRACT_SCHEMA = (
+    "aaagameforge.mechanic_contract.v1"
+)
+MECHANIC_CONTRACT_FILENAME = "mechanic_contract.json"
+_UE_ENGINE_IDS = {
+    "ue",
+    "ue5",
+    "unreal",
+    "unreal_engine",
+    "unrealengine",
+}
+_UE_SOURCE_SUFFIXES = {
+    ".h",
+    ".hh",
+    ".hpp",
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".cs",
+    ".ini",
+    ".uplugin",
+    ".uproject",
+}
+_UE_UI_PATTERNS = (
+    ("AHUD", re.compile(r"\bAHUD\b")),
+    ("DrawHUD", re.compile(r"\bDrawHUD\b")),
+    ("UUserWidget", re.compile(r"\bUUserWidget\b")),
+    (
+        "Engine/Canvas.h",
+        re.compile(r"Engine[\\/]Canvas\.h"),
+    ),
+    (
+        "GameFramework/HUD.h",
+        re.compile(r"GameFramework[\\/]HUD\.h"),
+    ),
+    ("HUDClass", re.compile(r"\bHUDClass\b")),
+    ("Canvas", re.compile(r"\bCanvas\b")),
+    ("UMG", re.compile(r"\bUMG\b")),
+    ("Slate", re.compile(r"\bSlate(?:Core)?\b")),
+)
 CONTEXT_ROOT = (
     paths.REPO_ROOT
     / "agent_skills"
@@ -181,10 +223,115 @@ def _has_files(path: Path) -> bool:
     )
 
 
+def _contract_collection_present(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return bool(value)
+    if isinstance(value, Sequence) and not isinstance(
+        value,
+        (str, bytes),
+    ):
+        return bool(value)
+    return False
+
+
+def _validate_mechanic_contract(
+    workspace: Path,
+    gameplay_module_name: str,
+) -> tuple[bool, list[str]]:
+    contract_path = workspace / MECHANIC_CONTRACT_FILENAME
+    if not contract_path.is_file():
+        return False, [
+            "Required Mechanic contract is missing: "
+            f"{MECHANIC_CONTRACT_FILENAME}"
+        ]
+    try:
+        contract = read_json(
+            contract_path,
+            "Mechanic contract",
+        )
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        return False, [str(exc)]
+
+    errors: list[str] = []
+    if contract.get("schema_version") != (
+        MECHANIC_CONTRACT_SCHEMA
+    ):
+        errors.append(
+            "Mechanic contract schema_version must be "
+            f"{MECHANIC_CONTRACT_SCHEMA!r}"
+        )
+    contract_version = contract.get("contract_version")
+    if (
+        not isinstance(contract_version, int)
+        or isinstance(contract_version, bool)
+        or contract_version <= 0
+    ):
+        errors.append(
+            "Mechanic contract contract_version must be a "
+            "positive integer"
+        )
+    if str(contract.get("gameplay_module") or "") != (
+        gameplay_module_name
+    ):
+        errors.append(
+            "Mechanic contract gameplay_module must match "
+            f"{gameplay_module_name!r}"
+        )
+    for section in ("state", "events", "commands"):
+        if not _contract_collection_present(
+            contract.get(section)
+        ):
+            errors.append(
+                "Mechanic contract must define a non-empty "
+                f"{section} collection"
+            )
+    return not errors, errors
+
+
+def _scan_ue_ui_contamination(
+    workspace: Path,
+    current_task_files: Mapping[str, Mapping[str, Any]],
+) -> tuple[bool, list[str]]:
+    violations: list[str] = []
+    for relative_path in current_task_files:
+        path = workspace / relative_path
+        if (
+            not path.is_file()
+            or path.suffix.lower() not in _UE_SOURCE_SUFFIXES
+        ):
+            continue
+        try:
+            source = path.read_text(
+                encoding="utf-8",
+                errors="ignore",
+            )
+        except OSError as exc:
+            violations.append(
+                "Unable to inspect generated Mechanic source "
+                f"{relative_path}: {exc}"
+            )
+            continue
+        matches = [
+            name
+            for name, pattern in _UE_UI_PATTERNS
+            if pattern.search(source)
+        ]
+        if matches:
+            violations.append(
+                "UE Mechanic source contains forbidden UI "
+                f"implementation in {relative_path}: "
+                + ", ".join(matches)
+            )
+    return not violations, violations
+
+
 def _required_artifact_checks(
     workspace: Path,
     required: Sequence[str],
     current_task_files: Mapping[str, Mapping[str, Any]],
+    *,
+    engine: str,
+    gameplay_module_name: str,
 ) -> tuple[dict[str, bool | None], list[str], list[str]]:
     checks: dict[str, bool | None] = {}
     errors: list[str] = []
@@ -232,6 +379,27 @@ def _required_artifact_checks(
         errors.append(
             "No generated Mechanic test source was found"
         )
+
+    contract_ok, contract_errors = (
+        _validate_mechanic_contract(
+            workspace,
+            gameplay_module_name,
+        )
+    )
+    checks["mechanic_contract"] = contract_ok
+    errors.extend(contract_errors)
+
+    if engine.strip().lower() in _UE_ENGINE_IDS:
+        ui_free, contamination_errors = (
+            _scan_ue_ui_contamination(
+                workspace,
+                current_task_files,
+            )
+        )
+        checks["ue_ui_free_source"] = ui_free
+        errors.extend(contamination_errors)
+    else:
+        checks["ue_ui_free_source"] = None
     return checks, errors, warnings
 
 
@@ -476,6 +644,19 @@ def prepare(
             ],
             "agent_may_execute_tests": False,
             "agent_may_declare_benchmark_success": False,
+            "agent_may_generate_ui": False,
+        },
+        "mechanic_contract": {
+            "path": str(
+                workspace / MECHANIC_CONTRACT_FILENAME
+            ),
+            "schema_version": MECHANIC_CONTRACT_SCHEMA,
+            "required_sections": [
+                "state",
+                "events",
+                "commands",
+            ],
+            "gameplay_module": gameplay_module_name,
         },
         "repair": repair,
         "required_output_artifacts": _string_list(
@@ -516,10 +697,36 @@ def finalize(
     summary: str = "",
 ) -> dict[str, Any]:
     """Finalize one directly edited Mechanic workspace."""
+    packet = read_json(
+        packet_path,
+        "Prepared Mechanic task packet",
+    )
+    engine = str(packet.get("engine") or "")
+    gameplay_module_name = str(
+        packet.get("gameplay_module_name") or ""
+    )
+
+    def artifact_checker(
+        workspace: Path,
+        required: Sequence[str],
+        current_task_files: Mapping[str, Mapping[str, Any]],
+    ) -> tuple[
+        dict[str, bool | None],
+        list[str],
+        list[str],
+    ]:
+        return _required_artifact_checks(
+            workspace,
+            required,
+            current_task_files,
+            engine=engine,
+            gameplay_module_name=gameplay_module_name,
+        )
+
     return finalize_workspace(
         packet_path,
         summary=summary,
-        artifact_checker=_required_artifact_checks,
+        artifact_checker=artifact_checker,
     )
 
 

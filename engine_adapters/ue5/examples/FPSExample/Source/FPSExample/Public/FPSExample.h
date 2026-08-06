@@ -2,9 +2,9 @@
 
 #include "Components/A3GameRuntimeEntityComponent.h"
 #include "CoreMinimal.h"
+#include "FPSMechanicContract.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/GameModeBase.h"
-#include "GameFramework/HUD.h"
 #include "GameFramework/PlayerController.h"
 #include "Interfaces/A3GameControllableEntity.h"
 #include "Interfaces/A3GameEntityFactory.h"
@@ -59,6 +59,24 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "A3Game|FPS")
     float GetHealthPercent() const;
+
+    UFUNCTION(BlueprintPure, Category = "A3Game|FPS")
+    float GetHealth() const
+    {
+        return Health;
+    }
+
+    UFUNCTION(BlueprintPure, Category = "A3Game|FPS")
+    float GetMaxHealth() const
+    {
+        return MaxHealth;
+    }
+
+    UFUNCTION(BlueprintPure, Category = "A3Game|FPS")
+    bool IsDefeated() const
+    {
+        return Health <= 0.0f;
+    }
 
     UFUNCTION(BlueprintPure, Category = "A3Game|FPS")
     int32 GetMagazineAmmo() const
@@ -163,15 +181,6 @@ private:
     bool bLeftPressed = false;
     bool bRunPressed = false;
     bool bJumpPressed = false;
-};
-
-UCLASS()
-class FPSEXAMPLE_API AAAFPSHUD : public AHUD
-{
-    GENERATED_BODY()
-
-public:
-    virtual void DrawHUD() override;
 };
 
 UCLASS()

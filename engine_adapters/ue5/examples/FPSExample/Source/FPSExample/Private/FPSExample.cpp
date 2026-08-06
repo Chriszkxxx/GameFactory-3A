@@ -4,8 +4,6 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Engine/Canvas.h"
-#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -82,6 +80,22 @@ float AAAFPSCharacter::TakeDamage(
     if (Health <= 0.0f)
     {
         GetCharacterMovement()->DisableMovement();
+    }
+    if (UWorld* World = GetWorld())
+    {
+        if (UAAAFPSMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAAFPSMechanicContractSubsystem>())
+        {
+            Contract->PublishEvent(
+                Health <= 0.0f
+                    ? (TeamId == 0
+                        ? EAAAFPSMechanicEventType::
+                            PlayerDefeated
+                        : EAAAFPSMechanicEventType::
+                            TargetDefeated)
+                    : EAAAFPSMechanicEventType::HealthChanged);
+        }
     }
     return AppliedDamage;
 }
@@ -181,6 +195,16 @@ bool AAAFPSCharacter::FireWeapon()
         return false;
     }
     --MagazineAmmo;
+    if (UWorld* World = GetWorld())
+    {
+        if (UAAAFPSMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAAFPSMechanicContractSubsystem>())
+        {
+            Contract->PublishEvent(
+                EAAAFPSMechanicEventType::AmmoChanged);
+        }
+    }
 
     const FVector Start = FirstPersonCamera
         ? FirstPersonCamera->GetComponentLocation()
@@ -225,6 +249,16 @@ bool AAAFPSCharacter::ReloadWeapon()
     }
     MagazineAmmo += Loaded;
     ReserveAmmo -= Loaded;
+    if (UWorld* World = GetWorld())
+    {
+        if (UAAAFPSMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAAFPSMechanicContractSubsystem>())
+        {
+            Contract->PublishEvent(
+                EAAAFPSMechanicEventType::AmmoChanged);
+        }
+    }
     return true;
 }
 
@@ -429,79 +463,50 @@ void AAAFPSPlayerController::SetJumpReleased()
 
 void AAAFPSPlayerController::Fire()
 {
-    if (AAAFPSCharacter* FPSPawn =
-        Cast<AAAFPSCharacter>(GetPawn()))
+    if (UWorld* World = GetWorld())
     {
-        FPSPawn->FireWeapon();
+        if (UAAAFPSMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAAFPSMechanicContractSubsystem>())
+        {
+            Contract->ExecuteMechanicCommand(
+                EAAAFPSMechanicCommand::Fire);
+        }
     }
 }
 
 void AAAFPSPlayerController::Reload()
 {
-    if (AAAFPSCharacter* FPSPawn =
-        Cast<AAAFPSCharacter>(GetPawn()))
+    if (UWorld* World = GetWorld())
     {
-        FPSPawn->ReloadWeapon();
+        if (UAAAFPSMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAAFPSMechanicContractSubsystem>())
+        {
+            Contract->ExecuteMechanicCommand(
+                EAAAFPSMechanicCommand::Reload);
+        }
     }
 }
 
 void AAAFPSPlayerController::RestartEncounter()
 {
-    if (AAAFPSGameMode* GameMode =
-        GetWorld()
-            ? GetWorld()->GetAuthGameMode<AAAFPSGameMode>()
-            : nullptr)
+    if (UWorld* World = GetWorld())
     {
-        GameMode->RestartEncounter();
+        if (UAAAFPSMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAAFPSMechanicContractSubsystem>())
+        {
+            Contract->ExecuteMechanicCommand(
+                EAAAFPSMechanicCommand::RestartEncounter);
+        }
     }
-}
-
-void AAAFPSHUD::DrawHUD()
-{
-    Super::DrawHUD();
-    if (!Canvas)
-    {
-        return;
-    }
-    AAAFPSCharacter* Player =
-        Cast<AAAFPSCharacter>(GetOwningPawn());
-    if (!Player)
-    {
-        return;
-    }
-
-    const float CenterX = Canvas->SizeX * 0.5f;
-    const float CenterY = Canvas->SizeY * 0.5f;
-    const FLinearColor Color(0.92f, 0.96f, 1.0f, 1.0f);
-    DrawRect(Color, CenterX - 18.0f, CenterY - 1.0f, 12.0f, 2.0f);
-    DrawRect(Color, CenterX + 6.0f, CenterY - 1.0f, 12.0f, 2.0f);
-    DrawRect(Color, CenterX - 1.0f, CenterY - 18.0f, 2.0f, 12.0f);
-    DrawRect(Color, CenterX - 1.0f, CenterY + 6.0f, 2.0f, 12.0f);
-
-    DrawText(
-        FString::Printf(
-            TEXT("HEALTH %03d"),
-            FMath::RoundToInt(Player->GetHealthPercent() * 100.0f)),
-        Color,
-        42.0f,
-        Canvas->SizeY - 68.0f,
-        GEngine ? GEngine->GetLargeFont() : nullptr);
-    DrawText(
-        FString::Printf(
-            TEXT("%02d / %03d"),
-            Player->GetMagazineAmmo(),
-            Player->GetReserveAmmo()),
-        Color,
-        Canvas->SizeX - 210.0f,
-        Canvas->SizeY - 68.0f,
-        GEngine ? GEngine->GetLargeFont() : nullptr);
 }
 
 AAAFPSGameMode::AAAFPSGameMode()
 {
     DefaultPawnClass = AAAFPSCharacter::StaticClass();
     PlayerControllerClass = AAAFPSPlayerController::StaticClass();
-    HUDClass = AAAFPSHUD::StaticClass();
 }
 
 void AAAFPSGameMode::StartPlay()
@@ -531,6 +536,15 @@ void AAAFPSGameMode::StartPlay()
         Target->SetTeamId(1);
         Target->Tags.AddUnique(FName(TEXT("A3GameFPSTarget")));
     }
+    if (UAAAFPSMechanicContractSubsystem* Contract =
+        GetWorld()->GetSubsystem<
+            UAAAFPSMechanicContractSubsystem>())
+    {
+        Contract->SetPlayer(Player);
+        Contract->SetEncounterActive(true);
+        Contract->PublishEvent(
+            EAAAFPSMechanicEventType::EncounterStarted);
+    }
 }
 
 void AAAFPSGameMode::RestartEncounter()
@@ -541,6 +555,130 @@ void AAAFPSGameMode::RestartEncounter()
     {
         It->ResetCombatant();
     }
+    if (UAAAFPSMechanicContractSubsystem* Contract =
+        GetWorld()->GetSubsystem<
+            UAAAFPSMechanicContractSubsystem>())
+    {
+        Contract->SetEncounterActive(true);
+        Contract->PublishEvent(
+            EAAAFPSMechanicEventType::EncounterRestarted);
+    }
+}
+
+bool UAAAFPSMechanicContractSubsystem::DoesSupportWorldType(
+    const EWorldType::Type WorldType) const
+{
+    return WorldType == EWorldType::Game
+        || WorldType == EWorldType::PIE;
+}
+
+FAAFPSMechanicState
+UAAAFPSMechanicContractSubsystem::GetMechanicState() const
+{
+    FAAFPSMechanicState State;
+    const AAAFPSCharacter* PlayerCharacter = Player.Get();
+    if (PlayerCharacter)
+    {
+        State.PlayerHealth = PlayerCharacter->GetHealth();
+        State.PlayerMaxHealth = PlayerCharacter->GetMaxHealth();
+        State.MagazineAmmo =
+            PlayerCharacter->GetMagazineAmmo();
+        State.ReserveAmmo = PlayerCharacter->GetReserveAmmo();
+    }
+
+    if (const UWorld* World = GetWorld())
+    {
+        for (TActorIterator<AAAFPSCharacter> It(
+                const_cast<UWorld*>(World));
+            It;
+            ++It)
+        {
+            const AAAFPSCharacter* Candidate = *It;
+            if (Candidate
+                && Candidate != PlayerCharacter
+                && !Candidate->IsDefeated()
+                && (!PlayerCharacter
+                    || Candidate->GetTeamId()
+                        != PlayerCharacter->GetTeamId()))
+            {
+                ++State.TargetsRemaining;
+            }
+        }
+    }
+
+    if (!bEncounterActive)
+    {
+        State.Phase = EAAAFPSGamePhase::NotStarted;
+        State.ObjectiveText = TEXT("Prepare for encounter");
+    }
+    else if (!PlayerCharacter
+        || PlayerCharacter->IsDefeated())
+    {
+        State.Phase = EAAAFPSGamePhase::Defeat;
+        State.ObjectiveText = TEXT("Encounter failed");
+    }
+    else if (State.TargetsRemaining == 0)
+    {
+        State.Phase = EAAAFPSGamePhase::Victory;
+        State.ObjectiveText = TEXT("Encounter complete");
+    }
+    else
+    {
+        State.Phase = EAAAFPSGamePhase::Active;
+        State.ObjectiveText = TEXT("Eliminate all targets");
+    }
+    return State;
+}
+
+bool UAAAFPSMechanicContractSubsystem::
+ExecuteMechanicCommand(EAAAFPSMechanicCommand Command)
+{
+    AAAFPSCharacter* PlayerCharacter = Player.Get();
+    switch (Command)
+    {
+    case EAAAFPSMechanicCommand::Fire:
+        return PlayerCharacter
+            && PlayerCharacter->FireWeapon();
+    case EAAAFPSMechanicCommand::Reload:
+        return PlayerCharacter
+            && PlayerCharacter->ReloadWeapon();
+    case EAAAFPSMechanicCommand::RestartEncounter:
+        if (AAAFPSGameMode* GameMode =
+            GetWorld()
+                ? GetWorld()->GetAuthGameMode<AAAFPSGameMode>()
+                : nullptr)
+        {
+            GameMode->RestartEncounter();
+            return true;
+        }
+        return false;
+    default:
+        return false;
+    }
+}
+
+void UAAAFPSMechanicContractSubsystem::SetPlayer(
+    AAAFPSCharacter* InPlayer)
+{
+    Player = InPlayer;
+}
+
+void UAAAFPSMechanicContractSubsystem::SetEncounterActive(
+    bool bInEncounterActive)
+{
+    bEncounterActive = bInEncounterActive;
+}
+
+void UAAAFPSMechanicContractSubsystem::PublishEvent(
+    EAAAFPSMechanicEventType Type)
+{
+    FAAFPSMechanicEvent Event;
+    Event.Type = Type;
+    Event.State = GetMechanicState();
+    Event.WorldTimeSeconds = GetWorld()
+        ? GetWorld()->GetTimeSeconds()
+        : 0.0f;
+    MechanicEvent.Broadcast(Event);
 }
 
 AActor* UAAAFPSEntityFactory::SpawnRuntimeEntity_Implementation(

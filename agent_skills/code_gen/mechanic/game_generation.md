@@ -26,16 +26,50 @@ lower-priority implementation references only.
 1. Inspect the existing workspace and preserve compatible generated work.
 2. Map every acceptance criterion to game-owned source, observable state, and
    at least one meaningful engine-native test.
-3. List the Engine Context directory, identify the API document matching the
+3. Separate Mechanic requirements from presentation requirements. Convert any
+   HUD, widget, menu, screenshot, or visual-feedback wording into required
+   state, events, and commands.
+4. List the Engine Context directory, identify the API document matching the
    task Engine, and read it before making concrete engine calls.
-4. Choose architecture appropriate to the selected engine without extending
+5. Choose architecture appropriate to the selected engine without extending
    or modifying adapter-owned framework internals.
-5. Consume generated inputs through the supplied descriptors.
-6. Generate the game-owned extension, configuration, test source, and any
+6. Consume generated inputs through the supplied descriptors.
+7. Generate the game-owned extension, configuration, test source, and any
    task-required launch or trace files.
-7. Keep behavior deterministic where the requirement needs replay or automated
+8. Publish `mechanic_contract.json` at the workspace root using schema
+   `aaagameforge.mechanic_contract.v1`. It must contain a positive
+   `contract_version`, the exact game-owned module name, and non-empty
+   `state`, `events`, and `commands` collections.
+9. Keep behavior deterministic where the requirement needs replay or automated
    verification.
-8. Review the generated files against the requirement before finalization.
+10. Review the generated files against the requirement before finalization.
+
+## Mechanic And UI Separation
+
+Mechanic generation owns gameplay rules and a presentation-independent
+contract. It does not own presentation implementation.
+
+The dependency direction is:
+
+```text
+UI -> Mechanic -> runtime framework
+```
+
+The reverse dependency is forbidden. Mechanic code must compile, test, and be
+evaluated without a UI plugin, HUD, widget, menu, Canvas renderer, or
+screenshot.
+
+When requirements contain presentation language, translate it:
+
+```text
+"show a health bar"    -> expose current and maximum health state
+"show ammo"            -> expose magazine and reserve ammo state
+"show victory screen"  -> expose victory state and event
+"Restart button"       -> expose a restart command
+"pause menu"           -> expose pause/resume state and commands
+```
+
+Do not implement the visual element during a Mechanic task.
 
 ## Hard Boundaries
 
@@ -53,6 +87,15 @@ lower-priority implementation references only.
 - Do not invent generated asset paths or bypass supplied descriptors.
 - Do not depend on optional examples, inherit their concrete game classes, or
   make an example a success condition.
+- Do not create HUD, Widget, Menu, Canvas, UMG, Slate, or SlateCore
+  implementation.
+- Do not create crosshairs, health bars, ammo displays, telemetry panels,
+  layout, styling, visual feedback, or screenshot implementation.
+- Do not assign a concrete game HUD from a Mechanic GameMode.
+- Do not make the Mechanic module depend on a game UI module.
+- UI-facing state must be exposed through the versioned public Mechanic
+  contract, not through casts to incidental Pawn, Character, Controller, or
+  private implementation types.
 - You MUST generate engine-native gameplay test source.
 - You MUST NOT invoke execution or evaluation-only test APIs.
 - You MUST NOT declare that the benchmark passed or assign a benchmark score.
@@ -65,6 +108,7 @@ Generate only task-owned implementation artifacts:
 
 - engine-native gameplay source;
 - engine-native gameplay test source;
+- `mechanic_contract.json` with versioned state/event/command definitions;
 - configuration and build files required by the selected engine;
 - task-required launch, replay, or trace files.
 

@@ -3,8 +3,6 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InputComponent.h"
-#include "Engine/Canvas.h"
-#include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -77,6 +75,23 @@ float AAAArenaFighterCharacter::TakeDamage(
     if (IsDefeated())
     {
         GetCharacterMovement()->DisableMovement();
+    }
+    if (UWorld* World = GetWorld())
+    {
+        if (UAAArenaFighterMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAArenaFighterMechanicContractSubsystem>())
+        {
+            Contract->PublishEvent(
+                IsDefeated()
+                    ? (TeamId == 0
+                        ? EAAArenaFighterMechanicEventType::
+                            PlayerDefeated
+                        : EAAArenaFighterMechanicEventType::
+                            OpponentDefeated)
+                    : EAAArenaFighterMechanicEventType::
+                        HealthChanged);
+        }
     }
     return AppliedDamage;
 }
@@ -201,6 +216,13 @@ bool AAAArenaFighterCharacter::PerformAttack(bool bHeavy)
         GetController(),
         this,
         UDamageType::StaticClass());
+    if (UAAArenaFighterMechanicContractSubsystem* Contract =
+        GetWorld()->GetSubsystem<
+            UAAArenaFighterMechanicContractSubsystem>())
+    {
+        Contract->PublishEvent(
+            EAAArenaFighterMechanicEventType::AttackPerformed);
+    }
     return true;
 }
 
@@ -404,112 +426,44 @@ void AAAArenaFighterPlayerController::SetJumpReleased()
 
 void AAAArenaFighterPlayerController::AttackLight()
 {
-    if (AAAArenaFighterCharacter* Fighter =
-        Cast<AAAArenaFighterCharacter>(GetPawn()))
+    if (UWorld* World = GetWorld())
     {
-        Fighter->PerformAttack(false);
+        if (UAAArenaFighterMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAArenaFighterMechanicContractSubsystem>())
+        {
+            Contract->ExecuteMechanicCommand(
+                EAAArenaFighterMechanicCommand::LightAttack);
+        }
     }
 }
 
 void AAAArenaFighterPlayerController::AttackHeavy()
 {
-    if (AAAArenaFighterCharacter* Fighter =
-        Cast<AAAArenaFighterCharacter>(GetPawn()))
+    if (UWorld* World = GetWorld())
     {
-        Fighter->PerformAttack(true);
+        if (UAAArenaFighterMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAArenaFighterMechanicContractSubsystem>())
+        {
+            Contract->ExecuteMechanicCommand(
+                EAAArenaFighterMechanicCommand::HeavyAttack);
+        }
     }
 }
 
 void AAAArenaFighterPlayerController::RestartArena()
 {
-    if (AAAArenaFighterGameMode* GameMode =
-        GetWorld()
-            ? GetWorld()->GetAuthGameMode<
-                AAAArenaFighterGameMode>()
-            : nullptr)
+    if (UWorld* World = GetWorld())
     {
-        GameMode->RestartArena();
-    }
-}
-
-void AAAArenaFighterHUD::DrawHUD()
-{
-    Super::DrawHUD();
-    if (!Canvas)
-    {
-        return;
-    }
-
-    AAAArenaFighterCharacter* Player =
-        Cast<AAAArenaFighterCharacter>(GetOwningPawn());
-    if (!Player)
-    {
-        return;
-    }
-
-    AAAArenaFighterCharacter* Opponent = nullptr;
-    for (TActorIterator<AAAArenaFighterCharacter> It(GetWorld());
-        It;
-        ++It)
-    {
-        if (*It != Player
-            && It->GetTeamId() != Player->GetTeamId())
+        if (UAAArenaFighterMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAArenaFighterMechanicContractSubsystem>())
         {
-            Opponent = *It;
-            break;
+            Contract->ExecuteMechanicCommand(
+                EAAArenaFighterMechanicCommand::RestartArena);
         }
     }
-
-    const float Width = FMath::Clamp(
-        Canvas->SizeX * 0.32f,
-        260.0f,
-        520.0f);
-    DrawHealthBar(
-        TEXT("PLAYER"),
-        Player->GetHealthPercent(),
-        48.0f,
-        48.0f,
-        Width,
-        FLinearColor(0.1f, 0.75f, 0.3f, 1.0f));
-    if (Opponent)
-    {
-        DrawHealthBar(
-            TEXT("OPPONENT"),
-            Opponent->GetHealthPercent(),
-            Canvas->SizeX - Width - 48.0f,
-            48.0f,
-            Width,
-            FLinearColor(0.9f, 0.18f, 0.12f, 1.0f));
-    }
-}
-
-void AAAArenaFighterHUD::DrawHealthBar(
-    const FString& Label,
-    float HealthPercent,
-    float X,
-    float Y,
-    float Width,
-    const FLinearColor& Color)
-{
-    DrawText(
-        Label,
-        FLinearColor::White,
-        X,
-        Y - 24.0f,
-        GEngine ? GEngine->GetSmallFont() : nullptr);
-    DrawRect(
-        FLinearColor(0.02f, 0.02f, 0.02f, 0.9f),
-        X,
-        Y,
-        Width,
-        24.0f);
-    DrawRect(
-        Color,
-        X + 3.0f,
-        Y + 3.0f,
-        (Width - 6.0f)
-            * FMath::Clamp(HealthPercent, 0.0f, 1.0f),
-        18.0f);
 }
 
 AAAArenaFighterGameMode::AAAArenaFighterGameMode()
@@ -517,7 +471,6 @@ AAAArenaFighterGameMode::AAAArenaFighterGameMode()
     DefaultPawnClass = AAAArenaFighterCharacter::StaticClass();
     PlayerControllerClass =
         AAAArenaFighterPlayerController::StaticClass();
-    HUDClass = AAAArenaFighterHUD::StaticClass();
 }
 
 void AAAArenaFighterGameMode::StartPlay()
@@ -549,6 +502,16 @@ void AAAArenaFighterGameMode::StartPlay()
         Opponent->Tags.AddUnique(
             FName(TEXT("A3GameArenaOpponent")));
     }
+    if (UAAArenaFighterMechanicContractSubsystem* Contract =
+        GetWorld()->GetSubsystem<
+            UAAArenaFighterMechanicContractSubsystem>())
+    {
+        Contract->SetPlayer(Player);
+        Contract->SetEncounterActive(true);
+        Contract->PublishEvent(
+            EAAArenaFighterMechanicEventType::
+                EncounterStarted);
+    }
 }
 
 void AAAArenaFighterGameMode::RestartArena()
@@ -559,6 +522,139 @@ void AAAArenaFighterGameMode::RestartArena()
     {
         It->ResetFighter();
     }
+    if (UAAArenaFighterMechanicContractSubsystem* Contract =
+        GetWorld()->GetSubsystem<
+            UAAArenaFighterMechanicContractSubsystem>())
+    {
+        Contract->SetEncounterActive(true);
+        Contract->PublishEvent(
+            EAAArenaFighterMechanicEventType::ArenaRestarted);
+    }
+}
+
+bool UAAArenaFighterMechanicContractSubsystem::
+DoesSupportWorldType(
+    const EWorldType::Type WorldType) const
+{
+    return WorldType == EWorldType::Game
+        || WorldType == EWorldType::PIE;
+}
+
+FAAArenaFighterMechanicState
+UAAArenaFighterMechanicContractSubsystem::
+GetMechanicState() const
+{
+    FAAArenaFighterMechanicState State;
+    const AAAArenaFighterCharacter* PlayerCharacter =
+        Player.Get();
+    if (PlayerCharacter)
+    {
+        State.PlayerHealth = PlayerCharacter->GetHealth();
+        State.PlayerMaxHealth =
+            PlayerCharacter->GetMaxHealth();
+    }
+
+    const AAAArenaFighterCharacter* Opponent = nullptr;
+    if (UWorld* World = GetWorld())
+    {
+        for (TActorIterator<AAAArenaFighterCharacter> It(World);
+            It;
+            ++It)
+        {
+            const AAAArenaFighterCharacter* Candidate = *It;
+            if (Candidate
+                && Candidate != PlayerCharacter
+                && (!PlayerCharacter
+                    || Candidate->GetTeamId()
+                        != PlayerCharacter->GetTeamId()))
+            {
+                Opponent = Candidate;
+                break;
+            }
+        }
+    }
+    if (Opponent)
+    {
+        State.OpponentHealth = Opponent->GetHealth();
+        State.OpponentMaxHealth = Opponent->GetMaxHealth();
+    }
+
+    if (!bEncounterActive)
+    {
+        State.Phase =
+            EAAArenaFighterGamePhase::NotStarted;
+        State.ObjectiveText = TEXT("Prepare for the arena");
+    }
+    else if (!PlayerCharacter
+        || PlayerCharacter->IsDefeated())
+    {
+        State.Phase = EAAArenaFighterGamePhase::Defeat;
+        State.ObjectiveText = TEXT("Arena lost");
+    }
+    else if (!Opponent || Opponent->IsDefeated())
+    {
+        State.Phase = EAAArenaFighterGamePhase::Victory;
+        State.ObjectiveText = TEXT("Arena won");
+    }
+    else
+    {
+        State.Phase = EAAArenaFighterGamePhase::Active;
+        State.ObjectiveText = TEXT("Defeat the opponent");
+    }
+    return State;
+}
+
+bool UAAArenaFighterMechanicContractSubsystem::
+ExecuteMechanicCommand(
+    EAAArenaFighterMechanicCommand Command)
+{
+    AAAArenaFighterCharacter* PlayerCharacter = Player.Get();
+    switch (Command)
+    {
+    case EAAArenaFighterMechanicCommand::LightAttack:
+        return PlayerCharacter
+            && PlayerCharacter->PerformAttack(false);
+    case EAAArenaFighterMechanicCommand::HeavyAttack:
+        return PlayerCharacter
+            && PlayerCharacter->PerformAttack(true);
+    case EAAArenaFighterMechanicCommand::RestartArena:
+        if (AAAArenaFighterGameMode* GameMode =
+            GetWorld()
+                ? GetWorld()->GetAuthGameMode<
+                    AAAArenaFighterGameMode>()
+                : nullptr)
+        {
+            GameMode->RestartArena();
+            return true;
+        }
+        return false;
+    default:
+        return false;
+    }
+}
+
+void UAAArenaFighterMechanicContractSubsystem::SetPlayer(
+    AAAArenaFighterCharacter* InPlayer)
+{
+    Player = InPlayer;
+}
+
+void UAAArenaFighterMechanicContractSubsystem::
+SetEncounterActive(bool bInEncounterActive)
+{
+    bEncounterActive = bInEncounterActive;
+}
+
+void UAAArenaFighterMechanicContractSubsystem::PublishEvent(
+    EAAArenaFighterMechanicEventType Type)
+{
+    FAAArenaFighterMechanicEvent Event;
+    Event.Type = Type;
+    Event.State = GetMechanicState();
+    Event.WorldTimeSeconds = GetWorld()
+        ? GetWorld()->GetTimeSeconds()
+        : 0.0f;
+    MechanicEvent.Broadcast(Event);
 }
 
 AActor* UAAArenaFighterEntityFactory::

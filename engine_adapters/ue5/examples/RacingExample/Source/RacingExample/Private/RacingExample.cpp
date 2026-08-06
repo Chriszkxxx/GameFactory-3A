@@ -4,12 +4,11 @@
 #include "Components/BoxComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Engine/Canvas.h"
-#include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
+#include "Kismet/GameplayStatics.h"
 #include "Subsystems/A3GameRuntimeSubsystem.h"
 
 IMPLEMENT_MODULE(FRacingExampleModule, RacingExample)
@@ -89,6 +88,8 @@ void AAARacingPawn::Tick(float DeltaSeconds)
         bPendingHandbrake = false;
     }
 
+    const bool bWasHandbrakeActive = bHandbrakeActive;
+    const bool bWasBoostActive = bBoostActive;
     bHandbrakeActive = bPendingHandbrake;
     bBoostActive = bPendingBoost
         && PendingThrottle > 0.0f
@@ -150,6 +151,30 @@ void AAARacingPawn::Tick(float DeltaSeconds)
     if (Hit.bBlockingHit)
     {
         CurrentSpeed = 0.0f;
+    }
+
+    if (UAAARacingMechanicContractSubsystem* Contract =
+        World
+            ? World->GetSubsystem<
+                UAAARacingMechanicContractSubsystem>()
+            : nullptr)
+    {
+        if (bBoostActive != bWasBoostActive)
+        {
+            Contract->PublishEvent(
+                bBoostActive
+                    ? EAAARacingMechanicEventType::BoostStarted
+                    : EAAARacingMechanicEventType::BoostStopped);
+        }
+        if (bHandbrakeActive != bWasHandbrakeActive)
+        {
+            Contract->PublishEvent(
+                bHandbrakeActive
+                    ? EAAARacingMechanicEventType::
+                        HandbrakeStarted
+                    : EAAARacingMechanicEventType::
+                        HandbrakeStopped);
+        }
     }
 }
 
@@ -220,11 +245,23 @@ void AAARacingPawn::ResetVehicle()
     PendingThrottle = 0.0f;
     bPendingBoost = false;
     bPendingHandbrake = false;
+    bBoostActive = false;
+    bHandbrakeActive = false;
     SetActorTransform(
         InitialTransform,
         false,
         nullptr,
         ETeleportType::TeleportPhysics);
+    if (UWorld* World = GetWorld())
+    {
+        if (UAAARacingMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAARacingMechanicContractSubsystem>())
+        {
+            Contract->PublishEvent(
+                EAAARacingMechanicEventType::VehicleReset);
+        }
+    }
 }
 
 float AAARacingPawn::GetSpeedKph() const
@@ -395,67 +432,16 @@ void AAARacingPlayerController::SetHandbrakeReleased()
 
 void AAARacingPlayerController::ResetVehicle()
 {
-    if (AAARacingPawn* Vehicle =
-        Cast<AAARacingPawn>(GetPawn()))
+    if (UWorld* World = GetWorld())
     {
-        Vehicle->ResetVehicle();
+        if (UAAARacingMechanicContractSubsystem* Contract =
+            World->GetSubsystem<
+                UAAARacingMechanicContractSubsystem>())
+        {
+            Contract->ExecuteMechanicCommand(
+                EAAARacingMechanicCommand::ResetVehicle);
+        }
     }
-}
-
-void AAARacingHUD::DrawHUD()
-{
-    Super::DrawHUD();
-    if (!Canvas)
-    {
-        return;
-    }
-    AAARacingPawn* Vehicle =
-        Cast<AAARacingPawn>(GetOwningPawn());
-    if (!Vehicle)
-    {
-        return;
-    }
-
-    const FLinearColor Primary(
-        0.94f,
-        0.97f,
-        1.0f,
-        1.0f);
-    const FLinearColor Accent(
-        0.02f,
-        0.72f,
-        0.95f,
-        1.0f);
-    DrawText(
-        FString::Printf(
-            TEXT("%03d KM/H"),
-            FMath::RoundToInt(Vehicle->GetSpeedKph())),
-        Primary,
-        Canvas->SizeX - 250.0f,
-        Canvas->SizeY - 92.0f,
-        GEngine ? GEngine->GetLargeFont() : nullptr);
-    DrawText(
-        Vehicle->IsHandbraking()
-            ? TEXT("HANDBRAKE")
-            : Vehicle->IsBoosting()
-                ? TEXT("NITRO")
-                : TEXT(""),
-        Accent,
-        42.0f,
-        42.0f,
-        GEngine ? GEngine->GetLargeFont() : nullptr);
-    DrawRect(
-        FLinearColor(0.02f, 0.02f, 0.02f, 0.9f),
-        Canvas->SizeX - 250.0f,
-        Canvas->SizeY - 122.0f,
-        200.0f,
-        12.0f);
-    DrawRect(
-        Accent,
-        Canvas->SizeX - 248.0f,
-        Canvas->SizeY - 120.0f,
-        196.0f * Vehicle->GetNitroPercent(),
-        8.0f);
 }
 
 AAARacingGameMode::AAARacingGameMode()
@@ -463,7 +449,97 @@ AAARacingGameMode::AAARacingGameMode()
     DefaultPawnClass = AAARacingPawn::StaticClass();
     PlayerControllerClass =
         AAARacingPlayerController::StaticClass();
-    HUDClass = AAARacingHUD::StaticClass();
+}
+
+void AAARacingGameMode::StartPlay()
+{
+    Super::StartPlay();
+    AAARacingPawn* PlayerVehicle = Cast<AAARacingPawn>(
+        UGameplayStatics::GetPlayerPawn(this, 0));
+    if (!PlayerVehicle)
+    {
+        return;
+    }
+    if (UAAARacingMechanicContractSubsystem* Contract =
+        GetWorld()->GetSubsystem<
+            UAAARacingMechanicContractSubsystem>())
+    {
+        Contract->SetVehicle(PlayerVehicle);
+        Contract->SetDriveActive(true);
+        Contract->PublishEvent(
+            EAAARacingMechanicEventType::DriveStarted);
+    }
+}
+
+bool UAAARacingMechanicContractSubsystem::DoesSupportWorldType(
+    const EWorldType::Type WorldType) const
+{
+    return WorldType == EWorldType::Game
+        || WorldType == EWorldType::PIE;
+}
+
+FAAARacingMechanicState
+UAAARacingMechanicContractSubsystem::GetMechanicState() const
+{
+    FAAARacingMechanicState State;
+    const AAARacingPawn* PlayerVehicle = Vehicle.Get();
+    if (PlayerVehicle)
+    {
+        State.SpeedKph = PlayerVehicle->GetSpeedKph();
+        State.NitroPercent =
+            PlayerVehicle->GetNitroPercent();
+        State.bBoosting = PlayerVehicle->IsBoosting();
+        State.bHandbraking =
+            PlayerVehicle->IsHandbraking();
+    }
+    State.Phase = bDriveActive
+        ? EAAARacingGamePhase::Driving
+        : EAAARacingGamePhase::NotStarted;
+    State.ObjectiveText = bDriveActive
+        ? TEXT("Drive freely")
+        : TEXT("Prepare to drive");
+    return State;
+}
+
+bool UAAARacingMechanicContractSubsystem::
+ExecuteMechanicCommand(EAAARacingMechanicCommand Command)
+{
+    switch (Command)
+    {
+    case EAAARacingMechanicCommand::ResetVehicle:
+        if (AAARacingPawn* PlayerVehicle = Vehicle.Get())
+        {
+            PlayerVehicle->ResetVehicle();
+            return true;
+        }
+        return false;
+    default:
+        return false;
+    }
+}
+
+void UAAARacingMechanicContractSubsystem::SetVehicle(
+    AAARacingPawn* InVehicle)
+{
+    Vehicle = InVehicle;
+}
+
+void UAAARacingMechanicContractSubsystem::SetDriveActive(
+    bool bInDriveActive)
+{
+    bDriveActive = bInDriveActive;
+}
+
+void UAAARacingMechanicContractSubsystem::PublishEvent(
+    EAAARacingMechanicEventType Type)
+{
+    FAAARacingMechanicEvent Event;
+    Event.Type = Type;
+    Event.State = GetMechanicState();
+    Event.WorldTimeSeconds = GetWorld()
+        ? GetWorld()->GetTimeSeconds()
+        : 0.0f;
+    MechanicEvent.Broadcast(Event);
 }
 
 AActor* UAAARacingEntityFactory::
