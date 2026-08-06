@@ -10,8 +10,9 @@ unchanged pending maintainer approval.
 - `agent_skills/engine_context/` contains callable Engine API references.
 - `pipeline/common/` contains reusable task-neutral workspace preparation and
   finalization helpers.
-- `pipeline/code_gen/gen_mechanic/run.py` composes one Mechanic task and
-  explicit API Reference for direct outer-Agent edits.
+- `pipeline/code_gen/gen_mechanic/run.py` currently composes one Mechanic task
+  for direct outer-Agent edits. The Pipeline provides the Engine identifier and
+  Engine Context directory; the Agent selects the matching API document.
 - `pipeline/code_gen/gen_mechanic/eval.py` remains a separate existing-artifact
   evaluation entry point.
 
@@ -23,15 +24,16 @@ Engine implicitly.
 
 ```text
 run.py prepare
-    -> task + Skill + Prompt + explicit API Reference
+    -> task + Skill + Prompt + Engine Context root
     -> prepared workspace
     -> outer Agent edits task-owned source
     -> run.py finalize
     -> preserved source artifact
 ```
 
-Shared `pipeline/common/prepare.py` and `finalize.py` are intended for both
-Mechanic and future UI generation.
+Shared `pipeline/common/prepare.py` and `finalize.py` provide the current
+task-neutral lifecycle. The next refactor will add
+`pipeline/common/code_gen.py` for reusable parsing and boundary helpers.
 
 ## Removed Legacy Paths
 
@@ -42,4 +44,15 @@ The completed Mechanic migration removes:
 - nested `CodexAgent`, `StubAgent`, and `model.run` execution;
 - legacy Mechanic Agent/Operator tests.
 
-Mechanic behavior is now covered by `test/test_code_gen_mechanic.py`.
+Focused Mechanic CodeGen tests are not present on the current `ue` branch.
+Adding behavior-locking tests is Phase 0 of
+`docs/mechanic_pipeline_decomposition_plan.md`.
+
+## Next Refactor
+
+The current Mechanic runner combines too many responsibilities. The approved
+decomposition and new-conversation handoff are recorded in:
+
+```text
+docs/mechanic_pipeline_decomposition_plan.md
+```

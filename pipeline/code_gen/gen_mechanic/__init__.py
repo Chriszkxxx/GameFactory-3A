@@ -1,5 +1,6 @@
 """Generate-Mechanic Pipeline entry points."""
 
-from .run import finalize, prepare
+from .artifacts import finalize
+from .packet import prepare
 
 __all__ = ["finalize", "prepare"]

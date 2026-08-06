@@ -179,3 +179,14 @@ When structured failures are provided:
 4. Report changed files and unresolved risks.
 
 Return source changes and diagnostics; do not claim execution success.
+
+## Completion Report
+
+After editing, report:
+
+- files created, modified, or deleted;
+- requirement and acceptance-criteria coverage;
+- generated gameplay-test coverage;
+- unresolved risks or missing inputs.
+
+Do not report an authoritative build, test, or benchmark result.
