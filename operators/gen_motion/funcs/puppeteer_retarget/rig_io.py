@@ -1,4 +1,4 @@
-"""Puppeteer rig (.txt) to Blender armature helpers.
+"""Puppeteer rig (.txt) to Blender armature helpers for motion retargeting.
 
 Adapted from the Puppeteer ``export.py`` and ``export_glb.py`` utilities.
 """

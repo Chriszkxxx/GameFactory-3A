@@ -18,7 +18,6 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   ├── gen_motion/           # MoMask, MDM, MLD, T2M-GPT, MotionGPT
 │   ├── gen_cg_video/         # LTX, HunyuanVideo, Wan, Mochi, CogVideoX, ...
 │   ├── gen_audio/            # Character voice, dialogue, game SFX, ambience
-│   ├── retarget/             # Keemap / IK-based retargeters
 │   ├── reasoning/            # LLMs / VLMs (Claude, GPT, Qwen-VL, ...)
 │   ├── tools/                # Depth, RMBG, segmentation, ...
 │   └── unified_model/        # Composite / multimodal models
@@ -30,7 +29,6 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   ├── gen_motion/
 │   ├── gen_cg_video/
 │   ├── gen_audio/
-│   ├── retarget/
 │   ├── gen_mechanic/         # code-gen agent system:
 │   │   ├── agent/            #   ├── agent/    ← wraps a code agent (Claude Code / Codex)
 │   │   ├── prompts/          #   ├── prompts/  ← system + task prompt templates
@@ -55,8 +53,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   │   ├── gen_3d_scene/     {run.py, eval.py}
 │   │   ├── gen_motion/       {run.py, eval.py}
 │   │   ├── gen_cg_video/     {run.py, eval.py}
-│   │   ├── gen_audio/        {run.py, eval.py}  ← voice / dialogue / game SFX
-│   │   └── retarget/         {run.py, eval.py}
+│   │   └── gen_audio/        {run.py, eval.py}  ← voice / dialogue / game SFX
 │   ├── mechanic/             {run.py, eval.py}  ← mechanic code generation
 │   ├── ui/                   {run.py, eval.py}  ← front-end / HUD generation
 │   └── full_pipeline/        {run.py, eval.py}  ← end-to-end vertical slice
@@ -65,14 +62,14 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   ├── test_samples/         # Benchmark test set — one dir per game project
 │   │   ├── gameA_cyberpunk_shooter/
 │   │   │   ├── general_requirement.txt
-│   │   │   ├── 3D_object/  · tpose/    · 3D_scene/  · motion/  · retarget/
+│   │   │   ├── 3D_object/  · tpose/    · 3D_scene/  · motion/
 │   │   │   ├── cg_video/   · mechanic/ · ui/        · pipeline/
 │   │   ├── 3D_object_gen_collect.jsonl    ← cross-game aggregate
 │   │   ├── ...
 │   │   └── pipeline_collect.jsonl
 │   └── outputs/              # Single fixed output root — mirrors test_samples/
 │       └── <game_id>/<run_id>/
-│           ├── assets/{3d_object,tpose,3d_scene,motion,cg_video,retarget}/<task_id>/
+│           ├── assets/{3d_object,tpose,3d_scene,motion,cg_video}/<task_id>/
 │           ├── mechanic/<task_id>/ · ui/<task_id>/ · pipeline/<task_id>/
 │           └── eval/<task_kind>/<task_id>/
 │
@@ -88,10 +85,9 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 | 3D object         | `gen_3d_object`       | `gen_3d_object`   | `pipeline/assets_gen/gen_3d_object`    |
 | T-pose image      | `gen_image`           | `gen_tpose_image` | `pipeline/assets_gen/gen_tpose_image`  |
 | 3D scene          | `gen_3d_scene`        | `gen_3d_scene`    | `pipeline/assets_gen/gen_3d_scene`     |
-| Motion            | `gen_motion`          | `gen_motion`      | `pipeline/assets_gen/gen_motion`       |
+| Motion / retarget | `gen_motion`          | `gen_motion`      | `pipeline/assets_gen/gen_motion`       |
 | CG video          | `gen_cg_video`        | `gen_cg_video`    | `pipeline/assets_gen/gen_cg_video`     |
 | Audio             | `gen_audio`           | `gen_audio`       | `pipeline/assets_gen/gen_audio`        |
-| Retarget          | `retarget`            | `retarget`        | `pipeline/assets_gen/retarget`         |
 | Mechanic          | `reasoning`           | `gen_mechanic`    | `pipeline/mechanic`                    |
 | UI                | `reasoning`           | `gen_ui`          | `pipeline/ui`                          |
 | Full slice        | (all of the above)    | (all of the above)| `pipeline/full_pipeline`               |
@@ -129,7 +125,7 @@ test_data/outputs/
         ├── assets/
         │   ├── 3d_object/<task_id>/       # model.glb · meta.json
         │   ├── tpose/<task_id>/           # tpose_fg.png · tpose.png · meta.json
-        │   └── {3d_scene,motion,cg_video,audio,retarget}/<task_id>/
+        │   └── {3d_scene,motion,cg_video,audio}/<task_id>/
         ├── mechanic/<task_id>/            # engine project · demo_outputs/*.json · launch.sh
         ├── ui/<task_id>/                  # UI code · screenshots/
         ├── pipeline/<task_id>/            # end-to-end vertical slice
@@ -181,11 +177,11 @@ python test/harness/smoke.py --kind tpose --keep
 
 ## Motion retarget
 
-The `retarget` task transfers a `.bvh` or `.fbx` animation onto a character
-produced by the Puppeteer rigging format. The target is supplied as the
-textured `.glb` plus its Puppeteer `rig.txt`. This first backend supports
-explicit source-to-target mapping JSON and topology-based automatic mapping
-for conventional connected humanoids.
+The `motion` task currently provides a deterministic retarget function that
+transfers a `.bvh` or `.fbx` animation onto a character using the Puppeteer
+rigging format. The target is supplied as a textured `.glb` plus its Puppeteer
+`rig.txt`. Explicit mapping JSON and topology-based automatic mapping are
+supported for conventional connected humanoids.
 
 Create the isolated Blender Python runtime (the main project environment does
 not need `bpy`):
@@ -197,7 +193,7 @@ conda env create -f scripts/installing/retarget_environment.yml
 Run a single task:
 
 ```bash
-python pipeline/assets_gen/retarget/run.py \
+python pipeline/assets_gen/gen_motion/run.py \
   --bpy-python /path/to/aaagf-retarget-bpy/python \
   --source-motion /path/to/motion.bvh \
   --target-glb /path/to/character.glb \
@@ -211,6 +207,10 @@ Omit `--mapping` to infer one from the two skeleton topologies. Outputs are
 and `retarget_info.json`. Retargeting is CPU-only; it does not load Puppeteer
 checkpoints or use GPU memory.
 
+Puppeteer automatic rigging and MoMask text-to-motion generation are not part
+of this implementation. When added, their model wrappers and orchestration
+will use the same `gen_motion` task rather than introducing separate task kinds.
+
 The real integration test reads external assets from
 `AAAGF_RETARGET_SOURCE_MOTION`, `AAAGF_RETARGET_TARGET_GLB`,
 `AAAGF_RETARGET_TARGET_RIG`, optional `AAAGF_RETARGET_MAPPING`, and
@@ -218,6 +218,6 @@ The real integration test reads external assets from
 
 ## Status
 
-Skeleton — `gen_3d_object`, `gen_tpose_image`, and Puppeteer-targeted
-`retarget` are implemented end to end; the remaining tasks are directories and
-empty placeholder files.
+Skeleton — `gen_3d_object`, `gen_tpose_image`, and the Puppeteer-targeted
+retarget function under `gen_motion` are implemented end to end; Puppeteer
+rigging and text-to-motion generation remain unimplemented.

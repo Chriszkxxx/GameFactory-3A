@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""World-space rotation-delta retargeting for a Puppeteer target skeleton.
+"""Gen-motion world-space retargeting for a Puppeteer target skeleton.
 
 For each mapped bone and frame:
 

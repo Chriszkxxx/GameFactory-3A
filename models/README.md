@@ -40,10 +40,9 @@ All three `gen_3d_object` backends expose the same
 |------------------|--------------------------------------|------------------|
 | `gen_3d_object/` | Single 3D asset generation           | TRELLIS.2, Hunyuan3D-2.1, TripoSG, Step1X-3D, Direct3D-S2, Craftsman3D, Michelangelo, Meshy, Tripo, Rodin, CSM, Luma Genie |
 | `gen_3d_scene/`  | Whole-scene / world generation       | Hunyuan-WorldPlay2, FlashWorld, FantasyWorld |
-| `gen_motion/`    | Text-to-motion                       | MoMask, MDM, MLD, T2M-GPT, MotionGPT |
+| `gen_motion/`    | Motion generation and rigging models | MoMask, MDM, MLD, T2M-GPT, MotionGPT, Puppeteer |
 | `gen_cg_video/`  | Cinematic / CG video generation      | LTX-2.3, HunyuanVideo, Wan, Mochi, CogVideoX, Open-Sora, Seedance 2, Kling 3, Veo 3, Sora 2, Runway Gen-4, Hailuo, Vidu |
 | `gen_audio/`     | Character voice, dialogue, and game sound generation | Future speech, voice, and sound-effect backends |
-| `retarget/`      | Skeleton motion retargeter           | Puppeteer world-delta; future IK / learning-based backends |
 | `reasoning/`     | LLMs / VLMs used by the pipeline     | Claude, GPT-5.5, GLM, Kimi, DeepSeek, Gemini, Qwen, Grok, Llama, Mistral |
 | `tools/`         | Utility models (depth, RMBG, seg.)   | Depth-Anything, RMBG, SAM, etc.       |
 | `unified_model/` | Composite / multimodal pipelines     | e.g., end-to-end asset+motion models  |

@@ -1,4 +1,4 @@
-"""Validation for source-to-Puppeteer bone mapping JSON."""
+"""Validation for gen-motion source-to-Puppeteer bone mapping JSON."""
 from __future__ import annotations
 
 import json

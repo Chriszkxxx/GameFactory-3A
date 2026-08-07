@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Infer a source-to-Puppeteer mapping from humanoid skeleton topology."""
+"""Infer a source-to-Puppeteer mapping for the gen-motion retarget function."""
 from __future__ import annotations
 
 import argparse

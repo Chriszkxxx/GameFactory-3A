@@ -85,8 +85,8 @@ def _make_task(kind: str, task_id: str, game_id: str | None = None) -> dict:
     }
     if game_id is not None:
         task["game_id"] = game_id
-    if kind == "retarget":
-        fixture_dir = paths.OUTPUT_ROOT / "_smoke_retarget_inputs"
+    if kind == "motion":
+        fixture_dir = paths.OUTPUT_ROOT / "_smoke_motion_inputs"
         fixture_dir.mkdir(parents=True, exist_ok=True)
         source = fixture_dir / "source.bvh"
         target = fixture_dir / "target.glb"
@@ -102,11 +102,12 @@ def _make_task(kind: str, task_id: str, game_id: str | None = None) -> dict:
             encoding="utf-8",
         )
         mapping.write_text(
-            json.dumps(stubs.StubRetargetModel._mapping(), indent=2),
+            json.dumps(stubs.retarget_mapping(), indent=2),
             encoding="utf-8",
         )
         task.update(
             {
+                "task_type": "retarget",
                 "source_motion_path": str(source),
                 "target_glb_path": str(target),
                 "target_rig_path": str(rig),
@@ -241,7 +242,7 @@ def smoke_kind(kind: str, keep: bool, backend: str | None = None) -> None:
         if not keep:
             shutil.rmtree(tmp_flat, ignore_errors=True)
             shutil.rmtree(
-                paths.OUTPUT_ROOT / "_smoke_retarget_inputs",
+                paths.OUTPUT_ROOT / "_smoke_motion_inputs",
                 ignore_errors=True,
             )
 
