@@ -396,6 +396,49 @@ class StubQwenEditModel(_StubBase):
         return make_ref_image(size=max(image.size), seed=seed)
 
 
+class StubVideoModel(_StubBase):
+    """Mimics the shared ``infer`` / ``infer_and_save`` CG-video interface."""
+
+    output_format = "mp4"
+
+    def __init__(self, model_path: str = "stub-seedance", device: str = "cpu", **kw):
+        super().__init__(model_path=model_path, device=device, **kw)
+        self.last_call_info: dict = {}
+
+    def infer(self, request, **provider_kwargs) -> bytes:
+        self.calls.append({
+            "op": "infer",
+            "mode": request.mode.value,
+            "prompt": request.prompt,
+            "duration_sec": request.duration_sec,
+            "seed": request.seed,
+            "first_frame": request.first_frame is not None,
+            "last_frame": request.last_frame is not None,
+            "reference_count": len(request.reference_images),
+            **provider_kwargs,
+        })
+        # Minimal MP4-like fixture: the harness checks placement and non-empty
+        # artifacts, while the paid integration test checks provider decoding.
+        data = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isomaaagf-video-stub"
+        self.last_call_info = {
+            "provider": "stub-video",
+            "model": self.model_path,
+            "task_id": f"stub_video_{len(self.calls):03d}",
+            "elapsed_sec": 0.0,
+            "bytes": len(data),
+            "cached": False,
+        }
+        return data
+
+    def infer_and_save(self, request, output_path: str, **provider_kwargs) -> str:
+        data = self.infer(request, **provider_kwargs)
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(data)
+        self.calls.append({"op": "infer_and_save", "output_path": str(out)})
+        return str(out)
+
+
 class StubQwen3TTSModel(_StubBase):
     """Mimics ``models.gen_audio.qwen3_tts_model.Qwen3TTSModel``."""
 
@@ -470,6 +513,9 @@ STUB_BACKENDS: dict[str, dict[str, Any]] = {
         "tripo": StubTripoModel,
         "meshy": StubMeshyModel,
     },
+    "cg_video": {
+        "seedance": StubVideoModel,
+    },
 }
 
 #: task_kind -> factory returning the kwargs for that task's operator.
@@ -479,6 +525,8 @@ STUB_OPERATOR_KWARGS: dict[str, Any] = {
         "model": STUB_BACKENDS["3d_object"][model_key or "trellis2"]()},
     "tpose": lambda model_key=None: {
         "gen_model": StubQwenEditModel(), "mask_model": StubRMBGModel()},
+    "cg_video": lambda model_key=None: {
+        "model": STUB_BACKENDS["cg_video"][model_key or "seedance"]()},
     "audio": lambda: {
         "dialogue_model": StubQwen3TTSModel(),
         "sound_effect_model": StubWooshDFlowModel(),
