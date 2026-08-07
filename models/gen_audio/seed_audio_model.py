@@ -1,19 +1,19 @@
 """
-SeedAudioModel — synchronous BytePlus Seed Audio 1.0 API backend.
+SeedAudioModel — synchronous Volcengine/ByteDance Seed Audio 1.0 API backend.
 
 The same provider can fill either AudioGen model slot: construct it with
 ``mode="dialogue"`` for character lines or ``mode="sound_effect"`` for SFX,
 foley and ambience. It returns the same in-memory waveform contract as Qwen3-TTS
 and Woosh, so artifact writing remains in ``GenAudioOperator``.
 
-Official API:
-https://docs.byteplus.com/en/docs/byteplusvoice/seedaudio-01?lang=en
+API endpoint:
+https://openspeech.bytedance.com/api/v3/tts/create
 
 Environment:
     SEED_AUDIO_API_KEY       required on the first real API request
     SEED_AUDIO_API_BASE      optional API root override
     SEED_AUDIO_MODEL         optional model id (default seed-audio-1.0)
-    SEED_AUDIO_SPEAKER_ID    optional BytePlus speaker resource id
+    SEED_AUDIO_SPEAKER_ID    optional provider speaker resource id
 """
 from __future__ import annotations
 
@@ -26,10 +26,11 @@ from typing import Any, Optional
 from models.common import cloud_api
 from models.gen_audio.seed_audio_utils import decode_wav_bytes, encode_wav_base64
 
-SIGNUP_URL = "https://docs.byteplus.com/en/docs/byteplusvoice/Speech_Console_Guide"
-DEFAULT_API_BASE = "https://voice.ap-southeast-1.bytepluses.com"
+DEFAULT_API_BASE = "https://openspeech.bytedance.com"
 DEFAULT_MODEL = "seed-audio-1.0"
 CREATE_PATH = "/api/v3/tts/create"
+API_ENDPOINT = f"{DEFAULT_API_BASE}{CREATE_PATH}"
+SIGNUP_URL = "https://console.volcengine.com/speech/"
 SUPPORTED_MODES = ("dialogue", "sound_effect")
 
 
@@ -246,7 +247,7 @@ class SeedAudioModel:
         ``seed``, ``num_steps`` and ``cfg`` are accepted for slot compatibility;
         Seed Audio 1.0's public API does not expose them, so they are not faked or
         sent. Likewise, the task's Qwen speaker name is intentionally ignored;
-        configure a real BytePlus resource with ``SEED_AUDIO_SPEAKER_ID``.
+        configure a real provider resource with ``SEED_AUDIO_SPEAKER_ID``.
         """
         del seed, speaker_id, reference_text, num_steps, cfg
         text_prompt = self._text_prompt(

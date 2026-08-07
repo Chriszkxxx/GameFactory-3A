@@ -218,7 +218,7 @@ def main() -> None:
     parser.add_argument(
         "--seed-audio-speaker-id",
         default=os.environ.get("SEED_AUDIO_SPEAKER_ID"),
-        help="Optional BytePlus speaker resource id; Qwen speaker names are not reused.",
+        help="Optional Seed Audio speaker resource id; Qwen speaker names are not reused.",
     )
     parser.add_argument(
         "--seed-audio-sample-rate",

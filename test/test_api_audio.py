@@ -22,7 +22,12 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
 from models.common import cloud_api  # noqa: E402
-from models.gen_audio.seed_audio_model import CREATE_PATH, SeedAudioModel  # noqa: E402
+from models.gen_audio.seed_audio_model import (  # noqa: E402
+    API_ENDPOINT,
+    CREATE_PATH,
+    DEFAULT_API_BASE,
+    SeedAudioModel,
+)
 
 
 def make_wav(sample_rate: int = 24_000, duration: float = 0.25) -> bytes:
@@ -72,6 +77,13 @@ def make_model(mode: str = "dialogue", response: dict | None = None, **kwargs):
 
 
 class TestConstruction(unittest.TestCase):
+    def test_china_api_endpoint_is_the_default(self):
+        self.assertEqual(DEFAULT_API_BASE, "https://openspeech.bytedance.com")
+        self.assertEqual(
+            API_ENDPOINT,
+            "https://openspeech.bytedance.com/api/v3/tts/create",
+        )
+
     def test_constructs_without_key_and_accepts_cpu(self):
         saved = os.environ.pop("SEED_AUDIO_API_KEY", None)
         try:
