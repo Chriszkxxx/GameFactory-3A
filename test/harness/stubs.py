@@ -424,6 +424,32 @@ class StubWooshDFlowModel(_StubBase):
         return {"waveform": waveform[None, :], "sample_rate": sample_rate}
 
 
+class StubSeedAudioModel(_StubBase):
+    """Mimics ``SeedAudioModel`` in either dialogue or sound-effect mode."""
+
+    def __init__(self, mode: str = "dialogue", **kw):
+        super().__init__(model_path="stub://seed-audio-1.0", device="cpu", **kw)
+        self.mode = mode
+
+    def infer(self, text=None, seed: int = 42, *, prompt=None,
+              duration_sec=None, **kw) -> dict:
+        sample_rate = 24_000
+        source = str(text or prompt or "")
+        duration = float(duration_sec or max(0.25, min(2.0, len(source) * 0.08)))
+        samples = max(1, int(sample_rate * duration))
+        t = np.arange(samples, dtype=np.float32) / sample_rate
+        if self.mode == "dialogue":
+            waveform = 0.2 * np.sin(2.0 * np.pi * (180.0 + seed % 80) * t)
+        else:
+            rng = np.random.default_rng(seed)
+            envelope = np.exp(-np.linspace(0.0, 8.0, samples, dtype=np.float32))
+            waveform = 0.25 * rng.standard_normal(samples) * envelope
+        self.calls.append({"op": "infer", "mode": self.mode, "text": text,
+                           "prompt": prompt, "seed": seed, **kw})
+        return {"waveform": waveform.astype(np.float32)[None, :],
+                "sample_rate": sample_rate}
+
+
 # ── Tool-model stubs ──────────────────────────────────────────────────────────
 
 
@@ -470,6 +496,10 @@ STUB_BACKENDS: dict[str, dict[str, Any]] = {
         "tripo": StubTripoModel,
         "meshy": StubMeshyModel,
     },
+    "audio": {
+        "local": StubQwen3TTSModel,
+        "seed_audio": StubSeedAudioModel,
+    },
 }
 
 #: task_kind -> factory returning the kwargs for that task's operator.
@@ -479,9 +509,15 @@ STUB_OPERATOR_KWARGS: dict[str, Any] = {
         "model": STUB_BACKENDS["3d_object"][model_key or "trellis2"]()},
     "tpose": lambda model_key=None: {
         "gen_model": StubQwenEditModel(), "mask_model": StubRMBGModel()},
-    "audio": lambda: {
-        "dialogue_model": StubQwen3TTSModel(),
-        "sound_effect_model": StubWooshDFlowModel(),
+    "audio": lambda model_key=None: {
+        "dialogue_model": (
+            StubSeedAudioModel(mode="dialogue")
+            if model_key == "seed_audio" else StubQwen3TTSModel()
+        ),
+        "sound_effect_model": (
+            StubSeedAudioModel(mode="sound_effect")
+            if model_key == "seed_audio" else StubWooshDFlowModel()
+        ),
     },
 }
 
