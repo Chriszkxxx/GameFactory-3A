@@ -10,7 +10,25 @@ mechanic / UI code, and used at runtime for RPC-style asset delivery.
 | `ue5/`      | UE5 Blueprint templates, C++ modules, Python-remote scripts, importer helpers |
 | `unity3d/`  | Unity3D C# templates, Editor scripts, PackageManager manifests |
 | `blender/`  | Blender Python (`bpy`) importers, rig / retarget helpers, headless render scripts |
-| `three_js/` | Web preview: glTF loaders, scene scaffolds, HUD overlays |
+| `three_js/` | Web runtime: `ThreeClient` Python API, `A3GamePlayable` JS framework, glTF loaders, scene scaffolds, HUD overlays |
+
+`ue5/` and `three_js/` are the two adapters implemented to the full
+versioned contract. Each exposes exactly one public Python entry point —
+`UEClient` and `ThreeClient` — with the same eleven namespaces and the
+same `{ok, operation, artifacts, diagnostics, warnings, errors, payload}`
+result shape, so Pipeline code can switch engines without branching.
+
+Each also ships an adapter-owned runtime framework that generated
+gameplay extends but never edits:
+
+| Adapter | Framework | Generated gameplay lives in |
+|---------|-----------|------------------------------|
+| `ue5/` | `A3GamePlayable` UE plugin (C++ contracts) | a project-local Gameplay Plugin |
+| `three_js/` | `A3GamePlayable` npm package `@a3game/playable` | a project-local Gameplay Package under `packages/` |
+
+See `three_js/MIGRATION_INVENTORY.md` for why the three.js framework also
+owns renderer, frame loop, input, animation, and collision scaffolding
+that Unreal supplies natively.
 
 The LLM is expected to *reference / extend* these files rather than write engine
 code from scratch, which improves compile-rate and reduces hallucinated APIs.
@@ -26,6 +44,7 @@ does X", the other is "how our artifacts get in".
 |------|-----------|
 | `ue5/import_generated/import_mesh.py` | Unreal's Python |
 | `unity3d/import_generated/ImportGeneratedMesh.cs` | Unity Editor (`Assets/Editor/`) |
+| `three_js/import_generated/import_mesh.mjs` | host Node, with the project's `three` installed |
 | `scripts/import_generated_asset.py` | host Python — finds the editor, launches either importer, reads its JSON report |
 
 ```bash
