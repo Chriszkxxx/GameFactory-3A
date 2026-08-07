@@ -1,0 +1,106 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "avatar_hero",
+      "asset_id": "hero",
+      "package_id": "",
+      "type": "avatar",
+      "category": "",
+      "representation": "skeletal_mesh",
+      "primary_asset": {
+        "backend": "ue",
+        "class": "SkeletalMesh",
+        "path": "/Game/Imported/Avatars/Hero"
+      },
+      "runtime_capabilities": {
+        "renderable": true,
+        "spawnable": true,
+        "collidable": false,
+        "playable": false
+      },
+      "backend": "ue",
+      "backend_class": "SkeletalMesh",
+      "backend_path": "/Game/Imported/Avatars/Hero",
+      "source_path": "",
+      "spawnable": true,
+      "state": "ready",
+      "editor_backend": {
+        "backend": "ue",
+        "path": "/Game/Imported/Avatars/Hero"
+      },
+      "runtime": {
+        "spawnable": true,
+        "class": "SkeletalMesh"
+      },
+      "metadata": {}
+    },
+    {
+      "artifact_id": "motion_run",
+      "asset_id": "run",
+      "package_id": "",
+      "type": "motion",
+      "category": "",
+      "representation": "animation",
+      "primary_asset": {
+        "backend": "ue",
+        "class": "AnimSequence",
+        "path": "/Game/Imported/Motions/Run"
+      },
+      "runtime_capabilities": {
+        "renderable": false,
+        "spawnable": false,
+        "collidable": false,
+        "playable": true
+      },
+      "backend": "ue",
+      "backend_class": "AnimSequence",
+      "backend_path": "/Game/Imported/Motions/Run",
+      "source_path": "",
+      "spawnable": false,
+      "state": "ready",
+      "editor_backend": {
+        "backend": "ue",
+        "path": "/Game/Imported/Motions/Run"
+      },
+      "runtime": {
+        "spawnable": false,
+        "class": "AnimSequence"
+      },
+      "metadata": {}
+    },
+    {
+      "artifact_id": "ue_static_mesh_arena",
+      "asset_id": "arena",
+      "package_id": "arena",
+      "type": "prop",
+      "category": "",
+      "representation": "static_mesh",
+      "primary_asset": {
+        "backend": "ue",
+        "class": "StaticMesh",
+        "path": "/Game/Imported/Props/Arena"
+      },
+      "runtime_capabilities": {
+        "renderable": true,
+        "spawnable": true,
+        "collidable": false,
+        "playable": false
+      },
+      "backend": "ue",
+      "backend_class": "StaticMesh",
+      "backend_path": "/Game/Imported/Props/Arena",
+      "source_path": "",
+      "spawnable": true,
+      "state": "ready",
+      "editor_backend": {
+        "backend": "ue",
+        "path": "/Game/Imported/Props/Arena"
+      },
+      "runtime": {
+        "spawnable": true,
+        "class": "StaticMesh"
+      },
+      "metadata": {}
+    }
+  ]
+}
