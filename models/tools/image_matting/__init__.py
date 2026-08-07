@@ -11,7 +11,7 @@ These are auxiliary "matting" style models used by generation pipelines
 All of them inherit from `BaseToolModel` (see `models/tools/base.py`).
 """
 
-from models.tools.image_matting.depth_anything import DepthAnythingModel
-from models.tools.image_matting.rmbg import RMBGModel
+from models.tools.image_matting.depth_anything_model import DepthAnythingModel
+from models.tools.image_matting.rmbg_model import RMBGModel
 
 __all__ = ["DepthAnythingModel", "RMBGModel"]

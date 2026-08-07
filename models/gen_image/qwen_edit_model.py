@@ -8,7 +8,7 @@ Needs a CUDA GPU for practical speed; `device="cpu"` works but is very slow.
 so the recommended order is: build images -> unload() -> run the video model.
 
 Usage:
-    from models.gen_image.qwen_edit import QwenEditModel
+    from models.gen_image.qwen_edit_model import QwenEditModel
     model = QwenEditModel(model_path="Qwen/Qwen-Image-Edit-2511")
     out = model.infer(image, prompt="make it a T-pose", seed=42)
 """

@@ -8,7 +8,7 @@ original image resolution. Values are raw relative-depth predictions and are
 not normalized to a fixed range.
 
 Usage:
-    from models.tools.image_matting.depth_anything import DepthAnythingModel
+    from models.tools.image_matting.depth_anything_model import DepthAnythingModel
     model = DepthAnythingModel(model_path="LiheYoung/depth-anything-small-hf")
     depth = model.infer(image)
 """

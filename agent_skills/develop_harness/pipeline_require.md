@@ -1,13 +1,17 @@
 # pipeline_require.md — contract for `pipeline/`
 
-A pipeline directory provides the public generation entry point: `run.generate()` resolves
-checkpoints, loads/reuses models, builds an `operators/` operator, and generates
-assets. `run.py` batch-drives the same entry point for Benchmark; `eval.py` only
+A pipeline directory exposes a small public generation API: `run.load_*()`
+loads or reuses the required models, `run.make_operator()` injects them into the
+Operator, and `run.generate(inp, operator)` generates one asset. `run.py`
+batch-drives the same `generate()` entry point for Benchmark; `eval.py` only
 scores existing artifacts.
 
-> Scope: this contract applies to `pipeline/assets_gen/` only. `run.generate()` is the game-generation/user-test entry point; `run.py` batch execution and `eval.py` form the asset-generation Benchmark chain.
+> Scope: this contract applies to `pipeline/assets_gen/` only. The public API is
+> `load_*()` → `make_operator()` → `generate(inp, operator)`; `run.py` batch
+> execution and `eval.py` form the asset-generation Benchmark chain.
 >
-> Use `operators/` for game generation and user testing. `pipeline/` is for batch benchmark evaluation.
+> For callers that already own loaded models, `operator.run(inp)` is the
+> lower-level injected-model API.
 
 ```
 pipeline/

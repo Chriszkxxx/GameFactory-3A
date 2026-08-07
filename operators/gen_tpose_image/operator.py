@@ -26,8 +26,8 @@ Output layout — two modes, chosen by whether `output_dir` is given:
     byte-for-byte the historical behaviour. Existing callers are unaffected.
 
 Usage:
-    from models.gen_image.qwen_edit import QwenEditModel
-    from models.tools.image_matting.rmbg import RMBGModel
+    from models.gen_image.qwen_edit_model import QwenEditModel
+    from models.tools.image_matting.rmbg_model import RMBGModel
     from operators.gen_tpose_image.operator import GenTPoseImageOperator
 
     gen_model  = QwenEditModel(model_path="Qwen/Qwen-Image-Edit-2511")

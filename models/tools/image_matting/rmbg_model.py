@@ -8,7 +8,7 @@ HxW float32 numpy array in [0, 1] representing the foreground alpha mask, at
 the original image resolution.
 
 Usage:
-    from models.tools.image_matting.rmbg import RMBGModel
+    from models.tools.image_matting.rmbg_model import RMBGModel
     model = RMBGModel(model_path="briaai/RMBG-1.4")
     mask = model.infer(image)          # HxW float32 in [0, 1]
     rgba = model.remove_background(image)
