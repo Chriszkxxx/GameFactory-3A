@@ -10,7 +10,7 @@ prompt. Everything here is **prose for an agent to read**, not code to import �
 |------|----------|---------|
 | `setting_overview.md` | any agent | This file — what `agent_skills/` is and how to navigate it |
 | `develop_harness/` | a coding agent extending this repo | Contracts for the `models/` → `operators/` → `pipeline/` asset-generation chain |
-| `engine_context/` | the `gen_mechanic` / `gen_ui` code agents | Selectable per-engine API notes plus Browser Serving API notes |
+| `engine_context/` | the `gen_mechanic` / `gen_ui` code agents | Per-engine API notes (UE5 / Unity3D / Blender / three.js) used when generating engine code |
 
 ```
 agent_skills/
@@ -21,8 +21,7 @@ agent_skills/
 │   ├── operatar_require.md        ← contract for operators/  (task dict → artifacts)
 │   └── pipeline_require.md        ← contract for pipeline/   (CLI, batching, scoring)
 └── engine_context/
-    ├── per-engine `*_api.md` references
-    └── Browser Serving API reference
+    ├── ue5_api.md · unity3d_api.md · blender_api.md · three_js_api.md
 ```
 
 ## Two different kinds of agent work
@@ -37,13 +36,6 @@ The repo has agents on both sides of the fence, and they read different files:
    `operators/gen_mechanic/` and `operators/gen_ui/`, which write UE5 / Unity3D /
    web code for a target game.
    → read `engine_context/`, plus the reference projects in `engine_adapters/`.
-
-For Mechanic and UI Code Generation, task data provides an Engine identifier
-such as `ue5`. The outer Agent must list `engine_context/`, select exactly one
-matching Engine API document, and read it before making concrete engine calls.
-Tasks do not provide or hard-code an API document path. If no matching
-non-empty document exists, stop and report the missing Engine context instead
-of guessing or combining multiple Engine APIs.
 
 Don't mix them: `develop_harness/` describes *this repo's* internal conventions;
 `engine_context/` describes *external engine* APIs.

@@ -38,8 +38,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │   └── gen_ui/               # same agent/ · prompts/ · skills/ layout
 │
 ├── engine_adapters/          # Engine reference code (fed to LLM as context)
-│   ├── ue5/                  # UEClient, runtime framework, Preview, examples
-│   └── unity3d/ · blender/ · three_js/
+│   ├── ue5/ · unity3d/ · blender/ · three_js/   ← implemented in a separate repo, to be migrated
 │
 ├── agent_skills/             # Reference context + guidelines for agents (docs only)
 │   ├── setting_overview.md   #   start here — what lives where
@@ -77,9 +76,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │           ├── mechanic/<task_id>/ · ui/<task_id>/ · pipeline/<task_id>/
 │           └── eval/<task_kind>/<task_id>/
 │
-├── scripts/
-│   ├── ue/                   # Windows/Linux wrappers around engine_adapters.ue5.cli
-│   └── installing/
+├── scripts/installing/
 ├── test/                     # Integration tests + test/harness/ (stub models, CPU smoke test)
 └── docs/
 ```
@@ -106,18 +103,15 @@ Unlike asset operators (single `model.infer()` call), **code generation** (`gen_
 `gen_ui`) is a multi-turn agent loop and lives under the operator as a self-contained
 agent system, inspired by [GameCraft-Bench](https://github.com/FreedomIntelligence/gamecraft-bench):
 
-- `operators/<task>/agent/`   — wraps a Duck-Typed code agent (Claude Code / Codex / Stub) behind `model.run(request)`
+- `operators/<task>/agent/`   — wraps a code agent (Claude Code / Codex); injects context, retries/repairs on build failure
 - `operators/<task>/prompts/` — system + task prompt templates
-- `operators/<task>/skills/`  — engine-neutral generation workflow and authority boundaries
-- `agent_skills/engine_context/` — one selected per-engine API reference file, passed by read-only path
-- `engine_adapters/`          — engine framework and optional read-only implementation references
+- `operators/<task>/skills/`  — agent-callable skills teaching engine build / headless-launch / screenshot / replay
+- `engine_adapters/`          — engine reference projects (UE5 / Unity3D) fed to the agent as context
 
-`pipeline/mechanic/run.py` organizes the requirement → selects the Skill,
-Prompt, Engine API Reference path, and optional read-only Example paths →
-launches the code agent (interactive dialog for debug, or non-interactive for
-benchmark) → writes the generated project into that game's run directory.
-`eval.py` then runs the verifier (build_check gate → trace replay →
-hidden-rubric multimodal judge).
+`pipeline/mechanic/run.py` organizes the requirement → assembles context (spec + engine_adapters + skills)
+→ launches the code agent (interactive dialog for debug, or non-interactive for benchmark)
+→ writes the generated project into that game's run directory. `eval.py` then runs the verifier
+(build_check gate → trace replay → hidden-rubric multimodal judge).
 
 ## Outputs — one directory per generated game project
 
@@ -187,11 +181,6 @@ python test/harness/smoke.py --kind tpose --keep
 
 ## Status
 
-`gen_3d_object` and `gen_tpose_image` are implemented end to end. Mechanic now
-has an engine-neutral Skill/Prompt contract, CPU-safe Stub Agent, non-interactive
-Codex Agent, engine-neutral `GenMechanicOperator`, and generation-only public
-Pipeline runner. The Operator assembles the requirement, Skill, Prompt, Engine
-API Reference, and optional examples before invoking the Agent; it does not
-import assets, build, test, launch, or score an engine project. Mechanic
-evaluation and the P0 execution/repair loop remain to be implemented through
-`pipeline/mechanic/eval.py` and public Engine Adapter APIs.
+Skeleton — `gen_3d_object` and `gen_tpose_image` are implemented end to end;
+the remaining tasks are directories and empty placeholder files.
+
