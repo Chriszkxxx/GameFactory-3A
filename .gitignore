@@ -46,3 +46,5 @@ third_party/*/
 !third_party/.gitkeep
 
 _cache_code/
+.tmp/
+.codex/
