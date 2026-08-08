@@ -19,12 +19,14 @@ from pipeline.common.artifacts import (
     resolve_repo_path,
 )
 from pipeline.common.code_gen import (
+    CONTEXT_USED_SCHEMA,
     mapping_list,
+    provenance_digests,
     repair_payload,
-    resolve_examples,
+    resolve_engine_example_paths,
+    resolve_engine_registration,
     string_list,
     validate_boundaries,
-    validate_engine_context_root,
 )
 from pipeline.common.prepare import (
     DEFAULT_RESERVED_ROOTS,
@@ -40,11 +42,6 @@ CONTEXT_ROOT = (
     / "agent_skills"
     / "code_gen"
     / "mechanic"
-)
-ENGINE_CONTEXT_ROOT = (
-    paths.REPO_ROOT
-    / "agent_skills"
-    / "engine_context"
 )
 SKILL_PATH = CONTEXT_ROOT / "game_generation.md"
 PROMPTS_ROOT = CONTEXT_ROOT / "prompts"
@@ -74,9 +71,23 @@ def prepare(
     task_id = str(task.get("task_id") or "").strip()
     if not task_id:
         raise ValueError("Mechanic task must contain task_id")
-    engine = str(task.get("engine") or "").strip()
-    if not engine:
+    requested_engine = str(
+        task.get("engine") or ""
+    ).strip()
+    if not requested_engine:
         raise ValueError("Mechanic task must contain engine")
+    registration = resolve_engine_registration(
+        requested_engine
+    )
+    engine = str(registration["engine_id"])
+    engine_context_root = Path(
+        registration["context_root"]
+    )
+    examples = resolve_engine_example_paths(
+        task,
+        registration,
+        "mechanic_example",
+    )
 
     game_id, workspace, standard_layout = (
         resolve_task_workspace(
@@ -117,9 +128,6 @@ def prepare(
         if general_requirement_path.is_file()
         else ""
     )
-    validate_engine_context_root(ENGINE_CONTEXT_ROOT)
-    examples = resolve_examples(task)
-
     system_prompt = read_required_text(
         SYSTEM_PROMPT_PATH,
         "Mechanic system Prompt",
@@ -149,6 +157,9 @@ def prepare(
         "motion_sources",
         "acceptance_criteria",
         "operator_execution",
+        "example_paths",
+        "examples",
+        "mechanic_example_paths",
         "mode",
         "repair",
     ):
@@ -174,11 +185,14 @@ def prepare(
                 task.get("motion_sources", [])
             ),
             "ENGINE": engine,
-            "ENGINE_CONTEXT_PATH": str(
-                ENGINE_CONTEXT_ROOT
+            "ENGINE_CONTEXT_ROOT": str(
+                engine_context_root
             ),
-            "OPTIONAL_EXAMPLE_PATHS": json_text(
+            "MECHANIC_EXAMPLE_PATHS": json_text(
                 [str(path) for path in examples]
+            ),
+            "CONTEXT_USED_PATH": str(
+                workspace / "context_used.json"
             ),
         },
     )
@@ -206,7 +220,7 @@ def prepare(
         SYSTEM_PROMPT_PATH,
         TASK_PROMPT_PATH,
         REPAIR_PROMPT_PATH,
-        ENGINE_CONTEXT_ROOT,
+        engine_context_root,
         requirement_path,
         *examples,
     ]
@@ -218,6 +232,10 @@ def prepare(
         f"{game_id}:{run_id}:{task_id}:"
         f"{mode}:{repair_attempt}"
     )
+    provenance_paths = [
+        engine_context_root,
+        *examples,
+    ]
     packet = {
         "packet_id": packet_id,
         "generation_owner": "outer_agent",
@@ -252,8 +270,8 @@ def prepare(
                 task.get("motion_sources", []),
                 "motion_sources",
             ),
-            "engine_context_path": str(
-                ENGINE_CONTEXT_ROOT
+            "engine_context_root": str(
+                engine_context_root
             ),
             "skill_path": str(SKILL_PATH),
             "prompt_template_paths": {
@@ -261,10 +279,15 @@ def prepare(
                 "task": str(TASK_PROMPT_PATH),
                 "repair": str(REPAIR_PROMPT_PATH),
             },
-            "example_paths": [
+            "mechanic_example_paths": [
                 str(path)
                 for path in examples
             ],
+            "provenance_digests": (
+                provenance_digests(
+                    provenance_paths
+                )
+            ),
         },
         "instructions": {
             "system_prompt": system_prompt,
@@ -293,8 +316,28 @@ def prepare(
                 "state",
                 "events",
                 "commands",
+                "public_api_paths",
             ],
             "gameplay_module": gameplay_module_name,
+            "public_runtime_adapter_required": True,
+        },
+        "context_usage_contract": {
+            "path": str(
+                workspace / "context_used.json"
+            ),
+            "schema_version": CONTEXT_USED_SCHEMA,
+            "required_context": [
+                {
+                    "stage": "mechanic",
+                    "role": "engine_api",
+                }
+            ],
+            "required_examples": {
+                "mechanic_example": [
+                    str(path)
+                    for path in examples
+                ]
+            },
         },
         "repair": repair,
         "required_output_artifacts": string_list(
@@ -307,8 +350,9 @@ def prepare(
         "# Prepared Mechanic Code Generation\n\n"
         f"Packet: `{packet_path}`\n\n"
         "Read the Skill and Engine Context paths from the packet before "
-        "editing. Select the one API document that matches the task "
-        "engine from the Engine Context directory.\n\n"
+        "editing. Discover the registered Engine API inside the supplied "
+        "Engine Context root and inspect every required Mechanic "
+        "Example.\n\n"
         "## System Guidance\n\n"
         f"{system_prompt.rstrip()}\n\n"
         "## Task Guidance\n\n"

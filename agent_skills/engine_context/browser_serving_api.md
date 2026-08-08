@@ -228,6 +228,23 @@ Do not change player/admin buttons when adding an engine backend.
   input behavior.
 - `frontend/player/viewer.css` - Player layout.
 
+Generated Browser Play must be directly bootstrappable:
+
+- call `GET /api/health` before session work;
+- recover a supplied `session` query parameter when present;
+- otherwise create a generic session with `POST /api/sessions`;
+- read `pixel_streaming_url` from the returned session;
+- keep keyboard and mouse input inside the Pixel Streaming frame;
+- report session or stream errors instead of showing a false ready state.
+
+The generated page does not start backend processes. The Pipeline or operator
+must mount its directory through `A3GAME_BROWSER_PLAY_DIR` and configure
+`A3GAME_UE_PROJECT` plus `A3GAME_UE_ROOT`.
+
+For the bundled UE 5.4 `player.html`, keep
+`A3GAME_BROWSER_PIXEL_USE_FRONTEND=0`. Setting it to `1` requires a separately
+running Epic Frontend service.
+
 ## UIgen Boundary
 
 Engine-runtime UI:
@@ -253,6 +270,29 @@ objective, pause, victory, or command UI.
 - `python -m engine_adapters.browser_serving all` - Runs 7860 and 7870.
 - `python -m engine_adapters.browser_serving gateway` - Runs 7870 only.
 - `python -m engine_adapters.browser_serving admin` - Runs 7860 only.
+
+Port ownership is:
+
+- `7860` - asset administration;
+- `7870` - Gateway, API, generic player, and mounted `/game`;
+- `18080+` - per-session Pixel Streaming pages;
+- `18888+` - per-session streamer WebSocket ports.
+
+Do not assume `7080`, `8000`, or `8080`. Override the documented environment
+variables when those ports are required.
+
+Task-owned Browser Play example:
+
+```powershell
+$env:A3GAME_UE_ROOT = "D:\UE\UE_5.4"
+$env:A3GAME_UE_PROJECT = "D:\path\Game.uproject"
+$env:A3GAME_BROWSER_PLAY_DIR = "D:\path\generated_ui\browser_play"
+$env:A3GAME_BROWSER_PIXEL_USE_FRONTEND = "0"
+python -m engine_adapters.browser_serving all
+```
+
+Then open `/game` on the Gateway. The page creates a session when no session
+query parameter is supplied.
 
 `A3GAME_BROWSER_DRY_RUN=1` validates Serving/frontend lifecycle without real
 engine rendering.

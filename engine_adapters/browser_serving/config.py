@@ -26,6 +26,7 @@ class BrowserServingConfig:
     admin_host: str = "127.0.0.1"
     admin_port: int = 7860
     public_gateway_url: str = "http://127.0.0.1:7870"
+    browser_play_dir: Path | None = None
     upload_game_id: str = "_browser_uploads"
     upload_run_id: str = "browser_uploads"
     default_engine: str = "ue5"
@@ -44,7 +45,7 @@ class BrowserServingConfig:
     preview_map: str = ""
     render_offscreen: bool = True
     dry_run: bool = False
-    pixel_use_frontend: bool = True
+    pixel_use_frontend: bool = False
     pixel_start_timeout: float = 120.0
 
     @classmethod
@@ -71,6 +72,9 @@ class BrowserServingConfig:
                 os.environ.get("A3GAME_BROWSER_ADMIN_PORT", "7860")
             ),
             public_gateway_url=public_url,
+            browser_play_dir=_path_env(
+                "A3GAME_BROWSER_PLAY_DIR"
+            ),
             upload_game_id=os.environ.get(
                 "A3GAME_BROWSER_UPLOAD_GAME_ID",
                 "_browser_uploads",
@@ -144,7 +148,7 @@ class BrowserServingConfig:
             dry_run=_flag("A3GAME_BROWSER_DRY_RUN", False),
             pixel_use_frontend=_flag(
                 "A3GAME_BROWSER_PIXEL_USE_FRONTEND",
-                True,
+                False,
             ),
             pixel_start_timeout=float(
                 os.environ.get(

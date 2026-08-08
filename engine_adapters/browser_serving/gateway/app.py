@@ -235,6 +235,19 @@ def create_app(
             StaticFiles(directory=PLAYER_DIR),
             name="static",
         )
+    browser_play_dir = resolved_config.browser_play_dir
+    if (
+        browser_play_dir is not None
+        and (browser_play_dir / "index.html").is_file()
+    ):
+        app.mount(
+            "/game",
+            StaticFiles(
+                directory=browser_play_dir,
+                html=True,
+            ),
+            name="browser-play",
+        )
 
     @app.get("/")
     def index():

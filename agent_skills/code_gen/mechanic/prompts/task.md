@@ -36,10 +36,10 @@ Target Engine identifier:
 {{ENGINE}}
 ```
 
-Engine Context directory:
+Existing Engine Context directory:
 
 ```text
-{{ENGINE_CONTEXT_PATH}}
+{{ENGINE_CONTEXT_ROOT}}
 ```
 
 Task:
@@ -78,19 +78,26 @@ Generated motion descriptors:
 {{MOTION_SOURCES}}
 ```
 
-Optional read-only example paths:
+Required Engine-validated Mechanic Examples:
 
 ```text
-{{OPTIONAL_EXAMPLE_PATHS}}
+{{MECHANIC_EXAMPLE_PATHS}}
+```
+
+Required Context usage manifest:
+
+```text
+{{CONTEXT_USED_PATH}}
 ```
 
 Implement this task inside the workspace under the packet boundaries. Use the
 referenced Skill for implementation workflow, Engine API discovery,
-Mechanic/UI separation, descriptor consumption, contract publication, and
-generated-test requirements.
+Mechanic/UI separation, Example inspection, descriptor consumption, contract
+publication, provenance recording, and generated-test requirements.
 
 Use the exact project and game-owned module names above. Produce every
 task-required artifact, including the packet-defined
-`mechanic_contract.json`. Do not invoke execution or evaluation-only APIs and
-do not declare an authoritative result. Report changed files, requirement and
-generated-test coverage, and unresolved risks.
+`mechanic_contract.json`, public runtime adapter, and `context_used.json`.
+Do not invoke execution or evaluation-only APIs and do not declare an
+authoritative result. Report changed files, requirement and generated-test
+coverage, and unresolved risks.

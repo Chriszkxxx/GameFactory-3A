@@ -11,15 +11,17 @@ Read all provided context before editing:
 - the general game requirement, when present;
 - acceptance criteria;
 - generated asset and motion descriptors;
-- the target Engine identifier;
-- the read-only Engine Context directory;
+- the Pipeline-owned canonical Engine identifier;
+- the existing read-only Engine Context directory;
+- every required Engine-validated Mechanic Example path;
 - this Skill;
-- optional read-only examples.
 
 Task requirements define behavior. Inspect the Engine Context directory and
 select exactly one API Reference that matches the target Engine identifier.
-That selected document defines the callable engine surface. Examples are
-lower-priority implementation references only.
+That selected document defines the callable engine surface. Inspect every
+provided Mechanic Example before implementation. Examples are required,
+read-only, lower-priority structural references and must belong to the same
+Engine.
 
 ## Workflow
 
@@ -29,20 +31,30 @@ lower-priority implementation references only.
 3. Separate Mechanic requirements from presentation requirements. Convert any
    HUD, widget, menu, screenshot, or visual-feedback wording into required
    state, events, and commands.
-4. List the Engine Context directory, identify the API document matching the
-   task Engine, and read it before making concrete engine calls.
-5. Choose architecture appropriate to the selected engine without extending
+4. List the Engine Context directory, discover its applicable API
+   document, and read it before making concrete engine calls. Do not change
+   the Pipeline-selected Engine.
+5. Inspect every provided Engine-validated Mechanic Example and learn its
+   public adapter, module, configuration, and native test structure.
+6. Choose architecture appropriate to the selected engine without extending
    or modifying adapter-owned framework internals.
-6. Consume generated inputs through the supplied descriptors.
-7. Generate the game-owned extension, configuration, test source, and any
+7. Consume generated inputs through the supplied descriptors.
+8. Generate the game-owned extension, configuration, test source, and any
    task-required launch or trace files.
-8. Publish `mechanic_contract.json` at the workspace root using schema
+9. Generate a public runtime adapter that is independent of concrete
+   presentation and exposes contract state queries, event subscription, and
+   command invocation.
+10. Publish `mechanic_contract.json` at the workspace root using schema
    `aaagameforge.mechanic_contract.v1`. It must contain a positive
    `contract_version`, the exact game-owned module name, and non-empty
-   `state`, `events`, and `commands` collections.
-9. Keep behavior deterministic where the requirement needs replay or automated
+   `state`, `events`, `commands`, and workspace-relative `public_api_paths`
+   collections. Every public path must identify generated adapter source.
+11. Publish `context_used.json` at the workspace root using schema
+   `aaagameforge.context_used.v1`. Record the discovered Engine API and every
+   required Mechanic Example from the packet.
+12. Keep behavior deterministic where the requirement needs replay or automated
    verification.
-10. Review the generated files against the requirement before finalization.
+13. Review the generated files against the requirement before finalization.
 
 ## Mechanic And UI Separation
 
@@ -79,14 +91,22 @@ Do not implement the visual element during a Mechanic task.
 - Do not modify `meta.json`, `demo_outputs/`, or evaluation artifacts.
 - Select only the API document matching the task Engine. Do not read concrete
   APIs from unrelated engine documents. Do not mix APIs from multiple engines.
+- Do not change, reinterpret, or alias the Pipeline-selected canonical Engine.
 - If no matching non-empty API document exists, report the missing context and
   do not invent an engine API.
 - Use only public APIs and public framework contracts documented in the
   selected matching Engine API Reference.
 - Do not import, copy, or modify adapter internals.
 - Do not invent generated asset paths or bypass supplied descriptors.
-- Do not depend on optional examples, inherit their concrete game classes, or
-  make an example a success condition.
+- Inspect every required Example. Do not inherit its concrete game classes,
+  make it a generated-game dependency, or copy task-specific gameplay.
+- Do not inspect, compare against, copy, or adapt generated code or artifacts
+  from other tasks or games under `test_data/outputs/` (or any relocated output
+  root). The only implementation examples allowed are the Engine-validated
+  Mechanic Examples explicitly provided by the prepared packet under the
+  selected Engine's registered Example roots. The current task workspace and
+  finalized upstream input artifacts are task inputs, not implementation
+  examples.
 - Do not create HUD, Widget, Menu, Canvas, UMG, Slate, or SlateCore
   implementation.
 - Do not create crosshairs, health bars, ammo displays, telemetry panels,
@@ -96,6 +116,10 @@ Do not implement the visual element during a Mechanic task.
 - UI-facing state must be exposed through the versioned public Mechanic
   contract, not through casts to incidental Pawn, Character, Controller, or
   private implementation types.
+- The public runtime adapter and every `public_api_paths` entry must be
+  task-owned, non-empty, and usable by UI without private gameplay access.
+- `context_used.json` must contain repository-owned paths for the selected
+  Engine API and every required Mechanic Example, with no cross-Engine entry.
 - You MUST generate engine-native gameplay test source.
 - You MUST NOT invoke execution or evaluation-only test APIs.
 - You MUST NOT declare that the benchmark passed or assign a benchmark score.
@@ -108,7 +132,10 @@ Generate only task-owned implementation artifacts:
 
 - engine-native gameplay source;
 - engine-native gameplay test source;
-- `mechanic_contract.json` with versioned state/event/command definitions;
+- public runtime-adapter source;
+- `mechanic_contract.json` with versioned state/event/command definitions and
+  non-empty `public_api_paths`;
+- `context_used.json`;
 - configuration and build files required by the selected engine;
 - task-required launch, replay, or trace files.
 
