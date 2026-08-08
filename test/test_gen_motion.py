@@ -269,6 +269,57 @@ class TestGenMotionHumanStages(unittest.TestCase):
 
 
 class TestMotionModelContracts(unittest.TestCase):
+    def test_momask_matplotlib_compatibility_registers_3d_axes(self):
+        import types
+
+        from models.gen_motion.momask_entrypoint import (
+            _install_matplotlib_compatibility,
+        )
+
+        class FakeAxes:
+            lines = property(lambda self: [])
+            collections = property(lambda self: [])
+
+            def add_line(self, _artist):
+                pass
+
+            def add_collection(self, _artist):
+                pass
+
+        class FakeAxes3D:
+            def __init__(self, figure, *_args, **_kwargs):
+                self.figure = figure
+
+        class FakeFigure:
+            def __init__(self):
+                self.axes = []
+
+            def add_axes(self, axes):
+                self.axes.append(axes)
+
+        matplotlib = types.ModuleType("matplotlib")
+        matplotlib_axes = types.ModuleType("matplotlib.axes")
+        matplotlib_axes.Axes = FakeAxes
+        matplotlib.axes = matplotlib_axes
+        mpl_toolkits = types.ModuleType("mpl_toolkits")
+        mplot3d = types.ModuleType("mpl_toolkits.mplot3d")
+        axes3d = types.ModuleType("mpl_toolkits.mplot3d.axes3d")
+        axes3d.Axes3D = FakeAxes3D
+        mplot3d.axes3d = axes3d
+        mpl_toolkits.mplot3d = mplot3d
+        modules = {
+            "matplotlib": matplotlib,
+            "matplotlib.axes": matplotlib_axes,
+            "mpl_toolkits": mpl_toolkits,
+            "mpl_toolkits.mplot3d": mplot3d,
+            "mpl_toolkits.mplot3d.axes3d": axes3d,
+        }
+        with mock.patch.dict(sys.modules, modules):
+            _install_matplotlib_compatibility()
+            figure = FakeFigure()
+            axes = axes3d.Axes3D(figure)
+        self.assertIn(axes, figure.axes)
+
     def test_puppeteer_cpu_inference_is_rejected_before_loading(self):
         from models.gen_motion import PuppeteerModel
 
@@ -922,6 +973,39 @@ class TestGenMotionRealHumanoidIntegration(unittest.TestCase):
             path = Path(result[key])
             self.assertTrue(path.is_file(), key)
             self.assertGreater(path.stat().st_size, 0, key)
+
+        ffmpeg_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+        ffmpeg = Path(_HUMANOID_ENV["momask_python"]).with_name(ffmpeg_name)
+        preview_frame = Path(result["output_dir"]) / "preview_frame.png"
+        subprocess.run(
+            [
+                str(ffmpeg),
+                "-y",
+                "-v",
+                "error",
+                "-ss",
+                "1.0",
+                "-i",
+                result["preview_mp4_path"],
+                "-frames:v",
+                "1",
+                str(preview_frame),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        from PIL import Image
+        import numpy as np
+
+        pixels = np.asarray(Image.open(preview_frame).convert("RGB"))
+        body = pixels[pixels.shape[0] // 10 :]
+        colorful_pixels = np.ptp(body, axis=2) > 24
+        self.assertGreater(
+            int(np.count_nonzero(colorful_pixels)),
+            200,
+            "MoMask preview contains no visible colored skeleton below title",
+        )
 
         report_path = Path(result["output_dir"]) / "fbx_inspection.json"
         subprocess.run(

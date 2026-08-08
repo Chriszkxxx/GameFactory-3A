@@ -24,6 +24,7 @@ def _install_matplotlib_compatibility() -> None:
     # ``ax.lines = []`` and ``ax.collections = []``.  CPython 3.10 wheels start
     # at Matplotlib 3.5, where both attributes became read-only ArtistLists.
     from matplotlib.axes import Axes
+    from mpl_toolkits.mplot3d import axes3d
 
     for name, add_method in (
         ("lines", "add_line"),
@@ -36,6 +37,22 @@ def _install_matplotlib_compatibility() -> None:
                 name,
                 descriptor.setter(_artist_list_setter(name, add_method)),
             )
+
+    axes3d_class = axes3d.Axes3D
+    if not getattr(axes3d_class, "_aaagf_registers_with_figure", False):
+        # Matplotlib 3.4 and earlier registered ``Axes3D(fig)`` on ``fig``.
+        # MoMask relies on that side effect, but modern Matplotlib requires an
+        # explicit ``fig.add_axes(ax)``.  Without it the saved MP4 contains the
+        # title only even though every skeleton line is computed.
+        class RegisteredAxes3D(axes3d_class):
+            _aaagf_registers_with_figure = True
+
+            def __init__(self, figure, *args, **kwargs):
+                super().__init__(figure, *args, **kwargs)
+                if self not in figure.axes:
+                    figure.add_axes(self)
+
+        axes3d.Axes3D = RegisteredAxes3D
 
 
 def main() -> None:
