@@ -1,0 +1,8 @@
+name: aaagf-momask
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - ffmpeg
+  - numpy=1.23.5

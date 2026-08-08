@@ -1,0 +1,22 @@
+name: aaagf-puppeteer
+channels:
+  - nvidia/label/cuda-11.8.0
+  - conda-forge
+dependencies:
+  - python=3.10.13
+  - pip
+  - cmake
+  - ninja
+  - gcc_linux-64=11
+  - gxx_linux-64=11
+  - libopengl
+  # Keep only the CUDA 11.8 compiler/development components required to build
+  # flash-attn and the custom CUDA extensions.  The full cuda-toolkit meta
+  # package also installs profiling/GUI tools whose NVIDIA packages clobber
+  # each other's top-level LICENSE files under Conda.
+  - cuda-nvcc=11.8.89
+  - cuda-cudart-dev=11.8.89
+  - cuda-nvrtc-dev=11.8.89
+  - cuda-cccl=11.8.89
+  - cuda-driver-dev=11.8.89
+  - numpy=1.26.4

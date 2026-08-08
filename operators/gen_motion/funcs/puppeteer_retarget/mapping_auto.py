@@ -131,20 +131,26 @@ def classify(
         pre_chest.append(chest)
 
     arm_roots: List[str] = []
+    neck_chain: List[str] = []
     if chest:
         chest_children = [child.name for child in bones[chest].children]
-        if len(chest_children) < 3:
+        if len(chest_children) < 2:
             raise ValueError(
                 f"Auto mapping chest {chest!r} has too few branches"
             )
-        neck_root = max(
-            chest_children,
-            key=lambda name: tip_position(name).z,
-        )
-        arm_roots = [
-            name for name in chest_children if name != neck_root
-        ]
-        neck_chain = walk_chain(armature, neck_root)
+        if len(chest_children) == 2:
+            # Puppeteer can emit a compact humanoid where the chest branches
+            # directly into two arms and has no explicit neck/head bones.
+            arm_roots = chest_children
+        else:
+            neck_root = max(
+                chest_children,
+                key=lambda name: tip_position(name).z,
+            )
+            arm_roots = [
+                name for name in chest_children if name != neck_root
+            ]
+            neck_chain = walk_chain(armature, neck_root)
     else:
         neck_chain = walk_chain(armature, spine_root)
         pre_chest = []
@@ -157,7 +163,7 @@ def classify(
     arm_chains = tuple(
         walk_chain(armature, root)[:4] for root in arm_roots[:2]
     )
-    spine = [hips] + pre_chest + neck_chain
+    spine = [hips] + pre_chest
 
     if (
         len(leg_chains) != 2
@@ -173,9 +179,38 @@ def classify(
     return {
         "hips": hips,
         "spine": spine,
+        "neck": neck_chain,
         "legs": leg_chains,
         "arms": arm_chains,
     }
+
+
+def sample_chain(chain: Sequence[str], count: int) -> List[str]:
+    """Select ``count`` ordered bones while preserving both endpoints."""
+    if count <= 0:
+        return []
+    if count >= len(chain):
+        return list(chain)
+    if count == 1:
+        return [chain[0]]
+    last = len(chain) - 1
+    return [chain[round(index * last / (count - 1))] for index in range(count)]
+
+
+def align_chains(
+    name: str,
+    source_chain: Sequence[str],
+    target_chain: Sequence[str],
+) -> Tuple[List[str], List[str]]:
+    """Align optional compact Puppeteer chains without inventing bones."""
+    count = min(len(source_chain), len(target_chain))
+    if name == "spine":
+        return sample_chain(source_chain, count), sample_chain(target_chain, count)
+    if name.endswith("_arm"):
+        # A compact Puppeteer arm normally omits proximal shoulder/upper-arm
+        # joints, so align its remaining bones with the distal source chain.
+        return list(source_chain[-count:]), list(target_chain[-count:])
+    return list(source_chain[:count]), list(target_chain[:count])
 
 
 def left_sign_from_mixamo(armature: bpy.types.Object) -> int:
@@ -257,12 +292,16 @@ def build_mapping(
         "left_leg": (source_left_leg, target_left_leg),
         "right_leg": (source_right_leg, target_right_leg),
     }
+    if source["neck"] and target["neck"]:
+        raw_chains["neck"] = (source["neck"], target["neck"])
     chains: Dict[str, dict] = {}
     bone_map: Dict[str, str] = {}
     for name, (source_chain, target_chain) in raw_chains.items():
-        count = min(len(source_chain), len(target_chain))
-        source_trimmed = list(source_chain[:count])
-        target_trimmed = list(target_chain[:count])
+        source_trimmed, target_trimmed = align_chains(
+            name,
+            source_chain,
+            target_chain,
+        )
         chains[name] = {
             "source": source_trimmed,
             "puppeteer": target_trimmed,
@@ -310,7 +349,7 @@ def write_mapping(
         "notes": [
             "No joint indices are hardcoded.",
             "Only conventional connected humanoids are accepted.",
-            "Each paired chain is trimmed to the shorter chain.",
+            "Compact chains are aligned by anatomical segment and available endpoints.",
         ],
     }
     output = Path(path).resolve()

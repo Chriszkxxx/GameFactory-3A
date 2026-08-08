@@ -175,49 +175,70 @@ python test/harness/smoke.py --kind tpose --keep
 | `develop_harness/operatar_require.md` | `operators/` — task dict → artifacts |
 | `develop_harness/pipeline_require.md` | `pipeline/` — CLI, batching, scoring |
 
-## Motion retarget
+## Humanoid motion
 
-The `motion` task currently provides a deterministic retarget function that
-transfers a `.bvh` or `.fbx` animation onto a character using the Puppeteer
-rigging format. The target is supplied as a textured `.glb` plus its Puppeteer
-`rig.txt`. Explicit mapping JSON and topology-based automatic mapping are
-supported for conventional connected humanoids.
+The shared `motion` task supports four stages:
 
-Create the isolated Blender Python runtime (the main project environment does
-not need `bpy`):
+| `task_type` | Input | Output |
+|---|---|---|
+| `rig` | static humanoid GLB | Puppeteer `rig.txt`, skeleton and OBJ |
+| `text_to_motion` | text prompt | MoMask BVH, joints and preview |
+| `retarget` | BVH/FBX + GLB + Puppeteer rig | two FBXs, mapping and metadata |
+| `humanoid` | static humanoid GLB + prompt | all three stages in sequence |
+
+Puppeteer and MoMask use isolated WSL environments; the deterministic
+world-delta retarget step uses an isolated Python 3.11 `bpy` environment.
+Third-party repositories, weights and caches stay outside Git. A typical E:
+drive setup is:
 
 ```bash
-conda env create -f scripts/installing/retarget_environment.yml
+bash scripts/installing/setup_motion_runtime.sh \
+  /mnt/e/Research/WorldModel/DCAI/AAAGameForge_runtime
+
+/home/zihao/miniforge3/envs/aaagf-momask/bin/python \
+  scripts/installing/download_motion_weights.py
+
+source scripts/installing/motion_runtime_env.sh
 ```
 
-Run a single task:
+The source trees, weights, Hugging Face and Torch download caches stay under the
+runtime root.  Conda's extracted-package cache and pip's wheel-build cache
+default to `/home/zihao/.cache/aaagf/`: the WSL distribution itself is stored
+on E:, while ext4 semantics avoid package corruption and cross-device wheel
+moves that can occur when build tools work directly through `/mnt/e`.
+
+Run the complete chain:
 
 ```bash
 python pipeline/assets_gen/gen_motion/run.py \
-  --bpy-python /path/to/aaagf-retarget-bpy/python \
-  --source-motion /path/to/motion.bvh \
-  --target-glb /path/to/character.glb \
-  --target-rig /path/to/character_rig.txt \
-  --mapping /path/to/mapping.json \
-  --fps 20 --game gameA_cyberpunk_shooter
+  --task-type humanoid \
+  --target-glb /path/to/tpose_character.glb \
+  --prompt "A person walks forward and waves." --in-place \
+  --puppeteer-model-path /path/to/Puppeteer \
+  --puppeteer-python /path/to/aaagf-puppeteer/bin/python \
+  --momask-model-path /path/to/momask-codes \
+  --momask-python /path/to/aaagf-momask/bin/python \
+  --bpy-python /path/to/aaagf-retarget-bpy/bin/python \
+  --game gameA_cyberpunk_shooter
 ```
 
-Omit `--mapping` to infer one from the two skeleton topologies. Outputs are
-`retargeted.fbx`, an armature-only `animation.fbx`, the mapping actually used,
-and `retarget_info.json`. Retargeting is CPU-only; it does not load Puppeteer
-checkpoints or use GPU memory.
+Retarget-only calls remain compatible. Omit `--mapping` to infer one from the
+source and target skeleton topologies. MoMask produces 20 FPS motion;
+Puppeteer and MoMask run serially with batch size one, while retargeting is
+CPU-only.
 
-Puppeteer automatic rigging and MoMask text-to-motion generation are not part
-of this implementation. When added, their model wrappers and orchestration
-will use the same `gen_motion` task rather than introducing separate task kinds.
+Generated artifacts follow the repository path convention:
+`test_data/outputs/<game>/<run>/assets/motion/<task_id>/`. This generated tree
+is ignored by Git. Do not put large generated files in the repository-root
+`assets/` directory, which is intentionally tracked for project assets.
 
-The real integration test reads external assets from
-`AAAGF_RETARGET_SOURCE_MOTION`, `AAAGF_RETARGET_TARGET_GLB`,
-`AAAGF_RETARGET_TARGET_RIG`, optional `AAAGF_RETARGET_MAPPING`, and
-`AAAGF_RETARGET_BPY_PYTHON`. It skips when those assets are not configured.
+Real integration tests use `AAAGF_PUPPETEER_MODEL_PATH`,
+`AAAGF_PUPPETEER_PYTHON`, `AAAGF_MOMASK_MODEL_PATH`,
+`AAAGF_MOMASK_PYTHON`, `AAAGF_RETARGET_BPY_PYTHON`, and an external target
+GLB. They skip when the external runtime is not configured.
 
 ## Status
 
-Skeleton — `gen_3d_object`, `gen_tpose_image`, and the Puppeteer-targeted
-retarget function under `gen_motion` are implemented end to end; Puppeteer
-rigging and text-to-motion generation remain unimplemented.
+Skeleton — `gen_3d_object`, `gen_tpose_image`, Puppeteer rigging, MoMask
+text-to-motion and Puppeteer-targeted retargeting are wired end to end under
+the single `gen_motion` task.

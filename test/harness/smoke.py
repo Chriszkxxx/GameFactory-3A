@@ -88,30 +88,14 @@ def _make_task(kind: str, task_id: str, game_id: str | None = None) -> dict:
     if kind == "motion":
         fixture_dir = paths.OUTPUT_ROOT / "_smoke_motion_inputs"
         fixture_dir.mkdir(parents=True, exist_ok=True)
-        source = fixture_dir / "source.bvh"
         target = fixture_dir / "target.glb"
-        rig = fixture_dir / "target_rig.txt"
-        mapping = fixture_dir / "mapping.json"
-        source.write_text(
-            "HIERARCHY\nROOT Hips\nMOTION\nFrames: 1\nFrame Time: 0.033333\n",
-            encoding="utf-8",
-        )
-        target.write_bytes(b"glTF" + bytes(64))
-        rig.write_text(
-            "joints joint0 0 0 0\nroot joint0\nskin 0 joint0 1.0\n",
-            encoding="utf-8",
-        )
-        mapping.write_text(
-            json.dumps(stubs.retarget_mapping(), indent=2),
-            encoding="utf-8",
-        )
+        target.write_bytes(stubs.make_minimal_glb())
         task.update(
             {
-                "task_type": "retarget",
-                "source_motion_path": str(source),
+                "task_type": "humanoid",
                 "target_glb_path": str(target),
-                "target_rig_path": str(rig),
-                "mapping_path": str(mapping),
+                "prompt": "A person walks forward and waves.",
+                "in_place": True,
             }
         )
     return task

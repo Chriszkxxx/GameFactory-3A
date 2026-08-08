@@ -384,6 +384,97 @@ class StubMeshyModel(_StubCloudModel):
     provider = "meshy"
 
 
+class StubPuppeteerModel(_StubBase):
+    """Mimic Puppeteer's in-memory skeleton and skinning result."""
+
+    def infer(
+        self,
+        mesh: bytes,
+        mesh_format: str = ".glb",
+        seed: int = 42,
+        **kw,
+    ) -> dict:
+        self.calls.append(
+            {
+                "op": "infer",
+                "mesh_format": mesh_format,
+                "mesh_bytes": len(mesh),
+                "seed": seed,
+                **kw,
+            }
+        )
+        joints = [
+            "joints joint0 0 0 0",
+            "joints joint1 0 1 0",
+            "joints joint2 -1 1 0",
+            "joints joint3 1 1 0",
+            "joints joint4 -0.5 -1 0",
+            "joints joint5 0.5 -1 0",
+            "root joint0",
+            "hier joint0 joint1",
+            "hier joint1 joint2",
+            "hier joint1 joint3",
+            "hier joint0 joint4",
+            "hier joint0 joint5",
+        ]
+        rig = "\n".join(
+            [
+                *joints,
+                "skin 0 joint0 1.0",
+                "skin 1 joint1 1.0",
+                "skin 2 joint2 1.0",
+            ]
+        ) + "\n"
+        return {
+            "rig_text": rig,
+            "skeleton_text": "\n".join(joints) + "\n",
+            "mesh_obj_bytes": (
+                b"o StubAvatar\n"
+                b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"
+            ),
+            "joint_count": 6,
+            "skin_vertex_count": 3,
+            "seed": seed,
+        }
+
+
+class StubMoMaskModel(_StubBase):
+    """Mimic one HumanML3D MoMask generation at the native 20 FPS."""
+
+    def infer(self, prompt: str, seed: int = 42, **kw) -> dict:
+        self.calls.append(
+            {"op": "infer", "prompt": prompt, "seed": seed, **kw}
+        )
+        bvh = (
+            "HIERARCHY\n"
+            "ROOT Hips\n"
+            "{\n"
+            "  OFFSET 0 0 0\n"
+            "  CHANNELS 6 Xposition Yposition Zposition "
+            "Zrotation Xrotation Yrotation\n"
+            "  End Site\n"
+            "  {\n"
+            "    OFFSET 0 1 0\n"
+            "  }\n"
+            "}\n"
+            "MOTION\n"
+            "Frames: 2\n"
+            "Frame Time: 0.050000\n"
+            "0 0 0 0 0 0\n"
+            "0 0 0 5 0 0\n"
+        ).encode("utf-8")
+        joints = np.zeros((2, 22, 3), dtype=np.float32)
+        return {
+            "bvh_bytes": bvh,
+            "raw_bvh_bytes": bvh,
+            "ik_bvh_bytes": bvh,
+            "joints": joints,
+            "preview_mp4_bytes": b"\x00\x00\x00\x18ftypmp42stub",
+            "fps": 20,
+            "seed": seed,
+        }
+
+
 def retarget_mapping() -> dict:
     """Return the small humanoid mapping used by motion smoke tests."""
     return {
@@ -548,6 +639,8 @@ STUB_BACKENDS: dict[str, dict[str, Any]] = {
 #: Extend this when you add an asset task, so `smoke.py --kind <new>` works.
 STUB_OPERATOR_KWARGS: dict[str, Any] = {
     "motion": lambda model_key=None: {
+        "puppeteer_model": StubPuppeteerModel(),
+        "momask_model": StubMoMaskModel(),
         "retarget_fn": stub_retarget_motion,
     },
     "3d_object": lambda model_key=None: {

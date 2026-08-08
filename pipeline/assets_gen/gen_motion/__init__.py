@@ -1,1 +1,1 @@
-"""Motion generation pipeline, including the current retarget function."""
+"""Unified rigging, text-to-motion and retarget pipeline."""

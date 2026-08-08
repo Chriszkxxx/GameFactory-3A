@@ -1,4 +1,4 @@
-"""Evaluate existing motion-retarget artifacts without invoking Blender."""
+"""Evaluate existing motion artifacts without invoking models or Blender."""
 from __future__ import annotations
 
 import argparse
@@ -18,7 +18,12 @@ from pipeline.common import paths  # noqa: E402
 TASK_KIND = "motion"
 
 
-def _result_for_task(game_id: str, run_id: str, task_id: str) -> dict:
+def _result_for_task(
+    game_id: str,
+    run_id: str,
+    task_id: str,
+    task_type: str,
+) -> dict:
     root = paths.task_output_dir(
         game_id,
         TASK_KIND,
@@ -32,8 +37,17 @@ def _result_for_task(game_id: str, run_id: str, task_id: str) -> dict:
         "anim_only_fbx_path": str(root / "animation.fbx"),
         "mapping_path": str(root / "mapping.json"),
         "retarget_info_path": str(root / "retarget_info.json"),
+        "rig_path": str(root / "rig.txt"),
+        "skeleton_path": str(root / "skeleton.txt"),
+        "mesh_obj_path": str(root / "mesh.obj"),
+        "motion_bvh_path": str(root / "motion.bvh"),
+        "raw_motion_bvh_path": str(root / "motion_raw.bvh"),
+        "ik_motion_bvh_path": str(root / "motion_ik.bvh"),
+        "joints_npy_path": str(root / "joints.npy"),
+        "preview_mp4_path": str(root / "preview.mp4"),
         "game_id": game_id,
         "task_kind": TASK_KIND,
+        "task_type": task_type,
         "output_dir": str(root),
         "elapsed_sec": 0.0,
     }
@@ -64,7 +78,12 @@ def evaluate_tasks(
         )
         metrics_path = metrics_dir / "metrics.json"
         try:
-            result = _result_for_task(game_id, run_id, task_id)
+            result = _result_for_task(
+                game_id,
+                run_id,
+                task_id,
+                str(task.get("task_type", "retarget")),
+            )
             if not bool(task.get("export_anim_only", True)):
                 result["anim_only_fbx_path"] = None
             score = operator.eval(result, task)

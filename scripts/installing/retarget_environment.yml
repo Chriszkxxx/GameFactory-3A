@@ -1,10 +1,13 @@
 name: aaagf-retarget-bpy
 channels:
-  - defaults
+  - conda-forge
 dependencies:
   - python=3.11
   - pip
+  - xorg-libsm
+  - xorg-libxext
+  - xorg-libxrender
   - pip:
       - bpy==4.2.0
-      - numpy
-      - trimesh
+      - numpy<2
+      - trimesh>=4.2
