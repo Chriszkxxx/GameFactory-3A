@@ -1,21 +1,59 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reproducible WSL setup for AAAGameForge human-motion inference.
+# Reproducible Linux setup for AAAGameForge human-motion inference.
 # Third-party sources, environments and caches stay outside the Git checkout.
 
-RUNTIME_ROOT="${1:-/mnt/e/Research/WorldModel/DCAI/AAAGameForge_runtime}"
-REPO_ROOT="${AAAGF_REPO_ROOT:-/mnt/e/Research/WorldModel/DCAI/AAAGameForge}"
-CONDA_BIN="${AAAGF_CONDA_BIN:-/home/zihao/miniforge3/bin/conda}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${AAAGF_REPO_ROOT:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}"
+
+if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+Usage: bash scripts/installing/setup_motion_runtime.sh [RUNTIME_ROOT]
+
+Create the three Linux motion environments and clone pinned upstream sources.
+RUNTIME_ROOT defaults to AAAGF_RUNTIME_ROOT or the XDG user data directory.
+
+Optional environment variables:
+  AAAGF_CACHE_ROOT       download/build cache root
+  AAAGF_CONDA_BIN        Conda executable when it is not on PATH
+  AAAGF_CUDA_ARCH_LIST   explicit CUDA architecture list for extension builds
+  MAX_JOBS               parallel extension-build jobs (default: 4)
+EOF
+  exit 0
+fi
+
+RUNTIME_ROOT="${1:-${AAAGF_RUNTIME_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/aaagameforge}}"
+CACHE_ROOT="${AAAGF_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME}/.cache}/aaagameforge}"
 PUPPETEER_COMMIT="1c0f9fc6ad209667a0ec5ceac9b59964938a8b51"
 MOMASK_COMMIT="94a6636c9c463b7a9414c3401a6f1b67e6c51824"
 
-export AAAGF_WSL_CACHE_ROOT="${AAAGF_WSL_CACHE_ROOT:-/home/zihao/.cache/aaagf}"
-export HF_HOME="${RUNTIME_ROOT}/cache/huggingface"
-export PIP_CACHE_DIR="${AAAGF_WSL_CACHE_ROOT}/pip"
-export TORCH_HOME="${RUNTIME_ROOT}/cache/torch"
-export CONDA_PKGS_DIRS="${AAAGF_WSL_CACHE_ROOT}/conda-pkgs"
+if [[ "$(uname -s)" != "Linux" ]]; then
+  echo "This installer targets Linux. On Windows, run it inside WSL2." >&2
+  exit 2
+fi
+
+if [[ -n "${AAAGF_CONDA_BIN:-}" ]]; then
+  CONDA_BIN="${AAAGF_CONDA_BIN}"
+elif [[ -n "${CONDA_EXE:-}" ]]; then
+  CONDA_BIN="${CONDA_EXE}"
+elif command -v conda >/dev/null 2>&1; then
+  CONDA_BIN="conda"
+else
+  CONDA_BIN=""
+fi
+
+export AAAGF_RUNTIME_ROOT="${RUNTIME_ROOT}"
+export AAAGF_CACHE_ROOT="${CACHE_ROOT}"
+export HF_HOME="${CACHE_ROOT}/huggingface"
+export PIP_CACHE_DIR="${CACHE_ROOT}/pip"
+export TORCH_HOME="${CACHE_ROOT}/torch"
+export CONDA_PKGS_DIRS="${CACHE_ROOT}/conda-pkgs"
 export CONDA_CHANNEL_PRIORITY="strict"
+export MAX_JOBS="${MAX_JOBS:-4}"
+if [[ -n "${AAAGF_CUDA_ARCH_LIST:-}" ]]; then
+  export TORCH_CUDA_ARCH_LIST="${AAAGF_CUDA_ARCH_LIST}"
+fi
 
 mkdir -p \
   "${RUNTIME_ROOT}/sources" \
@@ -23,9 +61,8 @@ mkdir -p \
   "${HF_HOME}" "${PIP_CACHE_DIR}" "${TORCH_HOME}" "${CONDA_PKGS_DIRS}" \
   "${RUNTIME_ROOT}/logs"
 
-if [[ ! -x "${CONDA_BIN}" ]]; then
-  echo "Miniforge is missing: ${CONDA_BIN}" >&2
-  echo "Install it inside the E:-backed WSL distro before running this script." >&2
+if [[ -z "${CONDA_BIN}" ]] || ! "${CONDA_BIN}" --version >/dev/null 2>&1; then
+  echo "Conda was not found. Install Miniforge/Conda or set AAAGF_CONDA_BIN." >&2
   exit 2
 fi
 
@@ -94,7 +131,7 @@ create_env \
 "${CONDA_BIN}" run -n aaagf-puppeteer python -m pip install \
   "setuptools==69.5.1" "wheel==0.43.0"
 "${CONDA_BIN}" run -n aaagf-puppeteer bash -lc \
-  'export CUDA_HOME="${CONDA_PREFIX}" MAX_JOBS=4 TORCH_CUDA_ARCH_LIST=8.9; python -m pip install flash-attn==2.6.3 --no-build-isolation'
+  'export CUDA_HOME="${CONDA_PREFIX}"; python -m pip install flash-attn==2.6.3 --no-build-isolation'
 "${CONDA_BIN}" run -n aaagf-puppeteer python -m pip install \
   torch-scatter -f https://data.pyg.org/whl/torch-2.1.1+cu118.html
 "${CONDA_BIN}" run -n aaagf-puppeteer python -m pip install \
@@ -125,8 +162,16 @@ fi
 
 cat <<EOF
 Motion runtime environments are ready.
-Puppeteer Python: /home/zihao/miniforge3/envs/aaagf-puppeteer/bin/python
-MoMask Python:    /home/zihao/miniforge3/envs/aaagf-momask/bin/python
-Retarget Python:  /home/zihao/miniforge3/envs/aaagf-retarget-bpy/bin/python
-Next: run scripts/installing/download_motion_weights.py from aaagf-momask.
+Runtime root:     ${RUNTIME_ROOT}
+Cache root:       ${CACHE_ROOT}
+Puppeteer Python: $("${CONDA_BIN}" run -n aaagf-puppeteer python -c 'import sys; print(sys.executable)')
+MoMask Python:    $("${CONDA_BIN}" run -n aaagf-momask python -c 'import sys; print(sys.executable)')
+Retarget Python:  $("${CONDA_BIN}" run -n aaagf-retarget-bpy python -c 'import sys; print(sys.executable)')
+
+Next:
+  export AAAGF_RUNTIME_ROOT="${RUNTIME_ROOT}"
+  export AAAGF_CACHE_ROOT="${CACHE_ROOT}"
+  source "${REPO_ROOT}/scripts/installing/motion_runtime_env.sh"
+  "${CONDA_BIN}" run -n aaagf-momask python \
+    "${REPO_ROOT}/scripts/installing/download_motion_weights.py"
 EOF

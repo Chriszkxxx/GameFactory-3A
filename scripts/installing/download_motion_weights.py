@@ -46,6 +46,28 @@ MOMASK_HUMANML3D_URL = (
 )
 
 
+def _default_runtime_root() -> Path:
+    configured = os.environ.get("AAAGF_RUNTIME_ROOT")
+    if configured:
+        return Path(configured).expanduser()
+    data_home = os.environ.get("XDG_DATA_HOME")
+    base = (
+        Path(data_home).expanduser()
+        if data_home
+        else Path.home() / ".local" / "share"
+    )
+    return base / "aaagameforge"
+
+
+def _default_cache_root() -> Path:
+    configured = os.environ.get("AAAGF_CACHE_ROOT")
+    if configured:
+        return Path(configured).expanduser()
+    cache_home = os.environ.get("XDG_CACHE_HOME")
+    base = Path(cache_home).expanduser() if cache_home else Path.home() / ".cache"
+    return base / "aaagameforge"
+
+
 def _safe_extract(archive: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     destination_root = destination.resolve()
@@ -147,7 +169,8 @@ def _link_michelangelo(puppeteer: Path) -> None:
     except OSError as exc:
         raise RuntimeError(
             "Could not create the shared Michelangelo symlink. Run this "
-            "download script inside WSL, not Windows."
+            "download script on Linux (native or WSL2), or check filesystem "
+            "symlink support."
         ) from exc
 
 
@@ -155,10 +178,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--runtime-root",
-        default=os.environ.get(
-            "AAAGF_RUNTIME_ROOT",
-            "/mnt/e/Research/WorldModel/DCAI/AAAGameForge_runtime",
+        default=str(_default_runtime_root()),
+        help=(
+            "External source/weight root (default: AAAGF_RUNTIME_ROOT or "
+            "XDG data dir)."
         ),
+    )
+    parser.add_argument(
+        "--cache-root",
+        default=str(_default_cache_root()),
+        help="Download cache root (default: AAAGF_CACHE_ROOT or XDG cache dir).",
     )
     parser.add_argument(
         "--skip-puppeteer",
@@ -168,13 +197,14 @@ def main() -> None:
     args = parser.parse_args()
 
     root = Path(args.runtime_root).expanduser().resolve()
+    cache_root = Path(args.cache_root).expanduser().resolve()
     puppeteer = root / "sources" / "Puppeteer"
     momask = root / "sources" / "momask-codes"
     if not args.skip_puppeteer:
         _download_puppeteer(puppeteer)
         _link_michelangelo(puppeteer)
     if not args.skip_momask:
-        _download_momask(momask, root / "cache")
+        _download_momask(momask, cache_root / "downloads")
 
     required = (
         puppeteer

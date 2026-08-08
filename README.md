@@ -186,39 +186,47 @@ The shared `motion` task supports four stages:
 | `retarget` | BVH/FBX + GLB + Puppeteer rig | two FBXs, mapping and metadata |
 | `humanoid` | static humanoid GLB + prompt | all three stages in sequence |
 
-Puppeteer and MoMask use isolated WSL environments; the deterministic
-world-delta retarget step uses an isolated Python 3.11 `bpy` environment.
-Third-party repositories, weights and caches stay outside Git. A typical E:
-drive setup is:
+Puppeteer, MoMask and Blender retargeting use isolated Python environments.
+Native Linux with an NVIDIA CUDA GPU is the recommended runtime. Windows users
+can run the same Linux setup through WSL2; native Windows is not currently
+validated for the complete Puppeteer chain. The retarget stage is CPU-only.
+Install an NVIDIA driver, Git and Miniforge/Conda before running the setup
+script. The published environment files target Linux x86-64 and CUDA 11.8.
 
-```bash
-bash scripts/installing/setup_motion_runtime.sh \
-  /mnt/e/Research/WorldModel/DCAI/AAAGameForge_runtime
+Third-party repositories, weights and caches stay outside Git. By default the
+installer follows the XDG conventions:
 
-/home/zihao/miniforge3/envs/aaagf-momask/bin/python \
-  scripts/installing/download_motion_weights.py
-
-source scripts/installing/motion_runtime_env.sh
+```text
+runtime sources and weights:  ${XDG_DATA_HOME:-$HOME/.local/share}/aaagameforge
+download and build caches:    ${XDG_CACHE_HOME:-$HOME/.cache}/aaagameforge
 ```
 
-The source trees, weights, Hugging Face and Torch download caches stay under the
-runtime root.  Conda's extracted-package cache and pip's wheel-build cache
-default to `/home/zihao/.cache/aaagf/`: the WSL distribution itself is stored
-on E:, while ext4 semantics avoid package corruption and cross-device wheel
-moves that can occur when build tools work directly through `/mnt/e`.
+Both roots can be redirected to any sufficiently large Linux filesystem:
+
+```bash
+export AAAGF_RUNTIME_ROOT=/data/aaagameforge
+export AAAGF_CACHE_ROOT=/data/aaagameforge-cache
+
+bash scripts/installing/setup_motion_runtime.sh "$AAAGF_RUNTIME_ROOT"
+
+source scripts/installing/motion_runtime_env.sh
+
+conda run -n aaagf-momask python \
+  scripts/installing/download_motion_weights.py
+```
+
+Set `AAAGF_CONDA_BIN` when `conda` is not on `PATH`. Set
+`AAAGF_CUDA_ARCH_LIST` only when the build host cannot auto-detect its GPU. On
+WSL2, prefer a path on the distribution's Linux filesystem for build caches;
+`AAAGF_RUNTIME_ROOT` may point to a larger mounted data volume.
 
 Run the complete chain:
 
 ```bash
-python pipeline/assets_gen/gen_motion/run.py \
+conda run -n aaagf-momask python pipeline/assets_gen/gen_motion/run.py \
   --task-type humanoid \
   --target-glb /path/to/tpose_character.glb \
   --prompt "A person walks forward and waves." --in-place \
-  --puppeteer-model-path /path/to/Puppeteer \
-  --puppeteer-python /path/to/aaagf-puppeteer/bin/python \
-  --momask-model-path /path/to/momask-codes \
-  --momask-python /path/to/aaagf-momask/bin/python \
-  --bpy-python /path/to/aaagf-retarget-bpy/bin/python \
   --game gameA_cyberpunk_shooter
 ```
 
