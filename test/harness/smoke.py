@@ -72,6 +72,32 @@ REQUIRED_RESULT_KEYS = ("task_id", "elapsed_sec", "game_id", "task_kind", "outpu
 EXTRA_TASK_FIELDS: dict[str, dict] = {
     "tpose": {"description": "A smoke-test character.", "steps": 2, "target_size": 64},
     "3d_object": {"decimation_target": 1000, "texture_size": 64},
+    "cg_video": {
+        "mode": "text_to_video",
+        "prompt": "A paper dragon flies above a mountain range.",
+        "duration_sec": 5,
+    },
+    "audio": {
+        "audio_type": "dialogue",
+        "text": "Target spotted.",
+        "language": "English",
+        "speaker_id": "Ryan",
+        "sample_rate": 24_000,
+    },
+}
+
+# Additional logical routes that need their own model-slot coverage. Most asset
+# kinds have one route; AudioGen dispatches dialogue and sound effects to
+# different injected models, so both must be exercised by the quick smoke test.
+EXTRA_ROUTE_TASKS: dict[str, list[dict]] = {
+    "audio": [{
+        "task_id": "smoke_task_sfx_001",
+        "audio_type": "sound_effect",
+        "prompt": "A single futuristic rifle shot, no voice, no music.",
+        "sound_category": "one_shot",
+        "duration_sec": 0.25,
+        "sample_rate": 48_000,
+    }],
 }
 
 
@@ -112,14 +138,25 @@ def _require(cond: bool, msg: str) -> None:
 
 # ── Per-kind checks ───────────────────────────────────────────────────────────
 
-def smoke_per_game_mode(kind: str, task_id: str = "smoke_task_001",
-                        backend: str | None = None) -> dict:
+def smoke_per_game_mode(
+    kind: str,
+    task_id: str = "smoke_task_001",
+    backend: str | None = None,
+    task_overrides: dict | None = None,
+) -> dict:
     """Default mode: artifacts grouped under the game project."""
     print(f"  [per-game] building operator for {kind!r} with stub models"
           + (f" (backend={backend})" if backend else ""))
     op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID, model_key=backend)
 
-    task = _make_task(kind, task_id, game_id=SMOKE_GAME)
+    task = {
+        "game_id": SMOKE_GAME,
+        "task_id": task_id,
+        "image": stubs.make_ref_image(size=128),
+        "seed": 7,
+        **EXTRA_TASK_FIELDS.get(kind, {}),
+        **(task_overrides or {}),
+    }
     result = op.run(task)
 
     missing = [k for k in REQUIRED_RESULT_KEYS if k not in result]
@@ -219,9 +256,20 @@ def smoke_kind(kind: str, keep: bool, backend: str | None = None) -> None:
     backend = backend if kind in stubs.STUB_BACKENDS else None
     tmp_flat = paths.OUTPUT_ROOT / f"_smoke_legacy_{kind}"
     try:
-        result = smoke_per_game_mode(kind, backend=backend)
+        results = [smoke_per_game_mode(kind, backend=backend)]
+        for extra_task in EXTRA_ROUTE_TASKS.get(kind, []):
+            route_task = dict(extra_task)
+            task_id = route_task.pop("task_id")
+            results.append(
+                smoke_per_game_mode(
+                    kind,
+                    task_id=task_id,
+                    backend=backend,
+                    task_overrides=route_task,
+                )
+            )
         smoke_legacy_flat_mode(kind, tmp_flat, backend=backend)
-        smoke_summaries(kind, [result])
+        smoke_summaries(kind, results)
     finally:
         if not keep:
             shutil.rmtree(tmp_flat, ignore_errors=True)

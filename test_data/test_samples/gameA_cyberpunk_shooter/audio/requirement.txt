@@ -1,8 +1,9 @@
 # Audio generation requirements
 
-Template only — implementation and benchmark tasks are pending.
+The initial implementation generates offline WAV assets through two routes:
+Qwen3-TTS for dialogue and Woosh-DFlow for game sound effects.
 
-## Planned task categories
+## Task categories
 
 1. **Character voice and dialogue**: generate spoken lines for game characters,
    with optional speaker, emotion, language, delivery, and reference-audio
@@ -10,12 +11,12 @@ Template only — implementation and benchmark tasks are pending.
 2. **Game sound effects**: generate diegetic and environmental sounds, including
    gunfire, lightning, impacts, weather, ambience, and other natural sounds.
 
-## Future task fields
+## Task fields
 
 Each entry in `audio_tasks.jsonl` should include `game_id`, `task_id`, `prompt`,
 and `audio_type` (`dialogue` or `sound_effect`). Optional fields may include
 `text`, `speaker_id`, `emotion`, `language`, `duration_sec`, `sample_rate`,
-and `reference_audio_path`.
+`reference_audio_path`, and `sound_category` (`one_shot`, `ambience`, or `foley`).
 
 Reference clips, when available, belong in `ref_audio/`. All paths must be
 relative to the repository root.
