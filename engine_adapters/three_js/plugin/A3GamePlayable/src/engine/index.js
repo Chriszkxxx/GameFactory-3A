@@ -1,10 +1,25 @@
 /** Engine scaffolding exports for the three.js runtime framework. */
 
 export {
+  A3GameEnvironmentPreset,
   A3GameRuntimeHost,
   disposeObject3D,
 } from './runtime-host.js';
 export { A3GameAssetLibrary } from './asset-library.js';
+export {
+  A3GameMaterialPreset,
+  createContactShadow,
+  createFillLight,
+  createMaterial,
+  createRadialGradientTexture,
+  createRoundedBox,
+  createSeededRandom,
+  createSunLight,
+  fitToHeight,
+  groundObject,
+  measureObject,
+  prepareModel,
+} from './visual-kit.js';
 export { A3GameSceneLoader } from './scene-loader.js';
 export {
   A3GameInputRouter,

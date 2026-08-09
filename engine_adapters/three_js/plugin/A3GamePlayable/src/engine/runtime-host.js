@@ -10,6 +10,27 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+
+/**
+ * Procedural environments, so image-based lighting needs no `.hdr`.
+ *
+ * Without an environment map a PBR material has nothing to reflect: it
+ * loses every highlight and reads as flat plastic no matter how the
+ * lights are placed. This is the largest single difference between a
+ * generated three.js scene that looks cheap and one that does not, and
+ * both of these presets are generated on the GPU at boot from geometry
+ * three.js already ships.
+ */
+export const A3GameEnvironmentPreset = Object.freeze({
+  /** Neutral studio box. Interiors, arenas, menus, product-like views. */
+  ROOM: 'room',
+  /** Physical sky with a sun. Outdoor games. */
+  SKY: 'sky',
+  /** No environment map. */
+  NONE: 'none',
+});
 
 const TONE_MAPPINGS = Object.freeze({
   NoToneMapping: THREE.NoToneMapping,
@@ -69,6 +90,12 @@ export class A3GameRuntimeHost {
     this.camera = null;
     /** @type {OrbitControls | PointerLockControls | null} */
     this.controls = null;
+    /**
+     * Environment map built by a preset, owned by this host.
+     *
+     * @type {THREE.Texture | null}
+     */
+    this.generatedEnvironment = null;
     this.clock = new THREE.Clock();
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -400,21 +427,38 @@ export class A3GameRuntimeHost {
   /**
    * Configure background, environment map, and tone mapping.
    *
+   * Pass `preset` to generate image-based lighting procedurally; pass
+   * `environmentTexture` to supply an imported `.hdr` instead. A game
+   * that does neither gets no reflections, and its PBR materials will
+   * look flat however many lights it adds.
+   *
    * @param {{background?: number | string,
+   *          preset?: 'room' | 'sky' | 'none',
    *          environmentTexture?: THREE.Texture,
+   *          environmentIntensity?: number,
    *          backgroundIntensity?: number,
+   *          showSky?: boolean,
+   *          sunPosition?: {x: number, y: number, z: number},
+   *          turbidity?: number, rayleigh?: number,
    *          toneMapping?: keyof typeof TONE_MAPPINGS,
    *          toneMappingExposure?: number}} options
    */
   setEnvironment(options = {}) {
     if (!this.scene) throw new Error('init() must run before setEnvironment()');
+    if (options.preset !== undefined) {
+      this.#applyEnvironmentPreset(options);
+    }
     if (options.background !== undefined) {
       this.scene.background = new THREE.Color(options.background);
     }
     if (options.environmentTexture) {
       options.environmentTexture.mapping =
         THREE.EquirectangularReflectionMapping;
+      this.#releaseGeneratedEnvironment();
       this.scene.environment = options.environmentTexture;
+    }
+    if (options.environmentIntensity !== undefined) {
+      this.scene.environmentIntensity = Number(options.environmentIntensity);
     }
     if (options.backgroundIntensity !== undefined) {
       this.scene.backgroundIntensity = Number(options.backgroundIntensity);
@@ -428,6 +472,105 @@ export class A3GameRuntimeHost {
       );
     }
     return this;
+  }
+
+  /**
+   * Build the environment map for a preset and install it.
+   *
+   * `PMREMGenerator` is used once at boot and then disposed: it holds
+   * render targets and shader programs that are worthless afterwards.
+   * The resulting texture is owned by this host so `dispose()` can free
+   * it — nothing else in the scene graph references it.
+   */
+  #applyEnvironmentPreset(options) {
+    const preset = String(options.preset ?? 'none').toLowerCase();
+    if (preset === A3GameEnvironmentPreset.NONE) {
+      this.#releaseGeneratedEnvironment();
+      this.scene.environment = null;
+      return;
+    }
+    if (!this.renderer) {
+      throw new Error('init() must run before an environment preset is set');
+    }
+
+    const generator = new THREE.PMREMGenerator(this.renderer);
+    let source = null;
+    let sky = null;
+    try {
+      if (preset === A3GameEnvironmentPreset.SKY) {
+        sky = new Sky();
+        sky.scale.setScalar(this.options.far * 0.9);
+        const sun = options.sunPosition ?? { x: 0.4, y: 0.22, z: -1 };
+        const direction = new THREE.Vector3(sun.x, sun.y, sun.z).normalize();
+        sky.material.uniforms.sunPosition.value.copy(direction);
+        sky.material.uniforms.turbidity.value = Number(options.turbidity ?? 6);
+        sky.material.uniforms.rayleigh.value = Number(options.rayleigh ?? 2);
+        sky.material.uniforms.mieCoefficient.value = 0.005;
+        sky.material.uniforms.mieDirectionalG.value = 0.8;
+        source = new THREE.Scene();
+        source.add(sky);
+      } else if (preset === A3GameEnvironmentPreset.ROOM) {
+        source = new RoomEnvironment();
+      } else {
+        throw new Error(
+          `Unknown environment preset ${String(options.preset)}; expected ` +
+            'room, sky, or none',
+        );
+      }
+      const texture = generator.fromScene(source, 0.04).texture;
+      this.#releaseGeneratedEnvironment();
+      this.generatedEnvironment = texture;
+      this.scene.environment = texture;
+      if (preset === A3GameEnvironmentPreset.SKY && options.showSky !== false) {
+        // The sky is also the backdrop, so a second instance is added to
+        // the live scene. The one above was consumed by the generator and
+        // is disposed with it.
+        this.#installSkyDome(options);
+      } else if (options.background === undefined) {
+        this.scene.background = texture;
+      }
+    } finally {
+      // `RoomEnvironment` is a Scene of meshes; the Sky holds a shader
+      // material. Both are throwaway sources for the convolution.
+      source?.traverse?.((child) => {
+        child.geometry?.dispose?.();
+        const materials = Array.isArray(child.material)
+          ? child.material
+          : child.material
+            ? [child.material]
+            : [];
+        for (const material of materials) material.dispose?.();
+      });
+      generator.dispose();
+    }
+  }
+
+  /** Add the visible sky dome under a dedicated root. */
+  #installSkyDome(options) {
+    const previous = this.namedRoots.get('sky');
+    if (previous) {
+      disposeObject3D(previous);
+      this.namedRoots.delete('sky');
+    }
+    const sky = new Sky();
+    sky.scale.setScalar(this.options.far * 0.9);
+    const sun = options.sunPosition ?? { x: 0.4, y: 0.22, z: -1 };
+    sky.material.uniforms.sunPosition.value
+      .set(sun.x, sun.y, sun.z)
+      .normalize();
+    sky.material.uniforms.turbidity.value = Number(options.turbidity ?? 6);
+    sky.material.uniforms.rayleigh.value = Number(options.rayleigh ?? 2);
+    sky.name = 'A3GameSky';
+    this.add(sky, 'sky');
+    this.scene.background = null;
+    return sky;
+  }
+
+  #releaseGeneratedEnvironment() {
+    if (this.generatedEnvironment) {
+      this.generatedEnvironment.dispose();
+      this.generatedEnvironment = null;
+    }
   }
 
   /**
@@ -523,6 +666,7 @@ export class A3GameRuntimeHost {
     }
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    this.#releaseGeneratedEnvironment();
     if (this.scene) disposeObject3D(this.scene);
     this.scene = null;
     this.namedRoots.clear();

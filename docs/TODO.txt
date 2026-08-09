@@ -4,3 +4,7 @@
 
 ### 目前代码需要修改的
 - three.js需要加上加载 本仓库生成资产 的能力
+- three.js 附带问题：
+    - 导入资产有些问题，可能人物部分前后左，因此需要加一个skill让大模型进行判断
+    - scripts/three_js/fetch_asset_pack.py 以及 scripts/three_js/fetch_asset_pack.sh 这里是资产获取的逻辑，应该放到operator下面
+    - 场景生成还是有点难看

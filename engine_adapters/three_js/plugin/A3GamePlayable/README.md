@@ -18,6 +18,7 @@ three.plugin.install_framework()
 ```js
 import {
   A3GameRuntimeHost,
+  A3GameEnvironmentPreset,
   A3GameAssetLibrary,
   A3GameSceneLoader,
   A3GameInputRouter,
@@ -25,13 +26,24 @@ import {
   A3GameAnimationDirector,
   A3GameCollisionProbe,
   A3GameHudLayer,
+  A3GameMaterialPreset,
   A3GameRuntimeSubsystem,
   A3GameWorldSessionSubsystem,
   A3GameRuntimeEntityComponent,
   A3GameEntityFactory,
   A3GameControllableEntity,
   bootA3GameRuntime,
+  createContactShadow,
+  createFillLight,
+  createMaterial,
+  createRoundedBox,
+  createSeededRandom,
+  createSunLight,
   disposeObject3D,
+  fitToHeight,
+  groundObject,
+  measureObject,
+  prepareModel,
   resolveEntityId,
 } from '@a3game/playable';
 ```
@@ -70,6 +82,63 @@ For a first-person game that derives `yaw`/`pitch` from the input frame,
 use `requestPointerLock()` rather than `attachPointerLockControls()`:
 `PointerLockControls` writes the camera itself, and two authors fighting
 over one camera produces jitter.
+
+## Looking good without art
+
+three.js ships no models, so a generated game's appearance comes from
+these calls rather than from finding an asset:
+
+```js
+host.setEnvironment({
+  preset: 'sky',                // or 'room' for an interior
+  sunPosition: sunDirection,
+  toneMapping: 'ACESFilmicToneMapping',
+  toneMappingExposure: 0.7,
+});
+host.add(createSunLight({ radius: 120 }), 'lights');   // fitted shadows
+host.add(createFillLight(), 'lights');
+const prop = createRoundedBox({ width: 2, depth: 4, preset: 'painted_metal' });
+```
+
+`setEnvironment({ preset })` generates image-based lighting on the GPU
+from `RoomEnvironment` or the `Sky` shader — no `.hdr` file, no licence.
+It matters more than any other single call: without an environment map a
+PBR material has nothing to reflect and reads as flat plastic no matter
+how it is lit.
+
+`createSunLight` exists because the stock `DirectionalLight` shadow
+camera is a 10-metre box at the origin, so a large map gets no shadow at
+all; it also prefers `normalBias`, which scales with the geometry, over a
+flat `bias` that is only correct at one distance.
+
+`A3GameMaterialPreset` keeps materials physically honest: a surface is a
+conductor or it is not, so dielectrics stay at `metalness: 0` and get
+their shine from `clearcoat`.
+
+## Imported models
+
+`GLTFLoader` output is never scene-ready, so both loading helpers run
+`prepareModel` for you:
+
+```js
+// Build-from-scratch content: use the model, or the primitive version.
+const built = await assets.instantiateOrBuild('robot_expressive',
+  () => buildPrimitiveBody(), { height: 1.8, ground: true });
+
+// Existing content being upgraded.
+const loaded = await assets.tryInstantiate('fox', { height: 0.85 });
+if (loaded) entity.setVisual(loaded.object, loaded.animations);
+```
+
+Two problems have no glTF-level solution and are handled there:
+
+- **scale** — every model arrives in the author's unit of choice, so
+  normalise with `height` rather than a magic constant;
+- **shadows** — glTF cannot express `castShadow`, so every mesh loads
+  with it false.
+
+Set `frustumCulled: false` on a skinned character, which is otherwise
+culled on its bind-pose bounds and blinks out at the screen edge.
 
 ## Tick ordering
 

@@ -16,6 +16,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { prepareModel } from './visual-kit.js';
 
 export class A3GameAssetLibrary {
   /**
@@ -187,6 +188,75 @@ export class A3GameAssetLibrary {
       animations: (loaded.animations ?? []).map((clip) => clip.clone()),
       entry: loaded.entry,
     };
+  }
+
+  /**
+   * Instantiate a model if it was staged, otherwise return `null`.
+   *
+   * A generated game is written to run with an empty manifest — a
+   * mechanic task usually precedes its art — so "use the good model when
+   * there is one" is the normal case rather than an edge case. The
+   * returned object is scene-ready: normalised to `height` if given, and
+   * shadow-enabled, which `GLTFLoader` never does on its own.
+   *
+   * A staged-but-unloadable artifact records a warning and yields `null`
+   * rather than throwing, because a broken asset must not cost the player
+   * the whole game.
+   *
+   * @param {string} reference artifact_id or asset_id
+   * @param {{height?: number, ground?: boolean, envMapIntensity?: number,
+   *          castShadow?: boolean, receiveShadow?: boolean,
+   *          frustumCulled?: boolean}} [options]
+   * @returns {Promise<{object: THREE.Object3D,
+   *                    animations: THREE.AnimationClip[],
+   *                    entry: object} | null>}
+   */
+  async tryInstantiate(reference, options = {}) {
+    if (!this.has(reference)) return null;
+    try {
+      const loaded = await this.instantiate(reference);
+      prepareModel(loaded.object, options);
+      return loaded;
+    } catch (error) {
+      this.warnings.push(
+        `Staged asset ${String(reference)} failed to load: ` +
+          String(error?.message ?? error),
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Instantiate a staged model, or build a procedural stand-in.
+   *
+   * The counterpart to `tryInstantiate` for content whose visual is
+   * created from scratch rather than swapped in afterwards. Branching on
+   * `has()` at every call site duplicates this logic and usually forgets
+   * the shadow flags.
+   *
+   * @param {string} reference artifact_id or asset_id
+   * @param {() => THREE.Object3D} fallback builds the primitive version
+   * @param {object} [options] as `tryInstantiate`
+   * @returns {Promise<{object: THREE.Object3D,
+   *                    animations: THREE.AnimationClip[],
+   *                    source: 'asset' | 'fallback',
+   *                    entry: object | null}>}
+   */
+  async instantiateOrBuild(reference, fallback, options = {}) {
+    if (typeof fallback !== 'function') {
+      throw new TypeError(
+        'instantiateOrBuild requires a fallback factory, so a game ' +
+          'stays runnable before its art is imported',
+      );
+    }
+    const loaded = await this.tryInstantiate(reference, options);
+    if (loaded) return { ...loaded, source: 'asset' };
+
+    const object = fallback();
+    if (!object?.isObject3D) {
+      throw new TypeError('The fallback factory must return an Object3D');
+    }
+    return { object, animations: [], source: 'fallback', entry: null };
   }
 
   /**
