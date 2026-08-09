@@ -383,7 +383,7 @@ class StubMeshyModel(_StubCloudModel):
 
 
 class StubQwenEditModel(_StubBase):
-    """Mimics `models.gen_image.qwen_edit.QwenEditModel`."""
+    """Mimics `models.gen_image.qwen_edit_model.QwenEditModel`."""
 
     def load(self) -> None:
         self.calls.append({"op": "load"})
@@ -471,7 +471,7 @@ class StubWooshDFlowModel(_StubBase):
 
 
 class StubRMBGModel(_StubBase):
-    """Mimics `models.tools.image_matting.rmbg.RMBGModel` — HxW float32 in [0, 1]."""
+    """Mimics `models.tools.image_matting.rmbg_model.RMBGModel` — HxW float32 in [0, 1]."""
 
     def predict(self, image: Image.Image, **kw) -> np.ndarray:
         self.calls.append({"op": "predict", "size": image.size})
@@ -490,7 +490,7 @@ class StubRMBGModel(_StubBase):
 
 
 class StubDepthAnythingModel(_StubBase):
-    """Mimics `models.tools.image_matting.depth_anything.DepthAnythingModel`."""
+    """Mimics `models.tools.image_matting.depth_anything_model.DepthAnythingModel`."""
 
     def predict(self, image: Image.Image, **kw) -> np.ndarray:
         self.calls.append({"op": "predict", "size": image.size})

@@ -1,15 +1,22 @@
 """
-DepthAnythingModel — depth estimation wrapper (Depth-Anything).
+DepthAnythingModel — depth estimation wrapper producing model-native relative depth.
 
-Conforms to `BaseToolModel`. Used by `gen_tpose_image` for foreground /
-background separation (combined with white-bg suppression).
+Reference: https://huggingface.co/docs/transformers/model_doc/depth_anything
+
+Given an RGB PIL image, `infer()` returns an HxW float32 numpy array at the
+original image resolution. Values are raw relative-depth predictions and are
+not normalized to a fixed range.
+
+Usage:
+    from models.tools.image_matting.depth_anything_model import DepthAnythingModel
+    model = DepthAnythingModel(model_path="LiheYoung/depth-anything-small-hf")
+    depth = model.infer(image)
 """
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 
 from models.tools.base import BaseToolModel
 
@@ -18,6 +25,8 @@ class DepthAnythingModel(BaseToolModel):
     """Thin wrapper around HuggingFace `AutoModelForDepthEstimation`."""
 
     def _load(self) -> None:
+        from transformers import AutoImageProcessor, AutoModelForDepthEstimation
+
         self.processor = AutoImageProcessor.from_pretrained(self.model_path)
         self.model = (
             AutoModelForDepthEstimation.from_pretrained(self.model_path)
@@ -26,7 +35,7 @@ class DepthAnythingModel(BaseToolModel):
         )
 
     @torch.no_grad()
-    def predict(self, image: Image.Image, **kwargs) -> np.ndarray:
+    def infer(self, image: Image.Image, **kwargs) -> np.ndarray:
         """
         Run depth prediction.
 
@@ -34,7 +43,8 @@ class DepthAnythingModel(BaseToolModel):
             image: RGB PIL image.
 
         Returns:
-            HxW float32 numpy array (depth, resized to the original image size).
+            HxW float32 numpy array at the original image resolution. Values
+            are model-native relative depth and are not normalized.
         """
         self._ensure_loaded()
         img = np.array(image.convert("RGB"))
@@ -46,5 +56,5 @@ class DepthAnythingModel(BaseToolModel):
         depth = self.model(**inputs).predicted_depth
         depth = F.interpolate(
             depth.unsqueeze(1), size=(h, w), mode="bicubic", align_corners=False
-        ).squeeze().cpu().numpy()
-        return depth
+        ).squeeze(0).squeeze(0).cpu().numpy()
+        return depth.astype(np.float32, copy=False)

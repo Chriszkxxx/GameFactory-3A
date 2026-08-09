@@ -5,7 +5,7 @@ weights, dtype, device and that model's native API. It knows nothing about
 tasks, jsonl files, game projects or output directories.
 
 > Required interface: every model implements `__init__()` and `infer()`.
-> One file per model: `models/<family>/<model_name>.py`, class `<Name>Model`.
+> One file per model: `models/<family>/<model_name>_model.py`, class `<Name>Model`.
 > Model-specific helpers belong in `models/<family>/<model_name>_utils/`.
 
 > **Wrapping a closed-source cloud API** (Tripo, Meshy, Rodin, Kling, …)? This
@@ -14,8 +14,8 @@ tasks, jsonl files, game projects or output directories.
 > pins down how a deviation must be marked.
 
 Examples:
-- generation: `models/gen_3d_object/trellis_2_model.py`, `models/gen_image/qwen_edit.py`
-- tool model: `models/tools/image_matting/rmbg.py` (inherits `BaseToolModel`)
+- generation: `models/gen_3d_object/trellis_2_model.py`, `models/gen_image/qwen_edit_model.py`
+- tool model: `models/tools/image_matting/rmbg_model.py` (inherits `BaseToolModel`)
 
 ---
 
@@ -136,7 +136,7 @@ Reference: <paper / HF model card / repo URL>
 <Any environment prerequisite: compiled extension, minimum VRAM, extra pip deps.>
 
 Usage:
-    from models.<family>.<module> import <Name>Model
+    from models.<family>.<model_name>_model import <Name>Model
     model = <Name>Model(model_path="<hf/repo-id>")
     out = model.infer(image, seed=42)
 """
@@ -147,7 +147,7 @@ value range**.
 
 ## R8 — Checklist
 
-- [ ] One file, one model, class named `<Name>Model`
+- [ ] One file, one model, named `<model_name>_model.py`; class named `<Name>Model`
 - [ ] `models/<family>/__init__.py` exports it (tool models: both `__init__.py`s)
 - [ ] `model_path` accepts a local path *and* a HF repo id
 - [ ] `device="cpu"` works

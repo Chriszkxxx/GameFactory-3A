@@ -9,7 +9,7 @@ content generator. Examples:
 - keypoint / pose detection helpers
 
 All tool models inherit from `BaseToolModel` (see `base.py`) so they share a
-consistent constructor, device handling, and `__call__` / `predict` API.
+consistent constructor, device handling, and `__call__` / `infer` API.
 """
 
 from models.tools.base import BaseToolModel
