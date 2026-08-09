@@ -18,6 +18,17 @@ from pipeline.common.artifacts import (
 
 
 CONTEXT_USED_SCHEMA = "aaagameforge.context_used.v1"
+EXAMPLE_REFERENCE_PURPOSES = (
+    "module_structure",
+    "build_configuration",
+    "runtime_adapter",
+    "native_test",
+    "ui_binding",
+    "engine_native_ui",
+    "browser_session",
+    "stream_presentation",
+    "launcher_contract",
+)
 ENGINE_CONTEXT_ROOT = (
     paths.REPO_ROOT
     / "agent_skills"
@@ -30,9 +41,20 @@ BROWSER_PLAYER_ROOT = (
     / "frontend"
     / "player"
 )
+BROWSER_PLAY_EXAMPLE_ROOT = (
+    paths.REPO_ROOT
+    / "engine_adapters"
+    / "browser_serving"
+    / "examples"
+)
+BROWSER_PLAY_EXAMPLE_PATH = (
+    BROWSER_PLAY_EXAMPLE_ROOT
+    / "BrowserPlayExample"
+)
 _EXAMPLE_ROLES = (
     "mechanic_example",
     "ui_example",
+    "browser_play_example",
 )
 _ENGINE_DEFINITIONS = (
     {
@@ -48,24 +70,8 @@ _ENGINE_DEFINITIONS = (
         "mechanic_example_roots": (
             "engine_adapters/ue5/examples",
         ),
-        "mechanic_example_paths": (
-            "engine_adapters/ue5/examples/FPSExample",
-            "engine_adapters/ue5/examples/RacingExample",
-            (
-                "engine_adapters/ue5/examples/"
-                "ArenaFighterExample"
-            ),
-        ),
         "ui_example_roots": (
             "engine_adapters/ue5/examples",
-        ),
-        "ui_example_paths": (
-            "engine_adapters/ue5/examples/FPSUIExample",
-            "engine_adapters/ue5/examples/RacingUIExample",
-            (
-                "engine_adapters/ue5/examples/"
-                "ArenaFighterUIExample"
-            ),
         ),
         "browser_backend_example_roots": (
             "engine_adapters/browser_serving/backends",
@@ -88,6 +94,7 @@ _ENGINE_DEFINITIONS = (
             "world_catalog",
             "runtime_sessions",
             "skeletal_animation",
+            "streaming",
             "pixel_streaming",
             "preview_camera",
         ),
@@ -356,15 +363,31 @@ def resolve_engine_registration(
         "browser_serving_primary_api": browser_api,
     }
     for role in _EXAMPLE_ROLES:
-        roots = _definition_paths(
-            matching,
-            f"{role}_roots",
-            require_dir=True,
-        )
-        defaults = _definition_paths(
-            matching,
-            f"{role}_paths",
-        )
+        if role == "browser_play_example":
+            roots = [
+                _repo_owned_path(
+                    BROWSER_PLAY_EXAMPLE_ROOT,
+                    "Browser Play Example root",
+                    require_dir=True,
+                )
+            ]
+            defaults = [
+                _repo_owned_path(
+                    BROWSER_PLAY_EXAMPLE_PATH,
+                    "Browser Play Example",
+                    require_dir=True,
+                )
+            ]
+        else:
+            roots = _definition_paths(
+                matching,
+                f"{role}_roots",
+                require_dir=True,
+            )
+            defaults = _definition_paths(
+                matching,
+                f"{role}_paths",
+            )
         if not roots:
             raise ValueError(
                 f"{engine_id}.{role}_roots must not be empty"
@@ -378,7 +401,7 @@ def resolve_engine_registration(
                     f"{engine_id}.{role}_paths entry is "
                     f"outside registered roots: {path}"
                 )
-        if not defaults:
+        if role == "browser_play_example" and not defaults:
             raise ValueError(
                 f"{engine_id}.{role}_paths must not be empty"
             )
@@ -485,6 +508,10 @@ def resolve_browser_play_registration(
         "frontend_root": str(frontend_root),
         "entry_point": "viewer.html",
         "frontend_files": list(required_files),
+        "session_stream_url_field": "stream_url",
+        "legacy_session_stream_url_fields": [
+            "pixel_streaming_url",
+        ],
     }
 
 
@@ -517,9 +544,22 @@ def _legacy_examples_for_role(
             else item
         )
         name = Path(str(raw or "")).name.lower()
-        if role == "mechanic_example" and "ui" not in name:
+        if (
+            role == "mechanic_example"
+            and "ui" not in name
+            and "browser" not in name
+        ):
             result.append(item)
-        elif role == "ui_example" and "ui" in name:
+        elif (
+            role == "ui_example"
+            and "ui" in name
+            and "browser" not in name
+        ):
+            result.append(item)
+        elif (
+            role == "browser_play_example"
+            and "browser" in name
+        ):
             result.append(item)
         elif (
             role == "browser_backend_example"
@@ -581,6 +621,18 @@ def resolve_engine_example_paths(
     return list(dict.fromkeys(result))
 
 
+def resolve_engine_example_roots(
+    registration: Mapping[str, Any],
+    role: str,
+) -> list[Path]:
+    if role not in _EXAMPLE_ROLES:
+        raise ValueError(f"Unknown Example role: {role}")
+    return [
+        Path(path).expanduser().resolve(strict=False)
+        for path in registration[f"{role}_roots"]
+    ]
+
+
 def provenance_digests(
     paths_to_digest: Sequence[str | Path],
 ) -> dict[str, dict[str, Any]]:
@@ -628,6 +680,15 @@ def validate_context_used(
         str,
         Mapping[str, Any],
     ],
+    example_roots: Mapping[
+        str,
+        Sequence[str | Path],
+    ] | None = None,
+    required_example_roles: Sequence[str] = (),
+    allowed_example_purposes: Sequence[str] = (
+        EXAMPLE_REFERENCE_PURPOSES
+    ),
+    require_example_purpose: bool = False,
 ) -> tuple[bool, list[str]]:
     errors: list[str] = []
     try:
@@ -710,18 +771,81 @@ def validate_context_used(
         }
         for role, values in example_expectations.items()
     }
+    allowed_roots = {
+        role: {
+            Path(path).expanduser().resolve(strict=False)
+            for path in values
+        }
+        for role, values in (
+            example_roots or {}
+        ).items()
+    }
+    allowed_example_roles = (
+        set(expected_examples) | set(allowed_roots)
+    )
+    required_root_roles = {
+        str(role).strip()
+        for role in required_example_roles
+        if str(role).strip()
+    }
+    unknown_required_roles = (
+        required_root_roles - allowed_example_roles
+    )
+    if unknown_required_roles:
+        errors.append(
+            "Context usage requires unregistered Example roles: "
+            + ", ".join(sorted(unknown_required_roles))
+        )
+    allowed_purposes = {
+        str(purpose).strip()
+        for purpose in allowed_example_purposes
+        if str(purpose).strip()
+    }
     actual_examples: dict[str, set[Path]] = {
         role: set()
-        for role in expected_examples
+        for role in allowed_example_roles
     }
     for index, item in enumerate(example_entries):
         role = str(item.get("role") or "").strip()
-        if role not in expected_examples:
+        if role not in allowed_example_roles:
             errors.append(
                 "Context usage contains an unexpected "
                 f"Example role: {role!r}"
             )
             continue
+        raw_purpose = item.get("purpose")
+        if isinstance(raw_purpose, str):
+            purpose_values = [raw_purpose]
+        elif (
+            isinstance(raw_purpose, Sequence)
+            and not isinstance(raw_purpose, (str, bytes))
+        ):
+            purpose_values = list(raw_purpose)
+        elif raw_purpose in (None, ""):
+            purpose_values = []
+        else:
+            errors.append(
+                f"examples_used[{index}].purpose must be a "
+                "string or sequence"
+            )
+            purpose_values = []
+        purposes = {
+            str(purpose).strip()
+            for purpose in purpose_values
+            if str(purpose).strip()
+        }
+        if require_example_purpose and not purposes:
+            errors.append(
+                f"examples_used[{index}].purpose must record at "
+                "least one engineering reference purpose"
+            )
+        unknown_purposes = purposes - allowed_purposes
+        if unknown_purposes:
+            errors.append(
+                f"examples_used[{index}].purpose contains "
+                "unsupported values: "
+                + ", ".join(sorted(unknown_purposes))
+            )
         try:
             path = _usage_path(
                 item.get("path"),
@@ -745,6 +869,28 @@ def validate_context_used(
             errors.append(
                 "Context usage must record every required "
                 f"{role} path and no others"
+            )
+    for role, roots in allowed_roots.items():
+        for path in actual_examples[role]:
+            if not any(
+                is_relative_to(path, root)
+                for root in roots
+            ):
+                errors.append(
+                    "Context usage Example path is outside the "
+                    f"allowed {role} roots: {path}"
+                )
+    for role in required_root_roles:
+        roots = allowed_roots.get(role, set())
+        consulted_subpath = any(
+            path != root and is_relative_to(path, root)
+            for path in actual_examples.get(role, set())
+            for root in roots
+        )
+        if not consulted_subpath:
+            errors.append(
+                "Context usage must record at least one actually "
+                f"consulted {role} path below its allowed root"
             )
 
     for raw_path, expected in expected_digests.items():

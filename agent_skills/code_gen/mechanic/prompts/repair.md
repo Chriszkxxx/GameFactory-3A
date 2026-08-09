@@ -30,8 +30,8 @@ Mechanic Generation Skill. Apply the smallest coherent repair to task-owned
 Mechanic source and engine-native gameplay test source while preserving the
 failed workspace, diagnostics, unrelated working behavior, and packet-defined
 contract. Preserve the canonical Engine, public runtime adapter,
-`public_api_paths`, and `context_used.json`; update provenance only when the
-same registered Context or required Examples are used.
+`public_api_paths`, and `context_used.json`; update provenance to record only
+the same-Engine reference paths actually consulted.
 
 Do not invoke execution or evaluation-only APIs or declare an authoritative
 result. Report changed files, addressed failures, and unresolved issues.

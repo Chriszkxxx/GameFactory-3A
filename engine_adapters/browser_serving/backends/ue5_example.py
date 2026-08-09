@@ -5,6 +5,7 @@ from __future__ import annotations
 import socket
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from threading import RLock
@@ -47,6 +48,29 @@ def _http_reachable(url: str, timeout: float = 1.0) -> bool:
             return int(response.status) < 500
     except (urllib.error.URLError, TimeoutError, OSError):
         return False
+
+
+def _browser_stream_url(pixel_url: str) -> str:
+    parts = urllib.parse.urlsplit(pixel_url)
+    query = dict(urllib.parse.parse_qsl(parts.query))
+    for key, value in (
+        ("AutoConnect", "true"),
+        ("AutoPlayVideo", "true"),
+        ("StartVideoMuted", "true"),
+        ("KeyboardInput", "true"),
+        ("MouseInput", "true"),
+        ("SuppressBrowserKeys", "true"),
+    ):
+        query.setdefault(key, value)
+    return urllib.parse.urlunsplit(
+        (
+            parts.scheme,
+            parts.netloc,
+            parts.path,
+            urllib.parse.urlencode(query),
+            parts.fragment,
+        )
+    )
 
 
 def _payload(result: Mapping[str, Any]) -> dict[str, Any]:
@@ -202,6 +226,9 @@ class UE5BrowserSession:
             "ue_input_host": self.ue_input_host,
             "ue_input_port": self.input_port,
             "remote_control_port": self.remote_control_port,
+            "stream_url": _browser_stream_url(
+                self.pixel_streaming_url
+            ),
             "pixel_streaming_url": self.pixel_streaming_url,
             "preview_map": self.preview_map,
             "character": dict(self.character),
@@ -256,6 +283,7 @@ class UE5ExampleBackend:
                 world_catalog=True,
                 runtime_sessions=True,
                 skeletal_animation=True,
+                streaming=True,
                 pixel_streaming=True,
                 preview_camera=True,
             ),
@@ -542,6 +570,7 @@ class UE5ExampleBackend:
         pixel_url = str(
             snapshot.get("pixel_streaming_url")
             or snapshot.get("pixelStreamingUrl")
+            or snapshot.get("stream_url")
             or ""
         )
         if not pixel_url or not self._http_reachable(pixel_url, 2.0):

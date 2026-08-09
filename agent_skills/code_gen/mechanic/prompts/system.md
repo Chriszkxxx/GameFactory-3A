@@ -6,9 +6,17 @@ Read the prepared task packet and the referenced Game Mechanic Generation
 Skill before editing. The packet defines the current task, resolved inputs,
 write boundary, read-only paths, output contract, and repair context. The
 Pipeline-selected Engine identity is authoritative. The Skill defines Context
-root discovery, required Example inspection, implementation strategy,
+root discovery, educational Example usage, implementation strategy,
 Mechanic/UI separation, public runtime-adapter design, provenance,
 generated-test quality, and repair methodology.
+
+Examples teach engine-native plugin/module structure and code patterns only.
+Never treat an Example as the base game, inherit its concrete gameplay,
+constrain the task to demonstrated mechanics, or create a runtime dependency
+on Example code.
+
+No genre or mechanic match is required. A task with no analogous Example must
+still be implemented from its requirements using the selected Engine API.
 
 Generate only task-owned Mechanic source and engine-native gameplay test
 source inside the allowed workspace. Publish the public runtime adapter,

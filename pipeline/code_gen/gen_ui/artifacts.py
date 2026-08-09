@@ -197,8 +197,11 @@ def required_artifact_checks(
     bindings: Mapping[str, Sequence[str]],
     screens: Sequence[str],
     viewports: Sequence[Mapping[str, int]],
-    mechanic_example_paths: Sequence[Path],
-    ui_example_paths: Sequence[Path],
+    mechanic_example_roots: Sequence[Path],
+    ui_example_roots: Sequence[Path],
+    browser_play_example_paths: Sequence[Path],
+    allowed_example_purposes: Sequence[str],
+    require_example_purpose: bool,
     browser_backend: Mapping[str, Any],
     provenance_digests: Mapping[
         str,
@@ -324,9 +327,11 @@ def required_artifact_checks(
     session_bootstrap = browser_manifest.get(
         "session_bootstrap"
     )
-    pixel_streaming = browser_manifest.get(
-        "pixel_streaming"
-    )
+    streaming = browser_manifest.get("streaming")
+    if not isinstance(streaming, Mapping):
+        streaming = browser_manifest.get(
+            "pixel_streaming"
+        )
     browser_handoff_ok = (
         browser_manifest.get("schema_version")
         == BROWSER_PLAY_MANIFEST_SCHEMA
@@ -345,8 +350,8 @@ def required_artifact_checks(
         == "/api/sessions"
         and session_bootstrap.get("recover_path")
         == "/api/sessions/recover"
-        and isinstance(pixel_streaming, Mapping)
-        and pixel_streaming.get("external_frontend")
+        and isinstance(streaming, Mapping)
+        and streaming.get("external_frontend")
         is False
     )
     if launch_path is not None:
@@ -356,11 +361,7 @@ def required_artifact_checks(
         )
         browser_handoff_ok = (
             browser_handoff_ok
-            and "A3GAME_UE_PROJECT" in launch_source
-            and "A3GAME_UE_ROOT" in launch_source
             and "A3GAME_BROWSER_PLAY_DIR" in launch_source
-            and "A3GAME_BROWSER_PIXEL_USE_FRONTEND"
-            in launch_source
             and "engine_adapters.browser_serving"
             in launch_source
         )
@@ -388,8 +389,10 @@ def required_artifact_checks(
             "/api/health",
             "/api/sessions",
             "/api/sessions/recover",
-            "pixel_streaming_url",
         )
+    ) and (
+        "stream_url" in normalized_browser_source
+        or "pixel_streaming_url" in normalized_browser_source
     ) and (
         'method: "post"' in normalized_browser_source
         or "method: 'post'" in normalized_browser_source
@@ -542,12 +545,27 @@ def required_artifact_checks(
                         ],
                     },
                 ],
-                example_expectations={
+                example_expectations={},
+                example_roots={
                     "mechanic_example": (
-                        mechanic_example_paths
+                        mechanic_example_roots
                     ),
-                    "ui_example": ui_example_paths,
+                    "ui_example": ui_example_roots,
+                    "browser_play_example": (
+                        browser_play_example_paths
+                    ),
                 },
+                required_example_roles=(
+                    "mechanic_example",
+                    "ui_example",
+                    "browser_play_example",
+                ),
+                allowed_example_purposes=(
+                    allowed_example_purposes
+                ),
+                require_example_purpose=(
+                    require_example_purpose
+                ),
                 expected_digests=provenance_digests,
             )
         )
@@ -625,7 +643,7 @@ def required_artifact_checks(
         ),
         "browser_play_bootstrap": (
             "Browser Play must health-check Serving, create or "
-            "recover a session, and consume pixel_streaming_url"
+            "recover a session, and consume stream_url"
         ),
         "browser_play_mechanic_free": (
             "Browser Play source must not reproduce or "
@@ -736,7 +754,16 @@ def finalize(
     mechanic_examples = context.get(
         "mechanic_example_paths"
     )
+    mechanic_example_roots = context.get(
+        "mechanic_example_roots"
+    )
     ui_examples = context.get("ui_example_paths")
+    ui_example_roots = context.get(
+        "ui_example_roots"
+    )
+    browser_play_examples = context.get(
+        "browser_play_example_paths"
+    )
     browser_backend = context.get("browser_backend")
     provenance_digests = context.get(
         "provenance_digests"
@@ -781,8 +808,17 @@ def finalize(
             "Prepared UI packet viewports must be a sequence"
         )
     for name, value in (
+        (
+            "mechanic_example_roots",
+            mechanic_example_roots,
+        ),
         ("mechanic_example_paths", mechanic_examples),
+        ("ui_example_roots", ui_example_roots),
         ("ui_example_paths", ui_examples),
+        (
+            "browser_play_example_paths",
+            browser_play_examples,
+        ),
     ):
         if (
             isinstance(value, (str, bytes))
@@ -800,6 +836,24 @@ def finalize(
         raise TypeError(
             "Prepared UI packet provenance_digests "
             "must be an object"
+        )
+    usage_contract = packet.get("context_usage_contract")
+    if not isinstance(usage_contract, Mapping):
+        raise TypeError(
+            "Prepared UI packet context_usage_contract "
+            "must be an object"
+        )
+    allowed_purposes = usage_contract.get(
+        "allowed_example_purposes",
+        [],
+    )
+    if (
+        isinstance(allowed_purposes, (str, bytes))
+        or not isinstance(allowed_purposes, Sequence)
+    ):
+        raise TypeError(
+            "Prepared UI packet allowed_example_purposes "
+            "must be a sequence"
         )
     mechanic_contract_path = Path(
         str(
@@ -851,18 +905,34 @@ def finalize(
                 for item in viewports
                 if isinstance(item, Mapping)
             ],
-            mechanic_example_paths=[
+            mechanic_example_roots=[
                 Path(str(item)).expanduser().resolve(
                     strict=False
                 )
-                for item in mechanic_examples
+                for item in mechanic_example_roots
             ],
-            ui_example_paths=[
+            ui_example_roots=[
                 Path(str(item)).expanduser().resolve(
                     strict=False
                 )
-                for item in ui_examples
+                for item in ui_example_roots
             ],
+            browser_play_example_paths=[
+                Path(str(item)).expanduser().resolve(
+                    strict=False
+                )
+                for item in browser_play_examples
+            ],
+            allowed_example_purposes=[
+                str(purpose)
+                for purpose in allowed_purposes
+            ],
+            require_example_purpose=bool(
+                usage_contract.get(
+                    "example_purpose_required",
+                    False,
+                )
+            ),
             browser_backend=dict(browser_backend),
             provenance_digests={
                 str(path): dict(value)

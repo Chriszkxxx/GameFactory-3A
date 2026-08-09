@@ -1,366 +1,133 @@
 # agent_skills - setting overview
 
-Reference context and development guidelines that get injected into an
-Agent's prompt. Everything here is prose for an Agent to read, not code to
-import. `agent_skills/` deliberately contains no Python.
+This is the mandatory routing overview for AAAGameForge Agents. It identifies
+which task-specific Skill and API documents an Agent must read. Detailed task
+workflows, schemas, artifact layouts, tests, and implementation rules belong in
+the corresponding Skill or API document, not here.
 
-## What Lives Here
+## Document Roles
 
-| Path | Audience | Purpose |
-|------|----------|---------|
-| `setting_overview.md` | any Agent | Mandatory navigation entry point |
-| `develop_harness/` | framework development Agent | Contracts for the `models/` -> `operators/` -> `pipeline/` asset-generation chain |
-| `code_gen/mechanic/` | Mechanic generation Agent | Mechanic workflow, boundaries, Prompts, tests, contract, and provenance rules |
-| `code_gen/ui/` | UI generation Agent | Engine-native UI and Browser Play frontend workflow |
-| `engine_context/` | Mechanic/UI generation Agents | Callable Engine and Browser Serving API references |
+| Source | Responsibility |
+|---|---|
+| Task packet | Current task, canonical Engine, inputs, acceptance criteria, and read/write boundaries |
+| This overview | Routes the task to the required Skill and API documents |
+| Task-specific Skill | Workflow, implementation rules, outputs, provenance, run publication, assembly, tests, and evaluation handoff |
+| Engine Context | Public Engine or Browser Serving APIs generated code may call |
+| Examples | Read-only implementation references used according to the selected Skill |
 
-```text
-agent_skills/
-|-- setting_overview.md
-|-- develop_harness/
-|   |-- README.md
-|   |-- model_require.md
-|   |-- operatar_require.md
-|   `-- pipeline_require.md
-|-- code_gen/
-|   |-- mechanic/
-|   `-- ui/
-`-- engine_context/
-    |-- ue5_api.md
-    |-- unity3d_api.md
-    |-- blender_api.md
-    |-- three_js_api.md
-    `-- browser_serving_api.md
-```
+## Task Router
 
-## Two Different Kinds Of Agent Work
+### Framework And Asset-Generation Development
 
-The repository has Agents on both sides of the framework boundary.
-
-1. **Developing the framework** - extend the asset-generation chain by adding
-   a model wrapper, Operator, Pipeline runner, Engine adapter, or Browser
-   Serving backend.
-   Read `develop_harness/` and the relevant framework source.
-
-2. **Generating game content** - execute Layer-B/C generation through
-   `pipeline/code_gen/gen_mechanic/` or `pipeline/code_gen/gen_ui/`.
-   Read the corresponding `code_gen/` Skill, the applicable API documents in
-   `engine_context/`, and the Engine-owned Examples under `engine_adapters/`.
-
-Do not mix these responsibilities. `develop_harness/` describes this
-repository's framework conventions. `engine_context/` describes public APIs
-that generated game code may call.
-
-## Engine API Context Rules
-
-- The Pipeline task owns the canonical Engine identifier. The Agent must not
-  change it.
-- All callable Engine API references must be discovered under
-  `agent_skills/engine_context/`.
-- Mechanic generation must read the API document matching the selected Engine
-  before generating Engine calls.
-- UI generation must read both:
-  - the API document matching the selected Engine; and
-  - `agent_skills/engine_context/browser_serving_api.md`.
-- Do not mix Engine APIs or Examples from different Engines.
-- Record every API and required Example used in `context_used.json`.
-- Engine-to-Browser backends are framework-owned and must be registered before
-  normal UI generation.
-- UI generation may create a task-owned Browser Play frontend under the
-  current workspace path `generated_ui/browser_play/`. The canonical published
-  run artifact path is `artifacts/ui/<task_id>/browser_play/`.
-- Browser Play may use the Browser Serving API, but it must not generate or
-  modify an `EngineBackend` or write `generated_adapters/`.
-
-## Generation Run And Output Contract
-
-### Run Is The Atomic Unit
-
-One generation run is the smallest published and reproducible unit:
+For model wrappers, Operators, asset Pipeline runners, evaluators, and harness
+work, start with:
 
 ```text
-Task Packet
-    |
-    v
-Generation Run
-    |
-    v
-Artifacts
-    |
-    v
-Assembly
-    |
-    v
-Playable Product
-    |
-    v
-Evaluation
+agent_skills/develop_harness/README.md
 ```
 
-All generated inputs, artifacts, products, and evaluation evidence belonging
-to one attempt must live under:
+Then read the matching layer contract:
 
 ```text
-test_data/outputs/<game_id>/runs/<run_id>/
+Model wrapper:
+agent_skills/develop_harness/model_require.md
+
+Closed-source API model:
+agent_skills/develop_harness/api_model_require.md
+
+Operator:
+agent_skills/develop_harness/operatar_require.md
+
+Asset Pipeline runner or evaluator:
+agent_skills/develop_harness/pipeline_require.md
 ```
 
-Published runs are immutable:
+### Mechanic Generation
 
-- do not overwrite an artifact in a published run;
-- do not repair a published run in place;
-- create a new run for a content-affecting repair;
-- record the previous run through `parent_run_id`, `repair_of`, and the failure
-  digest;
-- keep unpublished Agent retries under `_pipeline/attempts/`;
-- promote only the selected attempt into the run's published artifacts.
-
-Example repair lineage:
-
-```json
-{
-  "run_id": "run_002",
-  "parent_run_id": "run_001",
-  "trigger": "repair",
-  "repair_of": {
-    "run_id": "run_001",
-    "failure_digest": "sha256:..."
-  }
-}
-```
-
-### Canonical Run Layout
+For gameplay rules, state, events, commands, runtime adapters, native Mechanic
+tests, Mechanic artifact publication, assembly input, or evaluation handoff,
+read:
 
 ```text
-test_data/outputs/
-`-- <game_id>/
-    `-- runs/
-        `-- <run_id>/
-            |-- run.json
-            |-- inputs.lock.json
-            |-- artifacts/
-            |   |-- assets/
-            |   |   `-- <task_kind>/<task_id>/
-            |   |-- mechanic/
-            |   |   `-- <task_id>/
-            |   |       |-- native/
-            |   |       |-- contract/
-            |   |       |-- tests/
-            |   |       |-- traces/
-            |   |       |-- context_used.json
-            |   |       `-- manifest.json
-            |   `-- ui/
-            |       `-- <task_id>/
-            |           |-- native/
-            |           |-- browser_play/
-            |           |-- bindings/
-            |           |-- fixtures/
-            |           |-- tests/
-            |           |-- screenshot_plan.json
-            |           |-- context_used.json
-            |           `-- manifest.json
-            |-- products/
-            |   `-- <pipeline_task_id>/
-            |       |-- native/
-            |       |-- browser_play/
-            |       |-- launch/
-            |       |-- assembly_manifest.json
-            |       `-- product_manifest.json
-            |-- evaluation/
-            |   `-- <pipeline_task_id>/
-            |       |-- build/
-            |       |-- tests/
-            |       |-- screenshots/
-            |       |-- browser_smoke/
-            |       |-- logs/
-            |       `-- result.json
-            `-- _pipeline/
-                |-- packets/
-                |-- attempts/
-                |-- prompts/
-                `-- snapshots/
+agent_skills/code_gen/mechanic/game_generation.md
+agent_skills/engine_context/<canonical_engine>_api.md
 ```
 
-`pipeline/common/paths.py` owns the construction of every path in this layout.
-Agents and framework modules must not assemble these paths manually.
+The Mechanic Skill owns Example/provenance rules, multi-system architecture,
+Mechanic/UI separation, `mechanic_contract.json`, run and artifact rules,
+manifest hashing, assembly pinning, and verification ownership.
 
-### Engine-Neutral Native Artifacts
+### UI Generation
 
-Use `native/`, not `plugin/` or `native_plugin/`, as the cross-engine artifact
-boundary. `native/` means the implementation owned by the selected Engine.
-
-Examples:
+For engine-native HUDs, widgets, screens, menus, bindings, Browser Play, UI
+tests, UI artifact publication, assembly, or evaluation handoff, read:
 
 ```text
-Unreal:
-native/Plugins/GameUI/
-
-Unity:
-native/Assets/UI/
-
-Three.js:
-native/src/components/
+agent_skills/code_gen/ui/game_ui_generation.md
+agent_skills/engine_context/<canonical_engine>_api.md
+agent_skills/engine_context/browser_serving_api.md
 ```
 
-The same rule applies to Mechanic artifacts:
+Also read only the finalized Mechanic contract and public adapter paths
+declared by the task packet.
+
+The UI Skill owns Native UI and Browser Play delivery, multi-screen
+interaction, Mechanic binding, Example/provenance rules, manifests, run and
+artifact rules, assembly pinning, screenshots, tests, and verification
+ownership. The Browser Serving API owns session, stream, capability, launcher,
+and backend/frontend transport contracts.
+
+### Engine Context Selection
+
+The task packet owns the canonical Engine identifier. Select only the matching
+API document:
 
 ```text
-Unreal:
-artifacts/mechanic/<task_id>/native/Plugins/GameMechanic/
-
-Unity:
-artifacts/mechanic/<task_id>/native/Assets/Mechanics/
-
-Three.js:
-artifacts/mechanic/<task_id>/native/src/mechanics/
+ue5       -> agent_skills/engine_context/ue5_api.md
+unity3d   -> agent_skills/engine_context/unity3d_api.md
+blender   -> agent_skills/engine_context/blender_api.md
+three_js  -> agent_skills/engine_context/three_js_api.md
 ```
 
-Upper Pipeline layers must not assume that an Engine-native artifact is an
-Unreal Plugin.
+Do not combine APIs or Examples from different Engines.
 
-### Artifact And Product Ownership
+## Reading Order
 
-- `artifacts/mechanic/<task_id>/native/` is the Mechanic implementation source
-  of truth.
-- `artifacts/ui/<task_id>/native/` is the Engine-native UI source of truth.
-- `artifacts/ui/<task_id>/browser_play/` is the game-owned Browser Play source
-  of truth.
-- `products/<pipeline_task_id>/` is an assembled, self-contained product.
-- Files copied into a product are read-only assembly outputs, not new source
-  locations.
-- A source artifact change requires a new assembly and new product digest.
-- Framework-owned Browser Serving code remains under
-  `engine_adapters/browser_serving/` and is never copied into a game artifact.
-- `Binaries/`, `Intermediate/`, `Saved/`, Derived Data Cache, `__pycache__/`,
-  and other mutable build output belong under `.tmp`, not published runs.
+For a generation task, read:
 
-### Versioned And Hashed Manifests
-
-Every published task artifact must include `manifest.json`. A path alone is not
-sufficient provenance. The manifest must identify both the artifact format and
-the exact content:
-
-```json
-{
-  "schema_version": "aaagameforge.artifact_manifest.v1",
-  "artifact_version": 1,
-  "identity": {
-    "game_id": "gameC_dwarven_ruins_exploration",
-    "run_id": "run_002",
-    "task_kind": "mechanic",
-    "task_id": "dwarven_exploration_core_001"
-  },
-  "artifact": {
-    "path": "artifacts/mechanic/dwarven_exploration_core_001/native",
-    "tree_sha256": "...",
-    "file_count": 18
-  },
-  "producer": {
-    "git_sha": "...",
-    "packet_sha256": "..."
-  }
-}
+```text
+1. Task packet and acceptance criteria
+2. This routing overview
+3. The selected Mechanic or UI Skill
+4. The matching Engine Context documents
+5. Finalized upstream contracts declared by the task packet
+6. The minimum relevant Example files allowed by the selected Skill
 ```
 
-Keep version meanings separate:
+Do not preload unrelated Skills, Engine APIs, Examples, or generated outputs.
 
-- `schema_version` identifies the manifest schema;
-- `artifact_version` identifies the artifact contract revision;
-- `contract_version` identifies a public Mechanic or UI contract revision;
-- `tree_sha256` identifies the exact artifact bytes.
+## Global Rules
 
-Directory artifacts use a deterministic tree hash. Compute it from sorted
-POSIX-relative paths, each file's SHA256, and each file's byte size. Exclude
-the manifest itself and mutable build/cache output.
+- The task packet is authoritative for task identity, Engine, inputs, and
+  filesystem boundaries.
+- The selected Skill is authoritative for workflow, required artifacts,
+  publication, assembly handoff, validation, and completion criteria.
+- Engine Context is authoritative for callable public APIs. Do not invent APIs
+  or use adapter internals.
+- Examples are read-only references, not base projects, templates, runtime
+  dependencies, or limits on what may be generated.
+- Read only finalized upstream artifacts explicitly provided to the current
+  task. Do not inspect unrelated tasks' generated outputs.
+- Record actual context consumption in `context_used.json` when required by the
+  selected Skill.
+- Generation, assembly, execution, and evaluation have separate ownership and
+  status. Source generation alone must not claim that a game is playable.
+- Output paths come from `pipeline/common/paths.py`; do not construct repository
+  output paths from memory.
 
-All manifest paths are relative to the run root. Do not publish machine-local
-absolute paths such as `D:\Desktop\...`.
+## Keep Task Details In Their Skills
 
-### Assembly And Evaluation Pin Exact Inputs
-
-An assembly manifest must record the exact manifest and content digests of
-every consumed artifact:
-
-```json
-{
-  "schema_version": "aaagameforge.assembly_manifest.v1",
-  "inputs": [
-    {
-      "role": "mechanic",
-      "manifest": "artifacts/mechanic/core_001/manifest.json",
-      "manifest_sha256": "...",
-      "tree_sha256": "..."
-    },
-    {
-      "role": "ui",
-      "manifest": "artifacts/ui/ui_001/manifest.json",
-      "manifest_sha256": "...",
-      "tree_sha256": "..."
-    }
-  ]
-}
-```
-
-Assembly must recalculate each digest and fail on any mismatch. It must never
-silently assemble an artifact that changed after its manifest was written.
-
-Evaluation must pin the product it validates:
-
-```json
-{
-  "subject": {
-    "product_manifest": "products/vertical_slice_001/product_manifest.json",
-    "product_manifest_sha256": "..."
-  }
-}
-```
-
-Build results, screenshots, runtime logs, and Browser Play smoke evidence are
-valid only for that pinned product digest.
-
-### Generation, Assembly, And Verification Status
-
-Do not use one ambiguous `completed` status for all stages. Track at least:
-
-```json
-{
-  "generation_status": "generated",
-  "assembly_status": "assembled",
-  "verification_status": "not_run"
-}
-```
-
-Only a Pipeline execution stage may set `verification_status` to `verified`.
-Static source generation or artifact-presence checks must not claim that a
-game is playable.
-
-## Runnable Counterparts
-
-The written contracts have executable counterparts under `test/`, which is
-where code belongs:
-
-```bash
-pip install pillow numpy scipy
-
-python test/harness/smoke.py
-python test/harness/smoke.py --kind tpose --keep
-```
-
-`test/harness/stubs.py` provides fake model wrappers matching the real
-interfaces, so a chain can be exercised without production model weights.
-`smoke.py` asserts that artifacts land at the paths promised by
-`pipeline/common/paths.py`.
-
-## Ground Rules For Any Agent Touching This Repository
-
-- Output paths come from `pipeline/common/paths.py`. Never concatenate a path
-  to `test_data/outputs/` by hand.
-- Dependencies point downward only: `models/` <- `operators/` <- `pipeline/`.
-  A model never imports an Operator; an Operator never imports a runner.
-- Changes to Operator return dictionaries are additive. Existing keys are
-  consumed by `run.py`, `eval.py`, and tests.
-- Put new behavior behind a new argument whose default preserves existing
-  behavior.
-- Treat task inputs, Skills, Prompts, API Context, Examples, and finalized
-  upstream artifacts as read-only during generation.
-- Do not modify README files. Keep architecture plans, changed-file
-  inventories, and validation reports under `docs/`.
+Do not add JSON schemas, Example purpose enums, Mechanic systems, UI screen
+rules, Browser session fields, artifact layouts, hashing algorithms, assembly
+manifests, or evaluation procedures to this overview. Update the owning
+Mechanic Skill, UI Skill, framework Skill, or Engine Context document instead.

@@ -179,12 +179,21 @@ def _prepare_command(
                 "delivery_mode": packet[
                     "delivery_mode"
                 ],
+                "mechanic_example_roots": packet[
+                    "context"
+                ]["mechanic_example_roots"],
                 "mechanic_example_paths": packet[
                     "context"
                 ]["mechanic_example_paths"],
+                "ui_example_roots": packet[
+                    "context"
+                ]["ui_example_roots"],
                 "ui_example_paths": packet[
                     "context"
                 ]["ui_example_paths"],
+                "browser_play_example_paths": packet[
+                    "context"
+                ]["browser_play_example_paths"],
                 "browser_backend": packet[
                     "context"
                 ]["browser_backend"],

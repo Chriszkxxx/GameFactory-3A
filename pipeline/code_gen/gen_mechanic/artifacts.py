@@ -108,7 +108,9 @@ def required_artifact_checks(
     *,
     engine: str,
     gameplay_module_name: str,
-    mechanic_example_paths: Sequence[Path],
+    mechanic_example_roots: Sequence[Path],
+    allowed_example_purposes: Sequence[str],
+    require_example_purpose: bool,
     provenance_digests: Mapping[
         str,
         Mapping[str, Any],
@@ -187,11 +189,21 @@ def required_artifact_checks(
                         ],
                     }
                 ],
-                example_expectations={
+                example_expectations={},
+                example_roots={
                     "mechanic_example": (
-                        mechanic_example_paths
-                    )
+                        mechanic_example_roots
+                    ),
                 },
+                required_example_roles=(
+                    "mechanic_example",
+                ),
+                allowed_example_purposes=(
+                    allowed_example_purposes
+                ),
+                require_example_purpose=(
+                    require_example_purpose
+                ),
                 expected_digests=provenance_digests,
             )
         )
@@ -238,15 +250,15 @@ def finalize(
         raise TypeError(
             "Prepared Mechanic packet context must be an object"
         )
-    raw_examples = context.get(
-        "mechanic_example_paths"
+    raw_example_roots = context.get(
+        "mechanic_example_roots"
     )
     if (
-        isinstance(raw_examples, (str, bytes))
-        or not isinstance(raw_examples, Sequence)
+        isinstance(raw_example_roots, (str, bytes))
+        or not isinstance(raw_example_roots, Sequence)
     ):
         raise TypeError(
-            "Prepared Mechanic packet mechanic_example_paths "
+            "Prepared Mechanic packet mechanic_example_roots "
             "must be a sequence"
         )
     raw_digests = context.get("provenance_digests")
@@ -254,6 +266,24 @@ def finalize(
         raise TypeError(
             "Prepared Mechanic packet provenance_digests "
             "must be an object"
+        )
+    usage_contract = packet.get("context_usage_contract")
+    if not isinstance(usage_contract, Mapping):
+        raise TypeError(
+            "Prepared Mechanic packet context_usage_contract "
+            "must be an object"
+        )
+    raw_purposes = usage_contract.get(
+        "allowed_example_purposes",
+        [],
+    )
+    if (
+        isinstance(raw_purposes, (str, bytes))
+        or not isinstance(raw_purposes, Sequence)
+    ):
+        raise TypeError(
+            "Prepared Mechanic packet allowed_example_purposes "
+            "must be a sequence"
         )
     def artifact_checker(
         workspace: Path,
@@ -270,12 +300,22 @@ def finalize(
             current_task_files,
             engine=engine,
             gameplay_module_name=gameplay_module_name,
-            mechanic_example_paths=[
+            mechanic_example_roots=[
                 Path(str(path)).expanduser().resolve(
                     strict=False
                 )
-                for path in raw_examples
+                for path in raw_example_roots
             ],
+            allowed_example_purposes=[
+                str(purpose)
+                for purpose in raw_purposes
+            ],
+            require_example_purpose=bool(
+                usage_contract.get(
+                    "example_purpose_required",
+                    False,
+                )
+            ),
             provenance_digests={
                 str(path): dict(value)
                 for path, value in raw_digests.items()

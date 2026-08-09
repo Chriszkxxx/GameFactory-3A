@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser Play</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="player-shell">
+    <header class="player-bar">
+      <div class="session-summary">
+        <strong>Browser Play</strong>
+        <span id="sessionLabel">Preparing session</span>
+      </div>
+      <div class="connection" aria-live="polite">
+        <span id="statusDot" class="status-dot"></span>
+        <span id="statusText">Checking Browser Serving</span>
+      </div>
+      <div class="player-actions">
+        <button id="focusButton" type="button" title="Focus game input">
+          Focus
+        </button>
+        <button id="retryButton" type="button" title="Recover the session">
+          Retry
+        </button>
+        <button id="fullscreenButton" type="button" title="Toggle fullscreen">
+          Fullscreen
+        </button>
+      </div>
+    </header>
+
+    <section id="streamSurface" class="stream-surface" tabindex="0">
+      <iframe
+        id="streamFrame"
+        title="Streamed game"
+        allow="autoplay; fullscreen; clipboard-read; clipboard-write; pointer-lock"
+        hidden></iframe>
+
+      <div id="emptyState" class="empty-state">
+        <div class="loading-mark" aria-hidden="true"></div>
+        <h1 id="emptyTitle">Starting game</h1>
+        <p id="emptyMessage">
+          Waiting for the selected Engine runtime and stream page.
+        </p>
+      </div>
+
+      <div id="focusNotice" class="focus-notice">
+        Click the streamed game to capture keyboard and mouse input.
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -78,10 +78,22 @@ Generated motion descriptors:
 {{MOTION_SOURCES}}
 ```
 
-Required Engine-validated Mechanic Examples:
+Engine-validated Mechanic reference roots:
 
-```text
+```json
+{{MECHANIC_EXAMPLE_ROOTS}}
+```
+
+Task-suggested reference paths, when present:
+
+```json
 {{MECHANIC_EXAMPLE_PATHS}}
+```
+
+Allowed engineering reference purposes:
+
+```json
+{{EXAMPLE_REFERENCE_PURPOSES}}
 ```
 
 Required Context usage manifest:
@@ -92,8 +104,34 @@ Required Context usage manifest:
 
 Implement this task inside the workspace under the packet boundaries. Use the
 referenced Skill for implementation workflow, Engine API discovery,
-Mechanic/UI separation, Example inspection, descriptor consumption, contract
+Mechanic/UI separation, reference inspection, descriptor consumption, contract
 publication, provenance recording, and generated-test requirements.
+
+Do not scan or read the entire Mechanic reference root. Select the smallest set
+of files needed to understand how this Engine expresses a game-owned plugin or
+module, build configuration, public runtime adapter, and native tests in code.
+The reference may come from a completely different genre or mechanic. For
+example, a shooter plugin may teach the correct Engine plugin architecture for
+a strategy, simulation, MOBA, or entirely novel game.
+
+These files are educational engineering references only. They are not a base
+implementation, gameplay template, inheritance target, scaffold to copy, or
+runtime dependency.
+
+Derive all gameplay behavior and architecture from the current task. You may
+implement mechanics, classes, systems, and code organization that do not exist
+in any Example. Record only the reference paths actually consulted in
+`context_used.json`.
+
+Every `examples_used` entry must include a non-empty `purpose` list selected
+from the allowed engineering reference purposes above. Use purposes to state
+why the file was read, not what gameplay it contains.
+
+Do not classify the task into an Example category or search for a matching
+genre, mechanic, camera, control scheme, or game loop. Choose any same-Engine
+reference that demonstrates the engineering pattern you need to learn. The
+absence of a similar Example is never a missing input, blocker, or reason to
+reduce the requested game.
 
 Use the exact project and game-owned module names above. Produce every
 task-required artifact, including the packet-defined

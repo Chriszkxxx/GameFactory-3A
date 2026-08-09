@@ -20,10 +20,12 @@ from pipeline.common.artifacts import (
 )
 from pipeline.common.code_gen import (
     CONTEXT_USED_SCHEMA,
+    EXAMPLE_REFERENCE_PURPOSES,
     mapping_list,
     provenance_digests,
     repair_payload,
     resolve_engine_example_paths,
+    resolve_engine_example_roots,
     resolve_engine_registration,
     string_list,
     validate_boundaries,
@@ -83,7 +85,11 @@ def prepare(
     engine_context_root = Path(
         registration["context_root"]
     )
-    examples = resolve_engine_example_paths(
+    example_roots = resolve_engine_example_roots(
+        registration,
+        "mechanic_example",
+    )
+    suggested_examples = resolve_engine_example_paths(
         task,
         registration,
         "mechanic_example",
@@ -188,8 +194,17 @@ def prepare(
             "ENGINE_CONTEXT_ROOT": str(
                 engine_context_root
             ),
+            "MECHANIC_EXAMPLE_ROOTS": json_text(
+                [str(path) for path in example_roots]
+            ),
             "MECHANIC_EXAMPLE_PATHS": json_text(
-                [str(path) for path in examples]
+                [
+                    str(path)
+                    for path in suggested_examples
+                ]
+            ),
+            "EXAMPLE_REFERENCE_PURPOSES": json_text(
+                list(EXAMPLE_REFERENCE_PURPOSES)
             ),
             "CONTEXT_USED_PATH": str(
                 workspace / "context_used.json"
@@ -222,7 +237,7 @@ def prepare(
         REPAIR_PROMPT_PATH,
         engine_context_root,
         requirement_path,
-        *examples,
+        *example_roots,
     ]
     if general_requirement_path.is_file():
         read_only_paths.append(general_requirement_path)
@@ -234,7 +249,7 @@ def prepare(
     )
     provenance_paths = [
         engine_context_root,
-        *examples,
+        *example_roots,
     ]
     packet = {
         "packet_id": packet_id,
@@ -279,9 +294,13 @@ def prepare(
                 "task": str(TASK_PROMPT_PATH),
                 "repair": str(REPAIR_PROMPT_PATH),
             },
+            "mechanic_example_roots": [
+                str(path)
+                for path in example_roots
+            ],
             "mechanic_example_paths": [
                 str(path)
-                for path in examples
+                for path in suggested_examples
             ],
             "provenance_digests": (
                 provenance_digests(
@@ -332,12 +351,20 @@ def prepare(
                     "role": "engine_api",
                 }
             ],
-            "required_examples": {
+            "required_examples": {},
+            "example_roots": {
                 "mechanic_example": [
                     str(path)
-                    for path in examples
+                    for path in example_roots
                 ]
             },
+            "required_example_roles": [
+                "mechanic_example"
+            ],
+            "example_purpose_required": True,
+            "allowed_example_purposes": list(
+                EXAMPLE_REFERENCE_PURPOSES
+            ),
         },
         "repair": repair,
         "required_output_artifacts": string_list(
@@ -351,8 +378,15 @@ def prepare(
         f"Packet: `{packet_path}`\n\n"
         "Read the Skill and Engine Context paths from the packet before "
         "editing. Discover the registered Engine API inside the supplied "
-        "Engine Context root and inspect every required Mechanic "
-        "Example.\n\n"
+        "Engine Context root. Do not scan the entire Example root. Select the "
+        "smallest useful set of structural Mechanic Example files needed to "
+        "learn the Engine's plugin/module and native code workflow. "
+        "Examples are educational references only, not base implementations, "
+        "templates, inheritance targets, or gameplay constraints. Freely "
+        "implement mechanics not present in the Examples. Do not require a "
+        "genre or mechanic match; an FPS reference may guide the plugin "
+        "architecture of a MOBA or unrelated game. The absence of a similar "
+        "Example is never a blocker.\n\n"
         "## System Guidance\n\n"
         f"{system_prompt.rstrip()}\n\n"
         "## Task Guidance\n\n"

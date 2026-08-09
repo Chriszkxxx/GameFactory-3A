@@ -19,6 +19,7 @@ class EngineCapabilities:
     world_catalog: bool = False
     runtime_sessions: bool = False
     skeletal_animation: bool = False
+    streaming: bool = False
     pixel_streaming: bool = False
     preview_camera: bool = False
 

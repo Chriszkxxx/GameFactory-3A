@@ -128,6 +128,9 @@ def _prepare_command(args: argparse.Namespace) -> int:
                 "engine_context_root": packet[
                     "context"
                 ]["engine_context_root"],
+                "mechanic_example_roots": packet[
+                    "context"
+                ]["mechanic_example_roots"],
                 "mechanic_example_paths": packet[
                     "context"
                 ]["mechanic_example_paths"],

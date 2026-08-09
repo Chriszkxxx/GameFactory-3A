@@ -1,65 +1,60 @@
 # Game Mechanic Generation
 
-Generate the game-owned mechanic implementation for one task inside the
-prepared workspace.
+Generate one task's game-owned Mechanic implementation inside the prepared
+workspace. The result owns gameplay behavior and a presentation-independent
+public contract; it does not own UI, execution, or evaluation.
 
-## Inputs
+## Authority And Inputs
 
-Read all provided context before editing:
+Read before editing:
 
-- the prepared task packet and task-specific requirement;
-- the general game requirement, when present;
-- acceptance criteria;
+- the prepared task packet, task requirement, acceptance criteria, and optional
+  general requirement;
 - generated asset and motion descriptors;
-- the Pipeline-owned canonical Engine identifier;
-- the existing read-only Engine Context directory;
-- every required Engine-validated Mechanic Example path;
-- this Skill;
+- the Pipeline-owned canonical Engine identifier and read-only Engine Context;
+- registered same-Engine Mechanic Example roots and task-suggested paths;
+- this Skill and the referenced Prompts.
 
-Task requirements define behavior. Inspect the Engine Context directory and
-select exactly one API Reference that matches the target Engine identifier.
-That selected document defines the callable engine surface. Inspect every
-provided Mechanic Example before implementation. Examples are required,
-read-only, lower-priority structural references and must belong to the same
-Engine.
+Authority order is: task packet and requirements, this Skill, the matching
+Engine API, then Examples. Select exactly one non-empty Engine API matching the
+canonical Engine. Do not change the Engine, mix APIs, or invent an API when the
+matching document is missing.
+
+Examples teach only same-Engine API usage, module/plugin structure, build
+configuration, public-adapter design, and native-test patterns. Inspect the
+smallest useful set, including at least one file or plugin directory below an
+allowed root; never scan an entire root by default. An Example is not a base,
+template, inheritance target, scaffold, runtime dependency, genre constraint,
+or capability limit. Any same-Engine genre may teach structure.
+No analogous Example is required.
 
 ## Workflow
 
-1. Inspect the existing workspace and preserve compatible generated work.
-2. Map every acceptance criterion to game-owned source, observable state, and
-   at least one meaningful engine-native test.
-3. Separate Mechanic requirements from presentation requirements. Convert any
-   HUD, widget, menu, screenshot, or visual-feedback wording into required
-   state, events, and commands.
-4. List the Engine Context directory, discover its applicable API
-   document, and read it before making concrete engine calls. Do not change
-   the Pipeline-selected Engine.
-5. Inspect every provided Engine-validated Mechanic Example and learn its
-   public adapter, module, configuration, and native test structure.
-6. Choose architecture appropriate to the selected engine without extending
-   or modifying adapter-owned framework internals.
-7. Consume generated inputs through the supplied descriptors.
-8. Generate the game-owned extension, configuration, test source, and any
-   task-required launch or trace files.
-9. Generate a public runtime adapter that is independent of concrete
-   presentation and exposes contract state queries, event subscription, and
-   command invocation.
-10. Publish `mechanic_contract.json` at the workspace root using schema
-   `aaagameforge.mechanic_contract.v1`. It must contain a positive
-   `contract_version`, the exact game-owned module name, and non-empty
-   `state`, `events`, `commands`, and workspace-relative `public_api_paths`
-   collections. Every public path must identify generated adapter source.
-11. Publish `context_used.json` at the workspace root using schema
-   `aaagameforge.context_used.v1`. Record the discovered Engine API and every
-   required Mechanic Example from the packet.
-12. Keep behavior deterministic where the requirement needs replay or automated
-   verification.
-13. Review the generated files against the requirement before finalization.
+1. Inspect the workspace and preserve compatible task-owned work.
+2. Map every acceptance criterion to generated source, observable behavior,
+   contract state/events/commands, and at least one meaningful native test.
+3. Convert presentation wording into Mechanic signals. For example, a health
+   bar requires current/maximum health state; a victory screen requires victory
+   state/event; a restart button requires a restart command.
+4. Read the matching Engine API and the minimum useful Example references.
+5. Design a task-appropriate, internally modular architecture without using or
+   modifying framework adapter internals.
+6. Consume generated inputs only through supplied descriptors.
+7. Generate gameplay source, build/configuration files, native tests, the
+   public runtime adapter, and task-required launch/replay/trace source.
+8. Publish `mechanic_contract.json` and `context_used.json` at the workspace
+   root.
+9. Review every acceptance criterion, deterministic/replay requirement,
+   artifact, contract entry, and test before finalization.
 
-## Mechanic And UI Separation
+## Scope And Architecture
 
-Mechanic generation owns gameplay rules and a presentation-independent
-contract. It does not own presentation implementation.
+One Mechanic task may implement a cohesive playable vertical slice containing
+multiple systems absent from every Example, such as interaction, capture,
+party, quest, inventory, dialogue, combat, and save-facing state. Keep complex
+systems modular behind one public runtime adapter. Do not force an Example's
+genre or architecture onto the task, and do not claim a commercial-scale game
+when the acceptance criteria define a smaller vertical slice.
 
 The dependency direction is:
 
@@ -67,153 +62,179 @@ The dependency direction is:
 UI -> Mechanic -> runtime framework
 ```
 
-The reverse dependency is forbidden. Mechanic code must compile, test, and be
-evaluated without a UI plugin, HUD, widget, menu, Canvas renderer, or
-screenshot.
+The reverse dependency is forbidden. Mechanic must compile, test, and be
+evaluated without a UI module, HUD, widget, menu, renderer, or screenshot.
+Never generate UMG, Slate, Canvas, crosshairs, bars, telemetry, visual layout,
+styling, feedback, or a concrete game HUD assignment.
 
-When requirements contain presentation language, translate it:
+## Mechanic Contract
 
-```text
-"show a health bar"    -> expose current and maximum health state
-"show ammo"            -> expose magazine and reserve ammo state
-"show victory screen"  -> expose victory state and event
-"Restart button"       -> expose a restart command
-"pause menu"           -> expose pause/resume state and commands
-```
+Publish `mechanic_contract.json` with schema
+`aaagameforge.mechanic_contract.v1`.
 
-Do not implement the visual element during a Mechanic task.
+| Field | Requirement |
+|---|---|
+| `contract_version` | Positive public contract revision |
+| `gameplay_module` | Exact generated game-owned module name |
+| `state` | Non-empty observable values exposed to UI |
+| `events` | Non-empty gameplay transitions/notifications |
+| `commands` | Non-empty actions UI or runtime may invoke |
+| `public_api_paths` | Non-empty workspace-relative paths to generated adapter source |
 
-## Hard Boundaries
+Entries must represent real generated behavior, not placeholders. The adapter
+must support state queries, event subscription, and command invocation without
+exposing private Pawn, Character, Controller, or implementation types. Internal
+systems may change without changing the UI-facing dependency direction.
+
+## Outputs, Provenance, And Tests
+
+Generate only task-owned artifacts:
+
+- engine-native gameplay source and engine-native gameplay test source;
+- public runtime-adapter source;
+- `mechanic_contract.json` and `context_used.json`;
+- required build/configuration and launch/replay/trace source.
+
+Do not generate or modify prepared packets, workspace snapshots, `meta.json`,
+`demo_outputs/`, evaluation artifacts, authoritative reports, benchmark
+scores, or Pipeline result metadata.
+
+`context_used.json` uses `aaagameforge.context_used.v1` and must record:
+
+- the repository-owned matching Engine API;
+- only actually consulted paths below allowed same-Engine Example roots;
+- Example role `mechanic_example`;
+- at least one allowed engineering `purpose` per Example entry.
+
+Do not record root-only access, unrelated context, cross-Engine paths, or other
+tasks' generated outputs.
+
+Generated tests are repair evidence, not benchmark authority. They must fail
+when required behavior is absent or incorrect, exercise observable state
+transitions and configured values, and provide useful diagnostics. Avoid empty
+assertions, unconditional success, construction-only checks, and constant-only
+checks. Never weaken, delete, skip, or replace a failing test to make a repair
+appear successful.
+
+## Boundaries And Ownership
 
 - Write only inside the prepared workspace.
-- Treat task inputs, Engine Context documents, Skills, Prompts, and examples as
-  read-only.
-- Do not modify `meta.json`, `demo_outputs/`, or evaluation artifacts.
-- Select only the API document matching the task Engine. Do not read concrete
-  APIs from unrelated engine documents. Do not mix APIs from multiple engines.
-- Do not change, reinterpret, or alias the Pipeline-selected canonical Engine.
-- If no matching non-empty API document exists, report the missing context and
-  do not invent an engine API.
-- Use only public APIs and public framework contracts documented in the
-  selected matching Engine API Reference.
-- Do not import, copy, or modify adapter internals.
-- Do not invent generated asset paths or bypass supplied descriptors.
-- Inspect every required Example. Do not inherit its concrete game classes,
-  make it a generated-game dependency, or copy task-specific gameplay.
-- Do not inspect, compare against, copy, or adapt generated code or artifacts
-  from other tasks or games under `test_data/outputs/` (or any relocated output
-  root). The only implementation examples allowed are the Engine-validated
-  Mechanic Examples explicitly provided by the prepared packet under the
-  selected Engine's registered Example roots. The current task workspace and
-  finalized upstream input artifacts are task inputs, not implementation
-  examples.
-- Do not create HUD, Widget, Menu, Canvas, UMG, Slate, or SlateCore
-  implementation.
-- Do not create crosshairs, health bars, ammo displays, telemetry panels,
-  layout, styling, visual feedback, or screenshot implementation.
-- Do not assign a concrete game HUD from a Mechanic GameMode.
-- Do not make the Mechanic module depend on a game UI module.
-- UI-facing state must be exposed through the versioned public Mechanic
-  contract, not through casts to incidental Pawn, Character, Controller, or
-  private implementation types.
-- The public runtime adapter and every `public_api_paths` entry must be
-  task-owned, non-empty, and usable by UI without private gameplay access.
-- `context_used.json` must contain repository-owned paths for the selected
-  Engine API and every required Mechanic Example, with no cross-Engine entry.
-- You MUST generate engine-native gameplay test source.
-- You MUST NOT invoke execution or evaluation-only test APIs.
-- You MUST NOT declare that the benchmark passed or assign a benchmark score.
-- Do not weaken, delete, skip, or replace a failing test merely to make a
-  repair appear successful.
+- Treat task inputs, descriptors, Skills, Prompts, Engine Context, Examples,
+  and finalized upstream artifacts as read-only.
+- Use only public APIs documented by the selected Engine API.
+- Do not import, copy, or modify adapter internals; invent asset paths; bypass
+  descriptors; inherit Example gameplay classes; copy Example gameplay; or
+  depend on Example plugins at runtime.
+- Do not inspect, compare with, copy, or adapt generated implementation from
+  other tasks or games under `test_data/outputs/` or a relocated output root.
+- Do not make Mechanic depend on UI or expose UI-facing state through casts to
+  private/incidental runtime types.
+- Do not invoke execution/evaluation-only APIs, run authoritative tests, launch
+  the Engine, assign a benchmark score, or claim build/playability success.
 
-## Required Generated Artifacts
+Ownership is separated:
 
-Generate only task-owned implementation artifacts:
+- the Agent owns game-owned Mechanic source, generated tests, contracts, and
+  repair changes;
+- the Code Generation Pipeline owns task/context composition, Prompt rendering,
+  boundaries, packets, snapshots, finalization, and metadata;
+- execution/evaluation owns Engine preparation, asset import, authoritative
+  builds/tests, runtime evidence, screenshots, and benchmark scoring.
 
-- engine-native gameplay source;
-- engine-native gameplay test source;
-- public runtime-adapter source;
-- `mechanic_contract.json` with versioned state/event/command definitions and
-  non-empty `public_api_paths`;
-- `context_used.json`;
-- configuration and build files required by the selected engine;
-- task-required launch, replay, or trace files.
+For later asset import, execution must resolve supplied descriptors through the
+selected public Engine API, reuse one configured Engine client/session for the
+task, check readiness at the session boundary, and preserve structured results
+and logs. A repository launcher may manage lifecycle only when the Engine API
+documents it. Import or map-load success alone is not proof of playability.
 
-Do not generate Pipeline-owned or Evaluator-owned artifacts:
+## Run And Publication Contract
 
-- prepared task packets or workspace snapshots;
-- authoritative build or test reports;
-- benchmark scores or evaluator results;
-- Pipeline result metadata.
+A run is the smallest reproducible publication unit:
 
-## Execution Ownership
+```text
+Task Packet -> Mechanic Generation -> Mechanic Artifact
+            -> Assembly -> Playable Product -> Evaluation
+```
 
-The outer Agent generates and repairs game-owned implementation files.
+All run-owned data belongs under:
 
-The Code Generation Pipeline owns:
+```text
+test_data/outputs/<game_id>/runs/<run_id>/
+|-- run.json
+|-- inputs.lock.json
+|-- artifacts/mechanic/<task_id>/
+|-- products/<pipeline_task_id>/
+|   `-- {native,browser_play,launch,assembly_manifest.json,product_manifest.json}
+|-- evaluation/<pipeline_task_id>/
+|   `-- {build,tests,screenshots,browser_smoke,logs,result.json}
+`-- _pipeline/{packets,attempts,prompts,snapshots}/
+```
 
-- deterministic task and context composition;
-- Prompt rendering;
-- workspace and read-only boundaries;
-- prepared task packets and snapshots;
-- artifact finalization and metadata.
+`pipeline/common/paths.py` owns these paths; do not construct them manually.
+Published runs are immutable. A content repair creates a new run and records
+`parent_run_id`, `repair_of`, and the failure digest. Keep unpublished retries
+under `_pipeline/attempts/` and promote only the selected attempt.
 
-The execution and evaluation layers own engine preparation, authoritative
-builds, generated-test execution, runtime evidence, and benchmark scoring.
+The published Mechanic artifact is:
 
-## Engine Asset Import Handoff
+```text
+artifacts/mechanic/<task_id>/
+|-- native/
+|-- contract/
+|-- tests/
+|-- traces/
+|-- context_used.json
+`-- manifest.json
+```
 
-The outer Agent generates descriptor bindings only. It MUST NOT import assets
-or launch the engine.
+`native/` is the cross-Engine boundary: for example
+`native/Plugins/GameMechanic/` in Unreal,
+`native/Assets/Mechanics/` in Unity, or
+`native/src/mechanics/` in Three.js. Upper layers must not assume Unreal.
+`native/` is the source of truth; product copies are read-only assembly output.
+Keep `Binaries/`, `Intermediate/`, `Saved/`, Derived Data Cache,
+`__pycache__/`, and other mutable output under `.tmp`.
 
-For later execution:
+Every published artifact includes `manifest.json` using
+`aaagameforge.artifact_manifest.v1` with:
 
-1. Prefer public asset and world operations documented by the selected Engine
-   API Reference.
-2. Resolve every input by task descriptor.
-3. Reuse one configured Engine client and one ready Engine process session for
-   all inputs in the task; do not restart the environment for every asset.
-4. Perform readiness checks at the session boundary rather than before every
-   individual import.
-5. A repository launcher may manage readiness and process lifecycle only when
-   the selected API Reference documents it as a wrapper around the same public
-   Engine Adapter.
-6. Preserve structured import results and engine logs as execution evidence.
-7. Do not treat import success or map-load logs as proof that the result is
-   playable.
+- `artifact_version`;
+- identity: `game_id`, `run_id`, `task_kind=mechanic`, and `task_id`;
+- artifact path, `tree_sha256`, and file count;
+- producer `git_sha` and `packet_sha256`.
 
-## Test Integrity
+Keep schema, artifact, public contract, and content versions distinct.
+Calculate `tree_sha256` from sorted POSIX-relative paths plus each file's
+SHA256 and byte size, excluding the manifest and mutable output. Publish only
+run-relative paths, never machine-local absolute paths.
 
-Generated tests support self-check and repair. They do not replace
-Evaluator-owned benchmark tests.
+Assembly must record and recalculate the Mechanic manifest digest and
+`tree_sha256` in an `aaagameforge.assembly_manifest.v1` manifest, fail on
+mismatch, and produce a new assembly/product digest when source changes.
+Evaluation must pin `subject.product_manifest` and
+`subject.product_manifest_sha256`; builds, tests, screenshots, logs, and
+Browser Play evidence apply only to that product.
 
-Tests must:
+Track separate status:
 
-- exercise behavior observable from the generated game;
-- fail when the required mechanic is absent or incorrect;
-- cover state transitions and configured values, not only construction;
-- avoid unconditional success, empty assertions, and checks of constants that
-  do not exercise runtime behavior;
-- expose enough diagnostics for a later repair task.
+```json
+{
+  "generation_status": "generated",
+  "assembly_status": "not_run",
+  "verification_status": "not_run"
+}
+```
 
-## Repair
+Mechanic generation may set only generation status. Assembly alone sets
+`assembled`; execution/evaluation alone sets `verified`. Static generation or
+artifact-presence checks must not claim playability.
 
-When structured failures are provided:
+## Repair And Completion
 
-1. Identify the smallest root cause that explains them.
-2. Repair game-owned source and tests without modifying read-only context.
-3. Preserve unrelated working behavior and existing failure evidence.
-4. Report changed files and unresolved risks.
+For structured failures, identify the smallest root cause, modify only
+game-owned source/tests, preserve the canonical Engine, contract, provenance,
+unrelated working behavior, and failure evidence, and do not weaken tests.
 
-Return source changes and diagnostics; do not claim execution success.
-
-## Completion Report
-
-After editing, report:
-
-- files created, modified, or deleted;
-- requirement and acceptance-criteria coverage;
-- generated gameplay-test coverage;
-- unresolved risks or missing inputs.
-
-Do not report an authoritative build, test, or benchmark result.
+Report changed files, acceptance-criteria coverage, generated-test coverage,
+unresolved risks, and missing inputs. Return source changes and diagnostics;
+Do not report authoritative build, test, playability, or benchmark success.

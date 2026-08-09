@@ -154,6 +154,10 @@ Game-specific actions remain owned by the Mechanic contract.
 
 UI must enable controls from capabilities, not from engine-name checks.
 
+`streaming` is the engine-neutral capability for a backend that can return a
+browser-embeddable `stream_url`. `pixel_streaming` remains a UE compatibility
+capability and must not be required from future non-UE backends.
+
 ## EngineBackend Contract
 
 - `descriptor` - Returns id, display name, API version, and capabilities.
@@ -179,6 +183,24 @@ UI must enable controls from capabilities, not from engine-name checks.
 - `stop_session` - Stops one session.
 - `debug` - Supports migrated developer controls without exposing engine
   internals to frontend code.
+
+A streaming backend returns `stream_url` from create, get, and recover session
+operations. Transport-specific aliases may also be present, but generated
+Browser Play uses `stream_url`.
+
+The engine-neutral session handoff is:
+
+```json
+{
+  "streaming": true,
+  "stream_url": "https://browser-embeddable-session-url"
+}
+```
+
+`streaming` declares that the selected backend supports browser presentation.
+`stream_url` is the URL consumed by generated Browser Play. The current UE
+backend may also expose `pixel_streaming` and `pixel_streaming_url` for
+compatibility, but those fields are not the cross-Engine contract.
 
 ## UE5 Example Backend
 
@@ -233,15 +255,29 @@ Generated Browser Play must be directly bootstrappable:
 - call `GET /api/health` before session work;
 - recover a supplied `session` query parameter when present;
 - otherwise create a generic session with `POST /api/sessions`;
-- read `pixel_streaming_url` from the returned session;
-- keep keyboard and mouse input inside the Pixel Streaming frame;
+- read engine-neutral `stream_url` from the returned session;
+- keep keyboard and mouse input inside the streamed Engine frame;
 - report session or stream errors instead of showing a false ready state.
 
-The generated page does not start backend processes. The Pipeline or operator
-must mount its directory through `A3GAME_BROWSER_PLAY_DIR` and configure
-`A3GAME_UE_PROJECT` plus `A3GAME_UE_ROOT`.
+The validated engine-neutral Browser Play delivery reference is:
 
-For the bundled UE 5.4 `player.html`, keep
+```text
+engine_adapters/browser_serving/examples/BrowserPlayExample
+```
+
+It demonstrates the task-owned manifest, thin launcher, create-or-recover
+session flow, `stream_url` presentation, input focus, fullscreen, and error
+recovery without assuming a specific Engine or streaming transport. Generated
+UI may adapt that delivery pattern but must not depend on the Example at
+runtime.
+
+The generated page does not configure or implement Engine backends. The
+Pipeline or operator must mount its directory through
+`A3GAME_BROWSER_PLAY_DIR` and configure the packet-selected backend before
+launching Browser Serving.
+
+For the current bundled UE 5.4 backend specifically, configure
+`A3GAME_UE_PROJECT` and `A3GAME_UE_ROOT`. For its `player.html`, keep
 `A3GAME_BROWSER_PIXEL_USE_FRONTEND=0`. Setting it to `1` requires a separately
 running Epic Frontend service.
 
@@ -251,7 +287,8 @@ Engine-runtime UI:
 
 - reads the Pipeline-selected concrete Engine API;
 - reads the finalized generated Mechanic contract and Public source;
-- inspects the matching Mechanic Example and UI Example plugins;
+- selects the minimum useful same-Engine Mechanic and UI reference files under
+  the packet-registered roots;
 - generates the real engine-native HUD/widgets/menus.
 
 Browser Serving UI:
@@ -275,19 +312,17 @@ Port ownership is:
 
 - `7860` - asset administration;
 - `7870` - Gateway, API, generic player, and mounted `/game`;
-- `18080+` - per-session Pixel Streaming pages;
-- `18888+` - per-session streamer WebSocket ports.
+- `18080+` - current UE backend per-session stream pages;
+- `18888+` - current UE backend streamer WebSocket ports.
 
 Do not assume `7080`, `8000`, or `8080`. Override the documented environment
 variables when those ports are required.
 
-Task-owned Browser Play example:
+Engine-neutral task-owned Browser Play launch:
 
 ```powershell
-$env:A3GAME_UE_ROOT = "D:\UE\UE_5.4"
-$env:A3GAME_UE_PROJECT = "D:\path\Game.uproject"
 $env:A3GAME_BROWSER_PLAY_DIR = "D:\path\generated_ui\browser_play"
-$env:A3GAME_BROWSER_PIXEL_USE_FRONTEND = "0"
+# Configure the packet-selected Engine backend here.
 python -m engine_adapters.browser_serving all
 ```
 

@@ -27,10 +27,12 @@ from pipeline.common.artifacts import (
 )
 from pipeline.common.code_gen import (
     CONTEXT_USED_SCHEMA,
+    EXAMPLE_REFERENCE_PURPOSES,
     provenance_digests,
     repair_payload,
     resolve_browser_play_registration,
     resolve_engine_example_paths,
+    resolve_engine_example_roots,
     resolve_engine_registration,
     string_list,
     validate_boundaries,
@@ -411,10 +413,23 @@ def prepare(
         registration,
         "mechanic_example",
     )
+    mechanic_example_roots = resolve_engine_example_roots(
+        registration,
+        "mechanic_example",
+    )
     ui_examples = resolve_engine_example_paths(
         task,
         registration,
         "ui_example",
+    )
+    ui_example_roots = resolve_engine_example_roots(
+        registration,
+        "ui_example",
+    )
+    browser_play_examples = resolve_engine_example_paths(
+        task,
+        registration,
+        "browser_play_example",
     )
     browser_play = (
         resolve_browser_play_registration(engine)
@@ -598,9 +613,17 @@ def prepare(
                 engine_context_root
             ),
             "output_root": "generated_ui",
+            "mechanic_example_roots": [
+                str(path)
+                for path in mechanic_example_roots
+            ],
             "mechanic_example_paths": [
                 str(path)
                 for path in mechanic_examples
+            ],
+            "ui_example_roots": [
+                str(path)
+                for path in ui_example_roots
             ],
             "ui_example_paths": [
                 str(path)
@@ -627,6 +650,10 @@ def prepare(
             "owner": "outer_agent",
             "output_root": "generated_ui/browser_play",
             "browser_play": browser_play,
+            "browser_play_example_paths": [
+                str(path)
+                for path in browser_play_examples
+            ],
             "mechanic_bindings": empty_bindings,
             "mechanic_runtime_adapter": None,
             "mechanic_public_paths": [],
@@ -676,6 +703,7 @@ def prepare(
         "examples",
         "mechanic_example_paths",
         "ui_example_paths",
+        "browser_play_example_paths",
         "mode",
         "repair",
     ):
@@ -719,11 +747,32 @@ def prepare(
                     for path in mechanic_examples
                 ]
             ),
+            "MECHANIC_EXAMPLE_ROOTS": json_text(
+                [
+                    str(path)
+                    for path in mechanic_example_roots
+                ]
+            ),
             "UI_EXAMPLE_PATHS": json_text(
                 [
                     str(path)
                     for path in ui_examples
                 ]
+            ),
+            "UI_EXAMPLE_ROOTS": json_text(
+                [
+                    str(path)
+                    for path in ui_example_roots
+                ]
+            ),
+            "BROWSER_PLAY_EXAMPLE_PATHS": json_text(
+                [
+                    str(path)
+                    for path in browser_play_examples
+                ]
+            ),
+            "EXAMPLE_REFERENCE_PURPOSES": json_text(
+                list(EXAMPLE_REFERENCE_PURPOSES)
             ),
             "BROWSER_PLAY_HANDOFF": json_text(
                 browser_play
@@ -818,8 +867,9 @@ def prepare(
         design_document_path,
         mechanic_root,
         Path(browser_play["frontend_root"]),
-        *mechanic_examples,
-        *ui_examples,
+        *mechanic_example_roots,
+        *ui_example_roots,
+        *browser_play_examples,
     ]
     if general_requirement_path.is_file():
         read_only_paths.append(
@@ -853,8 +903,9 @@ def prepare(
     )
     provenance_paths = [
         engine_context_root,
-        *mechanic_examples,
-        *ui_examples,
+        *mechanic_example_roots,
+        *ui_example_roots,
+        *browser_play_examples,
     ]
     packet = {
         "packet_id": packet_id,
@@ -967,13 +1018,25 @@ def prepare(
                 str(path)
                 for path in reference_images
             ],
+            "mechanic_example_roots": [
+                str(path)
+                for path in mechanic_example_roots
+            ],
             "mechanic_example_paths": [
                 str(path)
                 for path in mechanic_examples
             ],
+            "ui_example_roots": [
+                str(path)
+                for path in ui_example_roots
+            ],
             "ui_example_paths": [
                 str(path)
                 for path in ui_examples
+            ],
+            "browser_play_example_paths": [
+                str(path)
+                for path in browser_play_examples
             ],
             "browser_play": browser_play,
             "browser_backend": browser_play["backend"],
@@ -1100,16 +1163,30 @@ def prepare(
                     "role": "browser_serving_api",
                 },
             ],
-            "required_examples": {
+            "required_examples": {},
+            "example_roots": {
                 "mechanic_example": [
                     str(path)
-                    for path in mechanic_examples
+                    for path in mechanic_example_roots
                 ],
                 "ui_example": [
                     str(path)
-                    for path in ui_examples
+                    for path in ui_example_roots
+                ],
+                "browser_play_example": [
+                    str(path)
+                    for path in browser_play_examples
                 ],
             },
+            "required_example_roles": [
+                "mechanic_example",
+                "ui_example",
+                "browser_play_example",
+            ],
+            "example_purpose_required": True,
+            "allowed_example_purposes": list(
+                EXAMPLE_REFERENCE_PURPOSES
+            ),
         },
         "repair": repair,
         "required_output_artifacts": (
@@ -1122,12 +1199,20 @@ def prepare(
     instructions = (
         "# Prepared UI Code Generation\n\n"
         f"Packet: `{packet_path}`\n\n"
-        "Read the UI Skill, Mechanic artifact, both supplied Context "
-        "directory, and every required Example before editing. "
+        "Read the UI Skill, Mechanic artifact, and both supplied Context "
+        "APIs before editing. Do not scan entire Example roots. Select the "
+        "smallest useful set of Mechanic and native UI reference files needed "
+        "to learn plugin/module and code patterns, but never use them as base "
+        "implementations, templates, or "
+        "runtime dependencies. Any same-Engine genre is valid architecture "
+        "guidance. Do not require a genre, mechanic, HUD, or visual match; no "
+        "analogous Example is needed. Read the required Browser Play "
+        "reference. "
         "Discover the Engine and Browser Serving APIs. Complete the "
         "engine-native UI, then generate the Browser Play frontend "
-        "against the registered backend and repository-owned player "
-        "frontend reference. Do not generate backend source.\n\n"
+        "against the registered backend, Browser Play Example, and "
+        "repository-owned player frontend reference. Do not generate "
+        "backend source.\n\n"
         "## System Guidance\n\n"
         f"{system_prompt.rstrip()}\n\n"
         "## Task Guidance\n\n"
