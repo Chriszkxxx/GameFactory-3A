@@ -25,6 +25,28 @@ export const DEFAULT_KEY_BINDINGS = Object.freeze({
   Space: 'jump',
 });
 
+/** Keys whose browser default would scroll or activate the page. */
+const SWALLOWED_KEYS = new Set([
+  'Space',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+]);
+
+/**
+ * How mouse movement becomes look input.
+ *
+ * - `pointer-lock` - only while the document owns the mouse (FPS);
+ * - `drag`- only while a pointer button is held (third person);
+ * - `always`       - every move event (debug and headless tests).
+ */
+export const A3GameLookMode = Object.freeze({
+  POINTER_LOCK: 'pointer-lock',
+  DRAG: 'drag',
+  ALWAYS: 'always',
+});
+
 export class A3GameInputRouter {
   /**
    * @param {{target?: HTMLElement | Document,
@@ -34,6 +56,7 @@ export class A3GameInputRouter {
    *          pointerSensitivity?: number,
    *          invertPitch?: boolean,
    *          maxPitch?: number,
+   *          lookMode?: string,
    *          gamepadIndex?: number}} [options]
    */
   constructor(options = {}) {
@@ -44,6 +67,9 @@ export class A3GameInputRouter {
     this.pointerSensitivity = Number(options.pointerSensitivity ?? 0.0025);
     this.invertPitch = Boolean(options.invertPitch);
     this.maxPitch = Number(options.maxPitch ?? Math.PI / 2 - 0.05);
+    this.lookMode = String(
+      options.lookMode ?? A3GameLookMode.POINTER_LOCK,
+    );
     this.gamepadIndex = options.gamepadIndex ?? null;
 
     this.axes = { forward: 0, backward: 0, left: 0, right: 0 };
@@ -53,6 +79,7 @@ export class A3GameInputRouter {
     this.pitch = 0;
     this.sequence = 0;
     this.enabled = false;
+    this.pointerDown = false;
     /** @type {Set<string>} */
     this.pressedActions = new Set();
     /** @type {Set<(action: string, phase: 'pressed' | 'released') => void>} */
@@ -79,6 +106,12 @@ export class A3GameInputRouter {
       listen(this.target, 'pointerdown', (event) => this.#onPointer(event, true));
       listen(this.target, 'pointerup', (event) => this.#onPointer(event, false));
       listen(this.target, 'contextmenu', (event) => event.preventDefault());
+      // A drag that ends outside the viewport still has to release the
+      // button, otherwise drag-look sticks on forever.
+      listen(window, 'pointerup', (event) => this.#onPointer(event, false));
+      listen(window, 'pointercancel', () => {
+        this.pointerDown = false;
+      });
     }
     return this;
   }
@@ -97,7 +130,26 @@ export class A3GameInputRouter {
     this.axes = { forward: 0, backward: 0, left: 0, right: 0 };
     this.run = false;
     this.jump = false;
+    this.pointerDown = false;
     this.pressedActions.clear();
+    return this;
+  }
+
+  /**
+   * Overwrite the accumulated look angles.
+   *
+   * Needed whenever gameplay repositions the camera itself, for example
+   * on respawn or when a vehicle takes over aiming.
+   *
+   * @param {number} yaw radians
+   * @param {number} [pitch] radians, clamped to `maxPitch`
+   */
+  setLook(yaw, pitch = this.pitch) {
+    this.yaw = Number(yaw) || 0;
+    this.pitch = Math.max(
+      -this.maxPitch,
+      Math.min(this.maxPitch, Number(pitch) || 0),
+    );
     return this;
   }
 
@@ -175,13 +227,16 @@ export class A3GameInputRouter {
       } else if (binding in this.axes) {
         this.axes[binding] = pressed ? 1 : 0;
       }
-      if (event.code === 'Space') event.preventDefault();
+      if (SWALLOWED_KEYS.has(event.code)) event.preventDefault();
     }
     const action = this.actionBindings[event.code];
     if (action) this.#setAction(action, pressed);
   }
 
   #onPointer(event, pressed) {
+    this.pointerDown = pressed
+      ? true
+      : (event.buttons ?? 0) !== 0;
     const action =
       this.actionBindings[`Mouse${event.button}`] ??
       (event.button === 0 ? 'primary' : event.button === 2 ? 'secondary' : '');
@@ -189,9 +244,13 @@ export class A3GameInputRouter {
   }
 
   #onPointerMove(event) {
-    const locked = document.pointerLockElement !== null;
-    const dx = locked ? event.movementX : 0;
-    const dy = locked ? event.movementY : 0;
+    if (this.lookMode === A3GameLookMode.POINTER_LOCK) {
+      if (!document.pointerLockElement) return;
+    } else if (this.lookMode === A3GameLookMode.DRAG) {
+      if (!this.pointerDown) return;
+    }
+    const dx = Number(event.movementX ?? 0);
+    const dy = Number(event.movementY ?? 0);
     if (dx === 0 && dy === 0) return;
     this.yaw -= dx * this.pointerSensitivity;
     const direction = this.invertPitch ? 1 : -1;

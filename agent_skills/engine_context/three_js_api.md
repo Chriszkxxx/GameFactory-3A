@@ -9,6 +9,26 @@ This file is a compact index of implemented public capabilities. It lists
 public names and their functions only. Read the current source when exact
 parameters or result payload fields are required.
 
+## Toolchain
+
+The three.js adapter has no engine installation. Its only external
+requirement is a **Node 20+** toolchain on `PATH`, because the adapter
+drives Vite, Vitest, and the package manager through its private Node
+transport.
+
+`scripts/three_js/setup_env.sh` provisions that toolchain as a conda
+environment for machines with no system Node:
+
+```bash
+scripts/three_js/setup_env.sh                # create or verify
+source <conda_root>/etc/profile.d/conda.sh
+conda activate threejs
+```
+
+`scripts/three_js/README.md` documents the launchers and their environment
+variables. Every launcher is a thin wrapper over the public
+`ThreeClient`.
+
 ## Hard API Boundary
 
 The only supported Python entry point is:
@@ -133,7 +153,7 @@ runtime format. `import_asset` therefore stages the file into
 `public/<destination>/`, copies any `.gltf` sidecar buffers and images,
 records an artifact, and rewrites the manifest.
 
-`scripts/three/import_asset` is a lifecycle wrapper around the same
+`scripts/three_js/import_asset` is a lifecycle wrapper around the same
 public `ThreeClient`; it is not a second or faster asset API.
 
 Asset and World operations need no live browser. Execution code should
@@ -403,38 +423,102 @@ They are game-neutral.
 
 - `A3GameRuntimeHost` - Owns renderer, scene, camera, controls, and frame
   loop; `init`, `start`, `stop`, `tick`, `onTick`, `onResize`, `add`,
-  `remove`, `getRoot`, `attachOrbitControls`, `attachPointerLockControls`,
+  `remove`, `getRoot`, `usePerspectiveCamera`, `useOrthographicCamera`,
+  `setFrustumHeight`, `attachOrbitControls`, `attachPointerLockControls`,
+  `requestPointerLock`, `exitPointerLock`, `isPointerLocked`,
   `detachControls`, `setEnvironment`, `setFog`, `raycastFromPointer`,
   `raycast`, `captureFrame`, `getStats`, `dispose`.
 - `disposeObject3D` - Recursively disposes geometries, materials, and
   textures.
 - `A3GameAssetLibrary` - Loads the asset manifest and resolves artifacts;
-  `load`, `findEntry`, `requireEntry`, `listByType`, `loadArtifact`,
-  `instantiate`, `applyMaterialBinding`, `dispose`.
+  `load`, `has`, `findEntry`, `requireEntry`, `listByType`,
+  `loadArtifact`, `instantiate`, `applyMaterialBinding`, `dispose`.
 - `A3GameSceneLoader` - Builds a scene from a published world scene
   graph; `loadWorld`, `buildWorld`, `getEntityObject`,
   `resolveSpawnTransform`, plus `collisionTargets` and `spawnPoints`.
 - `A3GameInputRouter` - Converts keyboard, pointer, and gamepad events
   into normalized input frames; `enable`, `disable`, `reset`, `onAction`,
-  `isActionHeld`, `sample`, `pipeToSession`. `DEFAULT_KEY_BINDINGS` maps
-  WASD/arrows, Shift, and Space.
+  `isActionHeld`, `setLook`, `sample`, `pipeToSession`.
+  `DEFAULT_KEY_BINDINGS` maps WASD/arrows, Shift, and Space.
+- `A3GameLookMode` - Selects how mouse movement becomes look input:
+  `POINTER_LOCK` (default, first person), `DRAG` (third person, cursor
+  stays usable), `ALWAYS` (debug and headless tests).
 - `A3GameAnimationDirector` - Wraps `AnimationMixer`; `addClip`,
   `addClips`, `listClipNames`, `mapState`, `mapStates`, `play`,
   `playOnce`, `stopAll`, `update`, `attachToHost`, `getState`,
   `dispose`.
-- `A3GameCollisionProbe` - Raycast ground, wall, and hitscan primitives;
-  `setTargets`, `addTarget`, `sampleGround`, `resolveMove`,
-  `stepCharacter`, `hitscan`.
-- `A3GameHudLayer` - DOM overlay HUD; `addText`, `addBar`,
-  `addCrosshair`, `setValue`, `setValues`, `setVisible`, `remove`,
-  `getState`, `dispose`. Every widget writes `data-a3game-*` attributes
-  so end-to-end tests assert HUD state without screenshots.
+- `A3GameCollisionProbe` - Raycast and volume primitives that stand in
+  for the physics engine three.js does not ship; `setTargets`,
+  `addTarget`, `removeTarget`, `sampleGround`, `resolveMove`,
+  `stepCharacter`, `hitscan`, `overlapSphere`, `sweepSphere`.
+- `resolveEntityId` - Walks up an `Object3D` hierarchy for the nearest
+  runtime entity id, which is how every probe names what it found.
+- `A3GameHudLayer` - DOM overlay HUD; `addText`, `addBar`, `addPanel`,
+  `addBanner`, `addCrosshair`, `setValue`, `setValues`, `setVisible`,
+  `remove`, `getState`, `dispose`. Widgets sharing an anchor stack in a
+  column instead of overlapping. Every widget writes `data-a3game-*`
+  attributes so end-to-end tests assert HUD state without screenshots.
 - `A3GameRuntimeChannel` - Browser side of the runtime control channel;
   `connect`, `disconnect`, `dispatch`, `getHistory`. It always installs
   `globalThis.__A3GAME_RUNTIME__`, which is how generated tests drive
   commands deterministically.
 - `bootA3GameRuntime` - Boots host, assets, world, HUD, session, and
   runtime in the conventional order.
+
+### Choosing a Collision Primitive
+
+Picking the wrong one is the most common gameplay bug in a generated
+three.js game.
+
+| Question | Primitive |
+|---|---|
+| What is under me? | `sampleGround` |
+| Can I move there? | `resolveMove` / `stepCharacter` |
+| What did I shoot, instantly? | `hitscan` |
+| What is **near** me? (pickups, melee arcs, chests, checkpoints, triggers) | `overlapSphere` |
+| Where did my projectile go this frame? | `sweepSphere` |
+
+`overlapSphere` treats a target with no geometry as a point at its world
+position, so bare `Object3D` markers work as triggers. `sweepSphere`
+tests the whole travelled segment, which is what stops a fast projectile
+tunnelling through a thin wall.
+
+### Boot Options
+
+`bootA3GameRuntime` accepts `container`, `hudContainer`, `manifestUrl`,
+`worldUrl`, `worldId`, `hostOptions`, `entityFactory`, and:
+
+- `requireManifest` - fail instead of warning when no asset manifest
+  exists. Default `false`;
+- `createHud` - suppress the built-in HUD layer. Default: create one when
+  `hudContainer` is given;
+- `autoBeginPlay` / `autoStart` - hand tick ordering and loop start to
+  the game. Both default `true`.
+
+It returns `{ host, assets, sceneLoader, hud, session, runtime, world }`.
+Reuse `context.hud`; constructing a second `A3GameHudLayer` on the same
+container stacks two overlay roots and makes `getState()` ambiguous.
+
+### Building Without Imported Assets
+
+A mechanic or prototype task often has no `.glb` to import. That is a
+supported configuration:
+
+- pass `requireManifest: false`, and check `assets.available` before
+  reaching for an artifact;
+- build content from three.js primitives (`BoxGeometry`,
+  `CapsuleGeometry`, `CylinderGeometry`, `ConeGeometry`, extruded
+  ribbons, displaced `PlaneGeometry`);
+- draw textures into a `<canvas>` and wrap them in `CanvasTexture` rather
+  than hard-coding an image URL — but keep that inside the build
+  function, so headless tests can import the module;
+- generate scenery from a **seeded** pseudo-random sequence, never
+  `Math.random`, so the world is identical on every reload and in tests;
+- still declare lights. A world with no light renders every PBR material
+  black regardless of how the geometry was made.
+
+A procedurally built game also skips `A3GameSceneLoader`: it owns its own
+`buildX(host)` function and returns its own collision-target list.
 
 ## Framework Boundaries
 
@@ -458,15 +542,97 @@ generated three.js games:
 2. **Never hard-code URLs.** Resolve every asset through
    `A3GameAssetLibrary` and every world through `A3GameSceneLoader`.
 3. **Frame-rate independence.** Multiply by the tick delta. Never assume
-   60Hz.
+   60Hz. For smoothing and decay use `Math.exp(-k * delta)` rather than a
+   per-frame constant such as `value *= 0.9`.
 4. **Colour space.** Colour textures need `SRGBColorSpace`; data textures
    (normal, roughness, metalness, AO) must not.
 5. **Lighting is required.** A world with no light and no environment map
    renders PBR materials black.
-6. **Pointer lock needs a gesture.** `PointerLockControls.lock()` must be
-   called from a user event, not at boot.
-7. **One render loop.** Subscribe with `host.onTick`; never call
+6. **Pointer lock needs a gesture.** Call `host.requestPointerLock()`
+   from a click or key handler, never at boot.
+7. **One camera author.** `PointerLockControls` writes the camera every
+   pointer event. A game that derives `yaw`/`pitch` from the input frame
+   must use `requestPointerLock()` instead of
+   `attachPointerLockControls()`, or the two fight each frame and the view
+   jitters.
+8. **One render loop.** Subscribe with `host.onTick`; never call
    `requestAnimationFrame` in gameplay code.
-8. **Testability over screenshots.** Assert `getRuntimeSnapshot()`,
-   `hud.getState()`, and rule state; drive input through
-   `globalThis.__A3GAME_RUNTIME__`.
+9. **Update the world matrix before probing.** A raycast reads
+   `matrixWorld`, and the renderer only refreshes it at render time. An
+   object that spawns or moves and is probed in the same frame must call
+   `object.updateMatrixWorld(true)` first, otherwise it is tested at the
+   origin. `overlapSphere` and `sweepSphere` handle their targets, but a
+   moving entity must maintain its own.
+10. **Tick order decides input latency.** The runtime subsystem's tick
+    consumes queued input. Register `input.pipeToSession()` and any AI
+    that enqueues frames *before* `runtime.onWorldBeginPlay()`; boot with
+    `autoBeginPlay: false` when the game needs that control. Otherwise
+    every input frame arrives one frame late.
+11. **Speed caps are not forces.** Terminal speed comes from the
+    force/drag balance, so a power-up that only raises a `maxSpeed` clamp
+    does nothing. Change the acceleration too.
+12. **Testability over screenshots.** Assert `getRuntimeSnapshot()`,
+    `hud.getState()`, and rule state; drive input through
+    `globalThis.__A3GAME_RUNTIME__`.
+
+## Generated Test Pattern
+
+Generated tests run under `vitest` in the `node` environment: no GPU, no
+canvas, no screenshots. The reliable shape is:
+
+1. build the entity directly against a small **host double** that
+   implements only `add`, `getRoot`, `onTick`, and `camera`;
+2. build an `A3GameCollisionProbe` over plain geometry, and call
+   `updateMatrixWorld(true)` on it;
+3. drive the entity with `createRuntimeInputState({ ..., sequence })` —
+   the sequence must increase, or the frame is dropped as out of order;
+4. step with an explicit delta;
+5. assert the observable snapshot and rule state, and assert that state
+   survives `JSON.stringify`.
+
+Make test geometry generously larger than the distance the entity can
+travel during the test. A car that drives off the edge of its test plane
+silently becomes "airborne", and every surface assertion then reports the
+wrong answer.
+
+## Generated Output Layout
+
+A generated playable game is a self-contained Vite project written to the
+task output directory resolved by `pipeline/common/paths.py`:
+
+```text
+test_data/outputs/<game_id>/<run_id>/mechanic/<task_id>/
+├── package.json          three + vite + vitest, `packages/*` workspace
+├── vite.config.jsaliases @a3game/playable and the game package
+├── index.html            #a3game-viewport, #a3game-hud, boot overlay
+├── src/main.js           imports the Gameplay Package, nothing else
+├── launch.sh             dev | build | preview | test
+├── public/assets/        manifest.json (empty when nothing is imported)
+└── packages/
+    ├── a3game-playable/  installed by three.plugin.install_framework
+    └── <game-name>/      the generated Gameplay Package + tests
+```
+
+Create the project with `three.project.create` (or
+`scripts/three_js/create_project.sh`) and let
+`three.plugin.install_framework` place the framework. Never copy the
+framework by hand, and never build these paths by string concatenation.
+
+## Serving a Game for Review
+
+The dev server binds `127.0.0.1`, which is invisible from any other
+machine — the usual reason a reviewer "cannot open the game". Generated
+projects therefore read two environment variables:
+
+- `A3GAME_DEV_HOST` — set to `0.0.0.0` to accept outside connections;
+- `A3GAME_DEV_PORT` — override the per-game port.
+
+`vite.config.js` also sets `allowedHosts: true`, because Vite 6 rejects a
+request whose `Host` header it does not recognise, which is exactly what
+an SSH forward or tunnel produces. Through the adapter the same switch is
+`ThreeClient(host="0.0.0.0")`, or `run.sh --dev-host 0.0.0.0`.
+
+Nothing about this needs a GPU or a display on the server: WebGL runs in
+the reviewer's browser, and the server only serves modules. That is why
+headless verification here is `vitest` plus `vite build`, never a
+screenshot.

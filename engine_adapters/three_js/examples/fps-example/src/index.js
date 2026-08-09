@@ -11,7 +11,6 @@ import {
   A3GameCollisionProbe,
   A3GameControllableEntity,
   A3GameEntityFactory,
-  A3GameHudLayer,
   A3GameInputRouter,
   A3GameRuntimeEntityComponent,
   bootA3GameRuntime,
@@ -301,14 +300,19 @@ export class FpsEntityFactory extends A3GameEntityFactory {
  *          manifestUrl?: string, weapon?: string}} [options]
  */
 export async function startFps(options = {}) {
+  const hudContainer = options.hudContainer ?? '#a3game-hud';
   const runtimeContext = await bootA3GameRuntime({
     container: options.container ?? '#a3game-viewport',
-    hudContainer: options.hudContainer ?? '#a3game-hud',
+    hudContainer,
     manifestUrl: options.manifestUrl,
     worldUrl: options.worldUrl ?? '/assets/worlds/world_001.json',
-    hostOptions: { fov: 75},
+    hostOptions: { fov: 75 },
+    // Local input must reach the session before the runtime tick
+    // consumes it, so this game owns the begin-play ordering.
+    autoBeginPlay: false,
+    autoStart: false,
   });
-  const { host, assets, sceneLoader, session, runtime } = runtimeContext;
+  const { host, assets, sceneLoader, session, runtime, hud } = runtimeContext;
 
   const collision = new A3GameCollisionProbe({
     targets: sceneLoader.collisionTargets,
@@ -316,9 +320,6 @@ export async function startFps(options = {}) {
     radius: 0.35,
   });
 
-  const hud = new A3GameHudLayer({
-    container: options.hudContainer ?? '#a3game-hud',
-  });
   hud.addCrosshair();
   hud.addBar('health', { anchor: 'bottom-left', label: 'HP', value: 1 });
   hud.addText('ammo', { anchor: 'bottom-right', value: '--' });
@@ -361,8 +362,12 @@ export async function startFps(options = {}) {
     (request) => runtime.spawnEntity(request),
   );
 
-  const controls = host.attachPointerLockControls();
-  host.container.addEventListener('click', () => controls.lock());
+  // This game derives yaw/pitch from the input frame, so it takes plain
+  // pointer lock. Attaching PointerLockControls as well would make both
+  // the controls and `tick()` write the same camera every frame.
+  host.container.addEventListener('click', () => {
+    void host.requestPointerLock();
+  });
 
   const input = new A3GameInputRouter({
     target: host.container,
@@ -378,6 +383,9 @@ export async function startFps(options = {}) {
   input.pipeToSession(session, host, {
     controllerId: joined.controllerId,
   });
+
+  runtime.onWorldBeginPlay();
+  host.start();
 
   const context = {
     ...runtimeContext,

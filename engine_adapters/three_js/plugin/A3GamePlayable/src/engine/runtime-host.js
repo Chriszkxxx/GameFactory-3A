@@ -37,6 +37,8 @@ export class A3GameRuntimeHost {
    *          clearColor?: number | string,
    *          toneMapping?: keyof typeof TONE_MAPPINGS,
    *          toneMappingExposure?: number,
+   *          cameraType?: 'perspective' | 'orthographic',
+   *          frustumHeight?: number,
    *          fov?: number, near?: number, far?: number,
    *          fixedTimeStep?: number}} options
    */
@@ -48,6 +50,8 @@ export class A3GameRuntimeHost {
       clearColor: 0x101014,
       toneMapping: 'NeutralToneMapping',
       toneMappingExposure: 1,
+      cameraType: 'perspective',
+      frustumHeight: 12,
       fov: 50,
       near: 0.1,
       far: 2000,
@@ -61,7 +65,7 @@ export class A3GameRuntimeHost {
     this.renderer = null;
     /** @type {THREE.Scene | null} */
     this.scene = null;
-    /** @type {THREE.PerspectiveCamera | null} */
+    /** @type {THREE.PerspectiveCamera | THREE.OrthographicCamera | null} */
     this.camera = null;
     /** @type {OrbitControls | PointerLockControls | null} */
     this.controls = null;
@@ -115,11 +119,9 @@ export class A3GameRuntimeHost {
     this.scene = new THREE.Scene();
     this.scene.name = 'A3GameWorld';
 
-    this.camera = new THREE.PerspectiveCamera(
-      this.options.fov,
+    this.camera = this.#createCamera(
+      this.options.cameraType,
       clientWidth / Math.max(1, clientHeight),
-      this.options.near,
-      this.options.far,
     );
     this.camera.name = 'A3GameCamera';
     this.camera.position.set(0, 2, 8);
@@ -127,6 +129,47 @@ export class A3GameRuntimeHost {
 
     this.#observeResize();
     return this;
+  }
+
+  /**
+   * Replace the active camera with a perspective camera.
+   *
+   * The new camera inherits the current position and any parent, so a
+   * game may switch projection at runtime without re-parenting.
+   *
+   * @param {{fov?: number, near?: number, far?: number}} [options]
+   */
+  usePerspectiveCamera(options = {}) {
+    Object.assign(this.options, {
+      cameraType: 'perspective',
+      fov: Number(options.fov ?? this.options.fov),
+      near: Number(options.near ?? this.options.near),
+      far: Number(options.far ?? this.options.far),
+    });
+    return this.#swapCamera('perspective');
+  }
+
+  /**
+   * Replace the active camera with an orthographic camera.
+   *
+   * `frustumHeight` is the number of world-space metres visible
+   * vertically; width follows the container aspect ratio. This is what a
+   * side-scrolling or isometric game needs, and it is what the world
+   * spec's `camera.type = 'orthographic'` selects.
+   *
+   * @param {{frustumHeight?: number, near?: number, far?: number}} [options]
+   */
+  useOrthographicCamera(options = {}) {
+    Object.assign(this.options, {
+      cameraType: 'orthographic',
+      frustumHeight: Math.max(
+        0.01,
+        Number(options.frustumHeight ?? this.options.frustumHeight),
+      ),
+      near: Number(options.near ?? -this.options.far),
+      far: Number(options.far ?? this.options.far),
+    });
+    return this.#swapCamera('orthographic');
   }
 
   /** Begin the render loop. Safe to call once. */
@@ -272,12 +315,78 @@ export class A3GameRuntimeHost {
     return controls;
   }
 
-  /** Attach pointer-lock controls for a first-person camera. */
+  /**
+   * Attach pointer-lock controls for a first-person camera.
+   *
+   * Use this only when `PointerLockControls` should own the camera
+   * orientation. A game that derives yaw/pitch from the normalized input
+   * frame must call `requestPointerLock()` instead, otherwise both the
+   * controls and the game write to the same camera every frame.
+   */
   attachPointerLockControls() {
     this.detachControls();
     const controls = new PointerLockControls(this.camera, this.container);
     this.controls = controls;
     return controls;
+  }
+
+  /**
+   * Capture the mouse without installing any camera controller.
+   *
+   * This is the primitive an FPS built on `A3GameInputRouter` needs: the
+   * browser delivers relative `movementX/movementY`, the router turns
+   * them into yaw/pitch, and gameplay stays the only camera author.
+   *
+   * The Pointer Lock API requires a user gesture, so call this from a
+   * click or key handler, never at boot.
+   *
+   * @returns {Promise<boolean>} whether the lock was granted
+   */
+  async requestPointerLock() {
+    const element = this.container;
+    if (!element?.requestPointerLock) return false;
+    try {
+      const result = element.requestPointerLock({
+        unadjustedMovement: true,
+      });
+      if (result && typeof result.then === 'function') await result;
+      return true;
+    } catch {
+      // Older browsers reject the options object; retry bare.
+      try {
+        element.requestPointerLock();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  /** Release the mouse captured by `requestPointerLock()`. */
+  exitPointerLock() {
+    if (document.pointerLockElement) document.exitPointerLock?.();
+    return this;
+  }
+
+  /** @returns {boolean} whether this host's container owns the mouse. */
+  isPointerLocked() {
+    return document.pointerLockElement === this.container;
+  }
+
+  /**
+   * Resize the orthographic view without rebuilding the camera.
+   *
+   * A 2D game zooms out as players separate, so this has to be cheap
+   * enough to call every frame.
+   *
+   * @param {number} frustumHeight world-space metres visible vertically
+   */
+  setFrustumHeight(frustumHeight) {
+    const height = Math.max(0.01, Number(frustumHeight) || 0);
+    if (height === this.options.frustumHeight) return this;
+    this.options.frustumHeight = height;
+    if (this.camera?.isOrthographicCamera) this.#applyViewport();
+    return this;
   }
 
   detachControls() {
@@ -437,15 +546,72 @@ export class A3GameRuntimeHost {
     return { width, height, clientWidth: width, clientHeight: height };
   }
 
+  #createCamera(type, aspect) {
+    if (type === 'orthographic') {
+      const halfHeight = this.options.frustumHeight / 2;
+      const halfWidth = halfHeight * aspect;
+      return new THREE.OrthographicCamera(
+        -halfWidth,
+        halfWidth,
+        halfHeight,
+        -halfHeight,
+        this.options.near,
+        this.options.far,
+      );
+    }
+    return new THREE.PerspectiveCamera(
+      this.options.fov,
+      aspect,
+      this.options.near,
+      this.options.far,
+    );
+  }
+
+  #swapCamera(type) {
+    if (!this.scene) {
+      throw new Error('init() must run before switching cameras');
+    }
+    const { width, height } = this.#size();
+    const previous = this.camera;
+    const camera = this.#createCamera(type, width / Math.max(1, height));
+    camera.name = previous?.name ?? 'A3GameCamera';
+    if (previous) {
+      camera.position.copy(previous.position);
+      camera.quaternion.copy(previous.quaternion);
+      const parent = previous.parent;
+      previous.removeFromParent?.();
+      if (parent) parent.add(camera);
+    }
+    this.camera = camera;
+    if (this.controls?.object) this.controls.object = camera;
+    this.#applyViewport();
+    return camera;
+  }
+
+  #applyViewport() {
+    const { width, height } = this.#size();
+    if (!this.camera || !this.renderer) return { width, height };
+    const aspect = width / Math.max(1, height);
+    if (this.camera.isOrthographicCamera) {
+      const halfHeight = this.options.frustumHeight / 2;
+      const halfWidth = halfHeight * aspect;
+      this.camera.left = -halfWidth;
+      this.camera.right = halfWidth;
+      this.camera.top = halfHeight;
+      this.camera.bottom = -halfHeight;
+    } else {
+      this.camera.aspect = aspect;
+    }
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height);
+    return { width, height };
+  }
+
   #observeResize() {
     const apply = () => {
-      const { width, height } = this.#size();
-      if (!this.camera || !this.renderer) return;
-      this.camera.aspect = width / Math.max(1, height);
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(width, height);
+      const size = this.#applyViewport();
       for (const listener of this.resizeListeners) {
-        listener({ width, height });
+        listener(size);
       }
     };
     this.onWindowResize = apply;

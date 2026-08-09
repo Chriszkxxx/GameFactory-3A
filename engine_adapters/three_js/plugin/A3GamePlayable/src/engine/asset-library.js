@@ -21,6 +21,7 @@ export class A3GameAssetLibrary {
   /**
    * @param {{manifestUrl?: string, dracoDecoderPath?: string,
    *          ktx2TranscoderPath?: string,
+   *          requireManifest?: boolean,
    *          renderer?: THREE.WebGLRenderer}} [options]
    */
   constructor(options = {}) {
@@ -28,9 +29,17 @@ export class A3GameAssetLibrary {
     this.dracoDecoderPath = options.dracoDecoderPath ?? '/draco/';
     this.ktx2TranscoderPath = options.ktx2TranscoderPath ?? '/basis/';
     this.renderer = options.renderer ?? null;
+    // A procedurally built game imports no artifact, so a project may
+    // legitimately have no manifest yet. Set `requireManifest: true`
+    // when the game genuinely cannot run without imported content.
+    this.requireManifest = Boolean(options.requireManifest);
 
     /** @type {object | null} */
     this.manifest = null;
+    /** Whether a manifest was found and indexed. */
+    this.available = false;
+    /** @type {string[]} */
+    this.warnings = [];
     /** @type {Map<string, object>} */
     this.byArtifactId = new Map();
     /** @type {Map<string, object[]>} */
@@ -52,17 +61,40 @@ export class A3GameAssetLibrary {
     };
   }
 
-  /** Fetch and index the manifest. */
+  /**
+   * Fetch and index the manifest.
+   *
+   * A missing manifest is not fatal unless `requireManifest` was set:
+   * generated gameplay that builds its content from three.js primitives
+   * still needs a library instance for the few artifacts it may later
+   * receive. Inspect `available` and `warnings` to branch on it.
+   */
   async load() {
-    const response = await fetch(this.manifestUrl, { cache: 'no-cache' });
-    if (!response.ok) {
-      throw new Error(
+    this.warnings = [];
+    let manifest = null;
+    try {
+      const response = await fetch(this.manifestUrl, { cache: 'no-cache' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      manifest = await response.json();
+    } catch (error) {
+      const reason =
         `Asset manifest is unavailable at ${this.manifestUrl}: ` +
-          `HTTP ${response.status}`,
+        String(error?.message ?? error);
+      if (this.requireManifest) throw new Error(reason);
+      this.warnings.push(
+        `${reason}; continuing with an empty asset library`,
       );
+      this.manifest = null;
+      this.available = false;
+      this.byArtifactId.clear();
+      this.byAssetId.clear();
+      this.byType.clear();
+      return this;
     }
-    const manifest = await response.json();
     this.manifest = manifest;
+    this.available = true;
     this.byArtifactId.clear();
     this.byAssetId.clear();
     this.byType.clear();
@@ -76,6 +108,11 @@ export class A3GameAssetLibrary {
       this.byType.set(entry.type, typeGroup);
     }
     return this;
+  }
+
+  /** @returns {boolean} whether a reference resolves to a staged entry. */
+  has(reference) {
+    return this.findEntry(reference) !== null;
   }
 
   /** @returns {object} the manifest entry, or throws when unknown. */

@@ -67,11 +67,13 @@ export {
   A3GameCollisionProbe,
   A3GameHudLayer,
   A3GameInputRouter,
+  A3GameLookMode,
   A3GameRuntimeChannel,
   A3GameRuntimeHost,
   A3GameSceneLoader,
   DEFAULT_KEY_BINDINGS,
   disposeObject3D,
+  resolveEntityId,
 } from './engine/index.js';
 
 /**
@@ -79,10 +81,19 @@ export {
  *
  * Convenience only: a generated game may wire the pieces itself.
  *
+ * Tick ordering matters. The runtime subsystem's tick delivers queued
+ * input to entities, so a game that samples local input must register
+ * `input.pipeToSession()` *before* `runtime.onWorldBeginPlay()`, or every
+ * frame of input arrives one frame late. Pass `autoBeginPlay: false` to
+ * take that ordering over, then call `runtime.onWorldBeginPlay()` and
+ * `host.start()` yourself.
+ *
  * @param {{container: string | HTMLElement,
  *          hudContainer?: string | HTMLElement,
  *          manifestUrl?: string, worldUrl?: string,
  *          worldId?: string, hostOptions?: object,
+ *          requireManifest?: boolean, createHud?: boolean,
+ *          autoBeginPlay?: boolean, autoStart?: boolean,
  *          entityFactory?: object}} options
  */
 export async function bootA3GameRuntime(options = {}) {
@@ -106,6 +117,7 @@ export async function bootA3GameRuntime(options = {}) {
 
   const assets = new A3GameAssetLibrary({
     manifestUrl: options.manifestUrl,
+    requireManifest: options.requireManifest,
     renderer: host.renderer,
   });
   await assets.load();
@@ -116,17 +128,21 @@ export async function bootA3GameRuntime(options = {}) {
     world = await sceneLoader.loadWorld(options.worldUrl);
   }
 
-  const hud = options.hudContainer
-    ? new A3GameHudLayer({ container: options.hudContainer })
-    : null;
+  // One HUD layer per boot. Reuse `context.hud` instead of constructing
+  // a second layer, which would stack two overlay roots on the same
+  // container and make `getState()` ambiguous.
+  const hud =
+    options.hudContainer && options.createHud !== false
+      ? new A3GameHudLayer({ container: options.hudContainer })
+      : null;
 
   const session = new A3GameWorldSessionSubsystem({
     worldId: options.worldId ?? world?.worldId ?? 'world_001',
   });
   const runtime = new A3GameRuntimeSubsystem({ host, session, assets });
   if (options.entityFactory) runtime.setEntityFactory(options.entityFactory);
-  runtime.onWorldBeginPlay();
-  host.start();
+  if (options.autoBeginPlay !== false) runtime.onWorldBeginPlay();
+  if (options.autoStart !== false) host.start();
 
   return { host, assets, sceneLoader, hud, session, runtime, world };
 }

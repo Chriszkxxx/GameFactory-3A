@@ -222,8 +222,26 @@ export class A3GameSceneLoader {
   #applyCamera(camera) {
     const target = camera.target ?? { x: 0, y: 1, z: 0 };
     const position = camera.position ?? { x: 0, y: 2, z: 8 };
+    // The world spec owns the projection, so honour `camera.type`
+    // instead of silently keeping the host's perspective default.
+    const requested = String(camera.type ?? '').toLowerCase();
+    if (
+      requested.startsWith('ortho') &&
+      !this.host.camera?.isOrthographicCamera
+    ) {
+      this.host.useOrthographicCamera({
+        frustumHeight: Number(camera.frustum_height ?? 12),
+      });
+    } else if (
+      requested.startsWith('persp') &&
+      !this.host.camera?.isPerspectiveCamera
+    ) {
+      this.host.usePerspectiveCamera({ fov: Number(camera.fov ?? 50) });
+    }
     if (this.host.camera) {
-      this.host.camera.fov = Number(camera.fov ?? this.host.camera.fov);
+      if (this.host.camera.isPerspectiveCamera) {
+        this.host.camera.fov = Number(camera.fov ?? this.host.camera.fov);
+      }
       this.host.camera.near = Number(camera.near ?? this.host.camera.near);
       this.host.camera.far = Number(camera.far ?? this.host.camera.far);
       this.host.camera.position.set(position.x, position.y, position.z);

@@ -11,6 +11,30 @@ import * as THREE from 'three';
 
 const DOWN = new THREE.Vector3(0, -1, 0);
 
+/**
+ * Walk up the hierarchy for the nearest runtime entity id.
+ *
+ * A raycast returns the leaf `Mesh`, but identity is attached to the
+ * entity root by `A3GameIdentityComponent` or by the scene loader, so
+ * every probe result has to resolve it the same way.
+ *
+ * @param {THREE.Object3D | null} object
+ * @returns {string}
+ */
+export function resolveEntityId(object) {
+  let current = object;
+  while (current) {
+    const entityId = String(
+      current.userData?.a3game?.entityId ??
+        current.userData?.a3gameWorldEntity?.entityId ??
+        '',
+    );
+    if (entityId) return entityId;
+    current = current.parent;
+  }
+  return '';
+}
+
 export class A3GameCollisionProbe {
   /**
    * @param {{targets?: THREE.Object3D[], groundOffset?: number,
@@ -30,6 +54,8 @@ export class A3GameCollisionProbe {
       origin: new THREE.Vector3(),
       direction: new THREE.Vector3(),
       move: new THREE.Vector3(),
+      point: new THREE.Vector3(),
+      box: new THREE.Box3(),
     };
   }
 
@@ -43,6 +69,13 @@ export class A3GameCollisionProbe {
 
   addTarget(target) {
     if (target) this.targets.push(target);
+    return this;
+  }
+
+  /** Stop treating an object as a collision target. */
+  removeTarget(target) {
+    const index = this.targets.indexOf(target);
+    if (index >= 0) this.targets.splice(index, 1);
     return this;
   }
 
@@ -176,7 +209,8 @@ export class A3GameCollisionProbe {
    *
    * @param {THREE.Vector3} origin
    * @param {THREE.Vector3} direction
-   * @param {{range?: number, ignore?: THREE.Object3D[]}} [options]
+   * @param {{range?: number, ignore?: THREE.Object3D[],
+   *          targets?: THREE.Object3D[]}} [options]
    * @returns {{hit: boolean, point: THREE.Vector3 | null,
    *            object: THREE.Object3D | null, distance: number,
    *            entityId: string}}
@@ -187,7 +221,7 @@ export class A3GameCollisionProbe {
     this.raycaster.far = Number(options.range ?? 200);
     const ignore = new Set(options.ignore ?? []);
     const hits = this.raycaster
-      .intersectObjects(this.targets, true)
+      .intersectObjects(options.targets ?? this.targets, true)
       .filter((item) => {
         let current = item.object;
         while (current) {
@@ -206,22 +240,114 @@ export class A3GameCollisionProbe {
       };
     }
     const hit = hits[0];
-    let entityId = '';
-    let current = hit.object;
-    while (current && !entityId) {
-      entityId = String(
-        current.userData?.a3game?.entityId ??
-          current.userData?.a3gameWorldEntity?.entityId ??
-          '',
-      );
-      current = current.parent;
-    }
     return {
       hit: true,
       point: hit.point.clone(),
       object: hit.object,
       distance: hit.distance,
-      entityId,
+      entityId: resolveEntityId(hit.object),
+    };
+  }
+
+  /**
+   * Find every target whose world bounds overlap a sphere.
+   *
+   * Ray casts answer "what is in front of me"; pickups, melee arcs,
+   * chest proximity, checkpoints, and explosion radius all need "what is
+   * near me" instead. Bounding boxes keep this allocation-light and are
+   * exact enough for gameplay volumes.
+   *
+   * A target that carries no geometry — a bare `Object3D` used as a
+   * marker, which is what world spawn points and checkpoints are — is
+   * treated as a point at its world position rather than skipped.
+   *
+   * @param {THREE.Vector3} center
+   * @param {number} radius
+   * @param {{targets?: THREE.Object3D[], ignore?: THREE.Object3D[],
+   *          requireEntityId?: boolean}} [options]
+   * @returns {{object: THREE.Object3D, entityId: string,
+   *            distance: number}[]} sorted nearest first
+   */
+  overlapSphere(center, radius, options = {}) {
+    const ignore = new Set(options.ignore ?? []);
+    const limit = Math.max(0, Number(radius) || 0);
+    const found = [];
+    for (const target of options.targets ?? this.targets) {
+      if (!target || ignore.has(target)) continue;
+      target.updateWorldMatrix?.(true, false);
+      const box = this.#scratch.box.setFromObject(target);
+      let distance;
+      if (box.isEmpty()) {
+        distance = this.#scratch.point
+          .setFromMatrixPosition(target.matrixWorld)
+          .distanceTo(center);
+      } else {
+        distance = box.clampPoint(center, this.#scratch.point).distanceTo(center);
+      }
+      if (distance > limit) continue;
+      const entityId = resolveEntityId(target);
+      if (options.requireEntityId && !entityId) continue;
+      found.push({ object: target, entityId, distance });
+    }
+    found.sort((left, right) => left.distance - right.distance);
+    return found;
+  }
+
+  /**
+   * Move a small sphere along a segment and report the first blocker.
+   *
+   * This is the projectile primitive: an arrow, grenade, or ball moves
+   * far enough per frame to tunnel through a thin wall, so gameplay must
+   * sweep the travelled segment rather than test the end point.
+   *
+   * @param {THREE.Vector3} from
+   * @param {THREE.Vector3} to
+   * @param {{radius?: number, ignore?: THREE.Object3D[],
+   *          targets?: THREE.Object3D[]}} [options]
+   * @returns {{hit: boolean, point: THREE.Vector3 | null,
+   *            normal: THREE.Vector3 | null,
+   *            object: THREE.Object3D | null, distance: number,
+   *            entityId: string}}
+   */
+  sweepSphere(from, to, options = {}) {
+    const direction = this.#scratch.direction.copy(to).sub(from);
+    const travelled = direction.length();
+    const miss = {
+      hit: false,
+      point: null,
+      normal: null,
+      object: null,
+      distance: Infinity,
+      entityId: '',
+    };
+    if (travelled < 1e-6) return miss;
+    direction.divideScalar(travelled);
+    const padding = Math.max(0, Number(options.radius ?? 0.1));
+    this.raycaster.set(from, direction);
+    this.raycaster.near = 0;
+    this.raycaster.far = travelled + padding;
+    const ignore = new Set(options.ignore ?? []);
+    const hits = this.raycaster
+      .intersectObjects(options.targets ?? this.targets, true)
+      .filter((item) => {
+        let current = item.object;
+        while (current) {
+          if (ignore.has(current)) return false;
+          current = current.parent;
+        }
+        return true;
+      });
+    if (hits.length === 0) return miss;
+    const hit = hits[0];
+    return {
+      hit: true,
+      point: hit.point.clone(),
+      normal:
+        hit.face?.normal?.clone().transformDirection(hit.object.matrixWorld) ??
+        null,
+      object: hit.object,
+      distance: hit.distance,
+      entityId: resolveEntityId(hit.object),
     };
   }
 }

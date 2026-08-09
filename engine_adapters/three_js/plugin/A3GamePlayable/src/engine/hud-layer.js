@@ -6,6 +6,9 @@
  * binding, and deterministic `data-a3game-*` attributes that end-to-end
  * tests can assert against.
  *
+ * Widgets are grouped into one flex container per anchor, so several
+ * widgets may share an anchor and stack instead of overlapping.
+ *
  * The layer owns no gameplay meaning; a generated game declares what its
  * widgets mean.
  */
@@ -15,19 +18,24 @@ const BASE_STYLE = `
 .a3game-hud-root { position:absolute; inset:0; pointer-events:none;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   color:#f3f5f8; text-shadow:0 1px 2px rgba(0,0,0,.6); }
-.a3game-hud-widget { position:absolute; pointer-events:none;
-  font-size:14px; line-height:1.4; }
-.a3game-hud-widget[data-a3game-anchor="top-left"] { top:16px; left:16px; }
-.a3game-hud-widget[data-a3game-anchor="top-center"] { top:16px; left:50%;
-  transform:translateX(-50%); }
-.a3game-hud-widget[data-a3game-anchor="top-right"] { top:16px; right:16px; }
-.a3game-hud-widget[data-a3game-anchor="center"] { top:50%; left:50%;
-  transform:translate(-50%,-50%); }
-.a3game-hud-widget[data-a3game-anchor="bottom-left"] { bottom:16px; left:16px; }
-.a3game-hud-widget[data-a3game-anchor="bottom-center"] { bottom:16px;
-  left:50%; transform:translateX(-50%); }
-.a3game-hud-widget[data-a3game-anchor="bottom-right"] { bottom:16px;
-  right:16px; }
+.a3game-hud-slot { position:absolute; display:flex; flex-direction:column;
+  gap:6px; pointer-events:none; max-width:calc(100% - 32px); }
+.a3game-hud-slot[data-a3game-anchor="top-left"] { top:16px; left:16px;
+  align-items:flex-start; }
+.a3game-hud-slot[data-a3game-anchor="top-center"] { top:16px; left:50%;
+  transform:translateX(-50%); align-items:center; }
+.a3game-hud-slot[data-a3game-anchor="top-right"] { top:16px; right:16px;
+  align-items:flex-end; }
+.a3game-hud-slot[data-a3game-anchor="center"] { top:50%; left:50%;
+  transform:translate(-50%,-50%); align-items:center; justify-content:center; }
+.a3game-hud-slot[data-a3game-anchor="bottom-left"] { bottom:16px; left:16px;
+  align-items:flex-start; }
+.a3game-hud-slot[data-a3game-anchor="bottom-center"] { bottom:16px; left:50%;
+  transform:translateX(-50%); align-items:center; }
+.a3game-hud-slot[data-a3game-anchor="bottom-right"] { bottom:16px; right:16px;
+  align-items:flex-end; }
+.a3game-hud-widget { position:relative; pointer-events:none;
+  font-size:14px; line-height:1.4; white-space:pre-line; }
 .a3game-hud-bar { width:180px; height:10px; border-radius:5px;
   background:rgba(255,255,255,.18); overflow:hidden; }
 .a3game-hud-bar > i { display:block; height:100%; width:0%;
@@ -37,6 +45,13 @@ const BASE_STYLE = `
   content:''; position:absolute; background:rgba(255,255,255,.85); }
 .a3game-hud-crosshair::before { left:8px; top:0; width:2px; height:18px; }
 .a3game-hud-crosshair::after { top:8px; left:0; height:2px; width:18px; }
+.a3game-hud-widget[data-a3game-kind="panel"] { padding:10px 14px;
+  border-radius:8px; background:rgba(12,14,20,.62);
+  border:1px solid rgba(255,255,255,.14); max-width:340px; }
+.a3game-hud-widget[data-a3game-kind="banner"] { padding:18px 28px;
+  border-radius:12px; background:rgba(12,14,20,.78); font-size:22px;
+  font-weight:600; text-align:center;
+  border:1px solid rgba(255,255,255,.18); }
 `;
 
 const ANCHORS = new Set([
@@ -71,6 +86,8 @@ export class A3GameHudLayer {
     this.container.appendChild(this.root);
     /** @type {Map<string, {element: HTMLElement, kind: string}>} */
     this.widgets = new Map();
+    /** @type {Map<string, HTMLElement>} */
+    this.slots = new Map();
     this.#injectStyle();
   }
 
@@ -81,9 +98,12 @@ export class A3GameHudLayer {
    * @param {{anchor?: string, value?: string, className?: string}} [options]
    */
   addText(name, options = {}) {
-    const element = this.#createWidget(name, 'text', options);
-    element.textContent = String(options.value ?? '');
-    return element;
+    this.#createWidget(name, 'text', options);
+    // Route the initial value through `setValue` so `data-a3game-value`
+    // is populated from the start; a test must not have to wait for the
+    // first update before HUD state becomes observable.
+    this.setValue(name, options.value ?? '');
+    return this.widgets.get(String(name)).element;
   }
 
   /**
@@ -118,11 +138,41 @@ export class A3GameHudLayer {
   }
 
   /**
+   * Declare a multi-line panel, for objectives, inventory, or controls.
+   *
+   * Values may contain newlines; `setValue` replaces the whole block, so
+   * a test still reads one `data-a3game-value` attribute.
+   *
+   * @param {string} name
+   * @param {{anchor?: string, value?: string, className?: string}} [options]
+   */
+  addPanel(name, options = {}) {
+    this.#createWidget(name, 'panel', options);
+    this.setValue(name, options.value ?? '');
+    return this.widgets.get(String(name)).element;
+  }
+
+  /**
+   * Declare a prominent banner, for round results and prompts.
+   *
+   * @param {string} name
+   * @param {{value?: string, visible?: boolean, anchor?: string}} [options]
+   */
+  addBanner(name, options = {}) {
+    const element = this.#createWidget(name, 'banner', {
+      anchor: options.anchor ?? 'center',
+    });
+    this.setValue(name, options.value ?? '');
+    this.setVisible(name, options.visible !== false);
+    return element;
+  }
+
+  /**
    * Update one widget's value.
    *
-   * Text widgets receive the stringified value; bar widgets clamp to
-   * 0..1. Every update also writes `data-a3game-value` so a Playwright
-   * assertion can read HUD state without screenshots.
+   * Text, panel, and banner widgets receive the stringified value; bar
+   * widgets clamp to 0..1. Every update also writes `data-a3game-value`
+   * so a Playwright assertion can read HUD state without screenshots.
    */
   setValue(name, value) {
     const widget = this.widgets.get(String(name));
@@ -135,7 +185,7 @@ export class A3GameHudLayer {
       element.dataset.a3gameValue = ratio.toFixed(4);
       return true;
     }
-    if (kind === 'text') {
+    if (kind === 'text' || kind === 'panel' || kind === 'banner') {
       element.textContent = String(value ?? '');
     }
     element.dataset.a3gameValue = String(value ?? '');
@@ -174,6 +224,7 @@ export class A3GameHudLayer {
         kind: widget.kind,
         value: widget.element.dataset.a3gameValue ?? '',
         visible: widget.element.style.display !== 'none',
+        anchor: widget.element.dataset.a3gameAnchor ?? '',
       };
     }
     return state;
@@ -181,23 +232,34 @@ export class A3GameHudLayer {
 
   dispose() {
     this.widgets.clear();
+    this.slots.clear();
     this.root.remove();
   }
 
   #createWidget(name, kind, options) {
     const key = String(name);
     this.remove(key);
+    const anchor = ANCHORS.has(options.anchor) ? options.anchor : 'top-left';
     const element = document.createElement('div');
     element.className = `a3game-hud-widget ${options.className ?? ''}`.trim();
-    const anchor = ANCHORS.has(options.anchor)
-      ? options.anchor
-      : 'top-left';
     element.dataset.a3gameWidget = key;
     element.dataset.a3gameKind = kind;
     element.dataset.a3gameAnchor = anchor;
-    this.root.appendChild(element);
+    this.#slot(anchor).appendChild(element);
     this.widgets.set(key, { element, kind });
     return element;
+  }
+
+  /** Anchor containers are created on demand and stack their children. */
+  #slot(anchor) {
+    const existing = this.slots.get(anchor);
+    if (existing) return existing;
+    const slot = document.createElement('div');
+    slot.className = 'a3game-hud-slot';
+    slot.dataset.a3gameAnchor = anchor;
+    this.root.appendChild(slot);
+    this.slots.set(anchor, slot);
+    return slot;
   }
 
   #injectStyle() {
