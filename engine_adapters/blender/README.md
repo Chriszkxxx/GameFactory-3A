@@ -15,6 +15,7 @@ and a playable session.
 |------|-----------|---------|
 | `import_generated/import_mesh.py` | a `bpy` interpreter | import → condition → measure → re-export → report |
 | `render_preview.py` | a `bpy` interpreter | turntable / still render of an asset, headless |
+| `game/` | a `bpy` interpreter | the gameplay kit a generated mechanic is written against |
 | `runtime/` | a `bpy` interpreter | a live session driven by JSON over UDP — spawn, move, effects, snapshot |
 | `rig_io.py` | a `bpy` interpreter | Puppeteer rig `.txt` + GLB → armature with skin weights |
 | `world_delta.py` | a `bpy` interpreter | world-delta motion retarget → animated FBX for UE |
@@ -26,6 +27,17 @@ Everything except `runtime/` is batch: a file in, a file out, the process exits.
 `runtime/` is the other mode — one long-lived process holding a scene that
 commands mutate — and it is the answer to questions a report cannot settle, like
 whether a repaired world can actually be walked through. See its own README.
+
+`game/` is a third mode again, and the distinction is worth keeping straight:
+`runtime/` drives a live Blender so a *person* can look around a scene, while
+`game/` plays a whole match with nobody watching, bakes it to keyframes and
+renders it. One is for inspection, the other is for evidence.
+
+`game/` also has a live mode of its own — `--play`, which steps the same rules in
+a window from a keyboard rather than baking them. That is not a third
+implementation: it is the same `tick()` at the same fixed timestep, and a played
+session records its input so it can be re-rendered offline into the same run. See
+the two sections below.
 
 ## Running
 
@@ -104,6 +116,120 @@ python -m engine_adapters.blender.mappings.generate_mapping_auto \
     --output mappings/my_mapping.json
 ```
 
+## The gameplay kit (`game/`)
+
+What a generated mechanic imports. A game subclasses `kernel.Game` and fills in
+three methods — `build()`, `tick()`, `summary()` — and the kernel does the rest:
+
+| Module | What it gives a game |
+|---|---|
+| `kernel` | fixed-timestep loop, `Actor`, the event log, world and sun setup, `main()` |
+| `prims` | shared unit meshes — box, cylinder, sphere, plane, swept ribbon — and spawning |
+| `materials` | cached Principled and emissive materials, and a shared palette |
+| `camera_rigs` | first-person, chase and side-on cameras with one yaw convention |
+| `hud` | bars, pip rows, labels, crosshair and vignettes as camera-parented geometry |
+| `recorder` | keyframe baking, Cycles setup, MP4 and thumbnail export |
+| `controls` | the input surface a player drives, and how keys and mouse map onto it |
+| `interactive` | that surface wired to a live Blender window — the `--play` mode |
+
+Three properties of the design carry most of the weight:
+
+**The clock is not the wall clock.** `tick()` advances by a fixed `dt` and one
+tick is one rendered frame, so a run is reproducible, an event logged at tick N
+is at N/fps in the video, and a slow render cannot change the outcome of a match.
+
+**The HUD is geometry, not an overlay.** There is no viewport to draw into
+headless. Widgets are emissive planes parented to the camera, which makes them
+screen-space for free and — more importantly — *keyframeable*: a health bar is
+`scale.x`, so it survives into the `.blend` a reviewer opens. Bars are emissive
+at strength 1.0 because the render uses the Standard view transform, which clips
+instead of rolling off; anything brighter loses its dimmest channels and every
+coloured bar on screen converges on white.
+
+**`hide_render` does not stop a ray.** Hiding a HUD element or an idle VFX object
+from the render leaves it in the ray-cast depsgraph, where it silently blocks
+every shot the player fires. `prims.spawn(..., collide=False)` sets
+`hide_viewport` as well, which is what actually removes it. Every HUD widget,
+tracer, spark and viewmodel part is spawned that way.
+
+```bash
+# run one of the shipped templates directly
+AAAGF_REPO_ROOT=$PWD blender --background --factory-startup \
+    --python operators/gen_mechanic/templates/fps_arena.py -- \
+    --out-dir /tmp/fps --duration 8 --no-render      # rules only, seconds
+```
+
+A run writes `gameplay.mp4`, `thumbnail.png`, `session.blend`,
+`demo_outputs/events.json` and `demo_outputs/report.json`. The report carries the
+metrics and a pass/fail verdict the game computes about itself, and **the report
+is the result** — `blender --background --python x.py` exits 0 whatever the
+script did, so a missing report is a failure, not a silent success.
+
+## Playing one (`--play`)
+
+The same game, stepped live from a keyboard instead of baked. It needs a real
+Blender window, so no `--background`:
+
+```bash
+AAAGF_REPO_ROOT=$PWD blender --factory-startup \
+    --python operators/gen_mechanic/templates/racing_circuit.py -- --play
+```
+
+Generated mechanics get a `play.sh` next to their `launch.sh` that does this with
+the right spec and environment already filled in.
+
+| | FPS | Racing | Fighting |
+|---|---|---|---|
+| move | `WASD` | `W`/`S` pedals, `A`/`D` steer | `A`/`D` step |
+| act | mouse aim, `LMB` fire, `R` reload | `SPACE` handbrake | `J` light, `K` heavy, `L` guard |
+
+`P` pauses and `ESC` quits everywhere. Arrow keys mirror `WASD`, and in the FPS
+they also turn the view — mouse capture is the first thing to break over a remote
+display, and a shooter you cannot aim in is not testable.
+
+Four things make a batch-written mechanic safe to play:
+
+**The timestep still does not change.** The wall clock decides *when* a tick
+happens and never how big it is; a frame that arrives late runs the same 33 ms of
+game, and a very late one runs up to four of them before the debt is dropped.
+Scaling a fixed step by measured elapsed time is the classic way to make a
+simulation explode the first time a window is dragged.
+
+**Nothing bakes.** `Recorder.capture()` is not called, so a ten-minute session
+does not accumulate eighteen thousand keyframes per object.
+
+**EEVEE draws it, not Cycles.** Interactive Cycles is a slideshow. The generated
+materials are flat diffuse-and-emissive, which EEVEE renders close enough to the
+Cycles video that the played level and the rendered one read the same.
+
+**The rules do not know who is playing.** A game reads `self.controls`; whether
+that came from a keyboard, a recorded timeline or its own policy is not its
+concern. Which is what makes the next section possible.
+
+### Replaying a session
+
+Every session writes `demo_outputs/input_timeline.json` — the keys and mouse
+deltas, not the outcome. Feeding it back drives the offline renderer through the
+identical loop:
+
+```bash
+./launch.sh --replay-input demo_outputs/input_timeline.json --duration 12
+```
+
+The replay reproduces the session exactly — same positions, same shots, same
+events — which is the property that makes playing worth anything to a benchmark:
+a session becomes evidence that can be re-rendered at full quality and diffed,
+rather than an anecdote about how it felt.
+
+Exactly is a strong word and it took two fixes to earn. A timeline stores
+*seconds*, tick times are thirds of a hundredth, and `0.0333… < 0.033` decides a
+key was released a frame early — so span boundaries are compared as tick indices,
+not as floats. And aiming is a feedback loop: rounding a recorded mouse delta to a
+hundredth of a pixel is a missed shot three hundred ticks later and a different
+fight after that. Both were found by replaying a 354-tick session and diffing it
+against the original, which is the only test that finds them; a short round trip
+passes with either bug in place.
+
 ## Headless rendering
 
 The pip `bpy` wheel drives EEVEE and Workbench through a GL/EGL context. A
@@ -135,6 +261,7 @@ on disk.
 | Module | Needs |
 |--------|-------|
 | `import_generated/import_mesh.py`, `render_preview.py` | `bpy` only |
+| `game/` | `bpy` only — plus a bundled FFMPEG writer for MP4 |
 | `runtime/` | `bpy` only — and `runtime/send_command.py` needs nothing at all |
 | `rig_io.py`, `world_delta.py`, `mappings/` | `bpy`, `numpy`, `trimesh` |
 
@@ -154,6 +281,14 @@ Run against **Blender 5.0.1** (pip `bpy` wheel, Python 3.11, no display, no GPU)
 
 The host side — job files, argument shapes, tier defaults — is covered by
 `test/test_world_asset.py`, which needs no Blender.
+
+The interactive mode was verified on **Blender 4.5.12** against all three shipped
+templates: keys and mouse reaching each genre's rules, the session loop's fixed
+step, catch-up cap, pause and quit, and a recorded session of several hundred
+ticks replaying into a byte-identical run. Not executed: a live window, because
+that needs a graphics driver — this host has the CUDA compute stack and no
+OpenGL, so Cycles renders fine and no window can open. `--play` therefore refuses
+with an explanation rather than starting a session nobody can see.
 
 Not executed here: `rig_io.py`, `world_delta.py` and `mappings/`, which need a
 rigged character and a source animation rather than a synthetic fixture.
