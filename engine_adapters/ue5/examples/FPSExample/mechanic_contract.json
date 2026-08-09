@@ -24,5 +24,8 @@
     {"name": "fire"},
     {"name": "reload"},
     {"name": "restart_encounter"}
+  ],
+  "public_api_paths": [
+    "Source/FPSExample/Public/FPSMechanicContract.h"
   ]
 }

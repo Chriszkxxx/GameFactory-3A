@@ -20,5 +20,8 @@
   ],
   "commands": [
     {"name": "reset_vehicle"}
+  ],
+  "public_api_paths": [
+    "Source/RacingExample/Public/RacingMechanicContract.h"
   ]
 }
