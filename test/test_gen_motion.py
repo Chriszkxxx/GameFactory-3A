@@ -272,7 +272,7 @@ class TestMotionModelContracts(unittest.TestCase):
     def test_momask_matplotlib_compatibility_registers_3d_axes(self):
         import types
 
-        from models.gen_motion.momask_entrypoint import (
+        from models.gen_motion.momask_utils.momask_entrypoint import (
             _install_matplotlib_compatibility,
         )
 

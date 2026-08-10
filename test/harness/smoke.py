@@ -149,14 +149,8 @@ def smoke_per_game_mode(
           + (f" (backend={backend})" if backend else ""))
     op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID, model_key=backend)
 
-    task = {
-        "game_id": SMOKE_GAME,
-        "task_id": task_id,
-        "image": stubs.make_ref_image(size=128),
-        "seed": 7,
-        **EXTRA_TASK_FIELDS.get(kind, {}),
-        **(task_overrides or {}),
-    }
+    task = _make_task(kind, task_id, game_id=SMOKE_GAME)
+    task.update(task_overrides or {})
     result = op.run(task)
 
     missing = [k for k in REQUIRED_RESULT_KEYS if k not in result]

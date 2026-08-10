@@ -73,7 +73,7 @@ It covers the full production pipeline — 3D assets, scenes, motion, CG video, 
 │           ├── mechanic/<task_id>/ · ui/<task_id>/ · pipeline/<task_id>/
 │           └── eval/<task_kind>/<task_id>/
 │
-├── scripts/installing/
+├── scripts/installing/         # Per-capability setup (including gen_motion/)
 ├── test/                     # Integration tests + test/harness/ (stub models, CPU smoke test)
 └── docs/
 ```
@@ -191,7 +191,8 @@ Native Linux with an NVIDIA CUDA GPU is the recommended runtime. Windows users
 can run the same Linux setup through WSL2; native Windows is not currently
 validated for the complete Puppeteer chain. The retarget stage is CPU-only.
 Install an NVIDIA driver, Git and Miniforge/Conda before running the setup
-script. The published environment files target Linux x86-64 and CUDA 11.8.
+script. The installer targets Linux x86-64 and CUDA 11.8 and keeps Puppeteer,
+MoMask and Blender retargeting in three isolated Conda environments.
 
 Third-party repositories, weights and caches stay outside Git. By default the
 installer follows the XDG conventions:
@@ -207,12 +208,19 @@ Both roots can be redirected to any sufficiently large Linux filesystem:
 export AAAGF_RUNTIME_ROOT=/data/aaagameforge
 export AAAGF_CACHE_ROOT=/data/aaagameforge-cache
 
-bash scripts/installing/setup_motion_runtime.sh "$AAAGF_RUNTIME_ROOT"
+bash scripts/installing/gen_motion/install.sh "$AAAGF_RUNTIME_ROOT"
 
-source scripts/installing/motion_runtime_env.sh
+source scripts/installing/gen_motion/runtime_env.sh
+```
 
+The installer downloads the selected Puppeteer and HumanML3D weights by
+default. Use `--skip-weights` when preparing environments only, then run
+`scripts/installing/gen_motion/download_weights.py` later from the MoMask
+environment.
+
+```bash
 conda run -n aaagf-momask python \
-  scripts/installing/download_motion_weights.py
+  scripts/installing/gen_motion/download_weights.py
 ```
 
 Set `AAAGF_CONDA_BIN` when `conda` is not on `PATH`. Set

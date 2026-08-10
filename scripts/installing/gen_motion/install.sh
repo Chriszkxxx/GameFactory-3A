@@ -5,14 +5,20 @@ set -euo pipefail
 # Third-party sources, environments and caches stay outside the Git checkout.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="${AAAGF_REPO_ROOT:-$(cd -- "${SCRIPT_DIR}/../.." && pwd)}"
+REPO_ROOT="${AAAGF_REPO_ROOT:-$(cd -- "${SCRIPT_DIR}/../../.." && pwd)}"
 
-if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+usage() {
   cat <<'EOF'
-Usage: bash scripts/installing/setup_motion_runtime.sh [RUNTIME_ROOT]
+Usage: bash scripts/installing/gen_motion/install.sh [RUNTIME_ROOT] [OPTIONS]
 
-Create the three Linux motion environments and clone pinned upstream sources.
+Clone pinned Puppeteer and MoMask sources, create three isolated Conda
+environments, install their dependencies, and download the selected weights.
 RUNTIME_ROOT defaults to AAAGF_RUNTIME_ROOT or the XDG user data directory.
+
+Options:
+  --runtime-root PATH  External source and weight root (positional form also works)
+  --skip-weights       Install sources and environments without downloading weights
+  -h, --help           Show this help message
 
 Optional environment variables:
   AAAGF_CACHE_ROOT       download/build cache root
@@ -20,10 +26,45 @@ Optional environment variables:
   AAAGF_CUDA_ARCH_LIST   explicit CUDA architecture list for extension builds
   MAX_JOBS               parallel extension-build jobs (default: 4)
 EOF
-  exit 0
-fi
+}
 
-RUNTIME_ROOT="${1:-${AAAGF_RUNTIME_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/aaagameforge}}"
+RUNTIME_ARGUMENT=""
+DOWNLOAD_WEIGHTS=1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --runtime-root)
+      if [[ $# -lt 2 ]]; then
+        echo "--runtime-root requires a path" >&2
+        exit 2
+      fi
+      RUNTIME_ARGUMENT="$2"
+      shift 2
+      ;;
+    --skip-weights)
+      DOWNLOAD_WEIGHTS=0
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      if [[ -n "${RUNTIME_ARGUMENT}" ]]; then
+        echo "RUNTIME_ROOT was provided more than once" >&2
+        exit 2
+      fi
+      RUNTIME_ARGUMENT="$1"
+      shift
+      ;;
+  esac
+done
+
+RUNTIME_ROOT="${RUNTIME_ARGUMENT:-${AAAGF_RUNTIME_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/aaagameforge}}"
 CACHE_ROOT="${AAAGF_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME}/.cache}/aaagameforge}"
 PUPPETEER_COMMIT="1c0f9fc6ad209667a0ec5ceac9b59964938a8b51"
 MOMASK_COMMIT="94a6636c9c463b7a9414c3401a6f1b67e6c51824"
@@ -65,6 +106,10 @@ if [[ -z "${CONDA_BIN}" ]] || ! "${CONDA_BIN}" --version >/dev/null 2>&1; then
   echo "Conda was not found. Install Miniforge/Conda or set AAAGF_CONDA_BIN." >&2
   exit 2
 fi
+if ! command -v git >/dev/null 2>&1; then
+  echo "Git is required to clone the pinned Puppeteer and MoMask sources." >&2
+  exit 2
+fi
 
 clone_at_commit() {
   local url="$1"
@@ -88,34 +133,34 @@ clone_at_commit \
   "${RUNTIME_ROOT}/sources/momask-codes" \
   "${MOMASK_COMMIT}"
 
-create_env() {
+ensure_env() {
   local name="$1"
-  local environment_file="$2"
+  local python_version="$2"
   if ! "${CONDA_BIN}" env list | awk '{print $1}' | grep -Fxq "${name}"; then
-    "${CONDA_BIN}" env create -f "${environment_file}"
+    "${CONDA_BIN}" create -n "${name}" -y --override-channels \
+      -c conda-forge "python=${python_version}" pip
   fi
 }
 
-create_env \
-  aaagf-puppeteer \
-  "${REPO_ROOT}/scripts/installing/puppeteer_environment.yml"
-create_env \
-  aaagf-momask \
-  "${REPO_ROOT}/scripts/installing/momask_environment.yml"
-create_env \
-  aaagf-retarget-bpy \
-  "${REPO_ROOT}/scripts/installing/retarget_environment.yml"
+ensure_env aaagf-puppeteer 3.10.13
+ensure_env aaagf-momask 3.10
+ensure_env aaagf-retarget-bpy 3.11
 
-"${CONDA_BIN}" install -n aaagf-retarget-bpy -y -c conda-forge \
-  xorg-libsm xorg-libxext xorg-libxrender
-
+# Puppeteer needs a CUDA 11.8 build toolchain for flash-attn and custom ops.
 "${CONDA_BIN}" install -n aaagf-puppeteer -y --override-channels \
   -c nvidia/label/cuda-11.8.0 -c conda-forge \
+  "python=3.10.13" pip cmake ninja \
   "cuda-nvcc=11.8.89" \
   "cuda-cudart-dev=11.8.89" "cuda-cccl=11.8.89" \
   "cuda-driver-dev=11.8.89" "cuda-nvrtc-dev=11.8.89" \
   "gcc_linux-64=11" "gxx_linux-64=11" \
-  "libopengl" "numpy=1.26.4"
+  libopengl "numpy=1.26.4"
+
+# MoMask and bpy remain isolated because their NumPy/Python constraints differ.
+"${CONDA_BIN}" install -n aaagf-momask -y --override-channels \
+  -c conda-forge "python=3.10" pip ffmpeg "numpy=1.23.5"
+"${CONDA_BIN}" install -n aaagf-retarget-bpy -y --override-channels \
+  -c conda-forge "python=3.11" pip xorg-libsm xorg-libxext xorg-libxrender
 
 "${CONDA_BIN}" run -n aaagf-puppeteer python -m pip install \
   torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 \
@@ -127,9 +172,7 @@ create_env \
 "${CONDA_BIN}" run -n aaagf-puppeteer python -m pip install \
   -r "${RUNTIME_ROOT}/sources/Puppeteer/requirements.txt"
 "${CONDA_BIN}" run -n aaagf-puppeteer python -m pip install \
-  "numpy==1.26.4"
-"${CONDA_BIN}" run -n aaagf-puppeteer python -m pip install \
-  "setuptools==69.5.1" "wheel==0.43.0"
+  "numpy==1.26.4" "setuptools==69.5.1" "wheel==0.43.0"
 "${CONDA_BIN}" run -n aaagf-puppeteer bash -lc \
   'export CUDA_HOME="${CONDA_PREFIX}"; python -m pip install flash-attn==2.6.3 --no-build-isolation'
 "${CONDA_BIN}" run -n aaagf-puppeteer python -m pip install \
@@ -155,9 +198,19 @@ create_env \
 "${CONDA_BIN}" run -n aaagf-momask python -m pip install \
   "git+https://github.com/openai/CLIP.git"
 
+"${CONDA_BIN}" run -n aaagf-retarget-bpy python -m pip install \
+  "bpy==4.2.0" "numpy<2" "trimesh>=4.2"
+
 MICHELANGELO_LINK="${RUNTIME_ROOT}/sources/Puppeteer/skinning/third_partys/Michelangelo"
 if [[ ! -e "${MICHELANGELO_LINK}" ]]; then
   ln -s ../../skeleton/third_partys/Michelangelo "${MICHELANGELO_LINK}"
+fi
+
+if [[ "${DOWNLOAD_WEIGHTS}" -eq 1 ]]; then
+  "${CONDA_BIN}" run -n aaagf-momask python \
+    "${SCRIPT_DIR}/download_weights.py" \
+    --runtime-root "${RUNTIME_ROOT}" \
+    --cache-root "${CACHE_ROOT}"
 fi
 
 cat <<EOF
@@ -168,10 +221,17 @@ Puppeteer Python: $("${CONDA_BIN}" run -n aaagf-puppeteer python -c 'import sys;
 MoMask Python:    $("${CONDA_BIN}" run -n aaagf-momask python -c 'import sys; print(sys.executable)')
 Retarget Python:  $("${CONDA_BIN}" run -n aaagf-retarget-bpy python -c 'import sys; print(sys.executable)')
 
-Next:
+Before a real run:
   export AAAGF_RUNTIME_ROOT="${RUNTIME_ROOT}"
   export AAAGF_CACHE_ROOT="${CACHE_ROOT}"
-  source "${REPO_ROOT}/scripts/installing/motion_runtime_env.sh"
-  "${CONDA_BIN}" run -n aaagf-momask python \
-    "${REPO_ROOT}/scripts/installing/download_motion_weights.py"
+  source "${REPO_ROOT}/scripts/installing/gen_motion/runtime_env.sh"
 EOF
+
+if [[ "${DOWNLOAD_WEIGHTS}" -eq 0 ]]; then
+  cat <<EOF
+
+Weights were skipped. Download them later with:
+  "${CONDA_BIN}" run -n aaagf-momask python \
+    "${REPO_ROOT}/scripts/installing/gen_motion/download_weights.py"
+EOF
+fi

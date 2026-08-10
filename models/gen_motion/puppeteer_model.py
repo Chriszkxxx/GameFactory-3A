@@ -109,8 +109,7 @@ class PuppeteerModel:
             raise RuntimeError(
                 "Puppeteer runtime is incomplete.\n  - "
                 + "\n  - ".join(missing)
-                + "\nRun setup_motion_runtime.sh and "
-                "download_motion_weights.py first."
+                + "\nRun scripts/installing/gen_motion/install.sh first."
             )
         self.model_path = str(root)
         self.python_bin = str(python_bin)

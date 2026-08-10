@@ -121,8 +121,7 @@ class MoMaskModel:
             raise RuntimeError(
                 "MoMask runtime is incomplete.\n  - "
                 + "\n  - ".join(missing)
-                + "\nRun setup_motion_runtime.sh and "
-                "download_motion_weights.py first."
+                + "\nRun scripts/installing/gen_motion/install.sh first."
             )
         self.model_path = str(root)
         self.python_bin = str(python_bin)
@@ -177,7 +176,12 @@ class MoMaskModel:
         gpu_id = -1 if self.device.lower() == "cpu" else 0
         command = [
             self.python_bin,
-            str(Path(__file__).with_name("momask_entrypoint.py").resolve()),
+            str(
+                (
+                    Path(__file__).with_name("momask_utils")
+                    / "momask_entrypoint.py"
+                ).resolve()
+            ),
             "gen_t2m.py",
             "--gpu_id",
             str(gpu_id),
