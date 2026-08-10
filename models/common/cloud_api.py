@@ -274,7 +274,6 @@ class CloudAPIClient:
         files: Optional[dict] = None,
         data: Optional[dict] = None,
         params: Optional[dict] = None,
-        headers: Optional[dict] = None,
         expect_json: bool = True,
     ) -> Any:
         """
@@ -286,7 +285,6 @@ class CloudAPIClient:
             json_body:   JSON payload.
             files/data:  multipart payload (`requests` semantics).
             params:      Query string.
-            headers:     Per-request headers, merged by ``requests`` with the session.
             expect_json: Parse the response as JSON; otherwise return `bytes`.
 
         Returns:
@@ -304,7 +302,7 @@ class CloudAPIClient:
             try:
                 resp = self.session.request(
                     method, url, json=json_body, files=files, data=data,
-                    params=params, headers=headers, timeout=self.timeout,
+                    params=params, timeout=self.timeout,
                 )
             except (requests.ConnectionError, requests.Timeout) as e:
                 last = CloudAPIServerError(f"{method} {url} failed at transport level: {e}")

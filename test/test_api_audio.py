@@ -7,6 +7,7 @@ No network, API key, GPU or model weights are used. Run from the repo root:
 from __future__ import annotations
 
 import base64
+import inspect
 import io
 import os
 import sys
@@ -15,6 +16,7 @@ import unittest
 import uuid
 import wave
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -28,6 +30,7 @@ from models.gen_audio.seed_audio_model import (  # noqa: E402
     DEFAULT_API_BASE,
     SeedAudioModel,
 )
+from models.gen_audio.seed_audio_utils import SeedAudioAPIClient  # noqa: E402
 
 
 def make_wav(sample_rate: int = 24_000, duration: float = 0.25) -> bytes:
@@ -77,6 +80,15 @@ def make_model(mode: str = "dialogue", response: dict | None = None, **kwargs):
 
 
 class TestConstruction(unittest.TestCase):
+    def test_shared_client_contract_stays_provider_neutral(self):
+        client = cloud_api.CloudAPIClient("https://api.example", "secret")
+        self.assertEqual(client.auth_header, "Authorization")
+        self.assertEqual(client.auth_template, "Bearer {key}")
+        self.assertNotIn(
+            "headers",
+            inspect.signature(cloud_api.CloudAPIClient.request).parameters,
+        )
+
     def test_china_api_endpoint_is_the_default(self):
         self.assertEqual(DEFAULT_API_BASE, "https://openspeech.bytedance.com")
         self.assertEqual(
@@ -107,8 +119,57 @@ class TestConstruction(unittest.TestCase):
 
     def test_custom_api_key_header(self):
         client = SeedAudioModel(api_key="secret").client
+        self.assertIsInstance(client, SeedAudioAPIClient)
         self.assertEqual(client.auth_header, "X-Api-Key")
         self.assertEqual(client.auth_template, "{key}")
+
+    def test_seed_audio_client_owns_request_headers(self):
+        captured_headers = []
+
+        class Response:
+            ok = True
+            status_code = 200
+            headers = {}
+
+            @staticmethod
+            def json():
+                return {"code": 0}
+
+        class Session:
+            def __init__(self):
+                self.headers = {}
+
+            def request(self, method, url, **kwargs):
+                captured_headers.append(dict(self.headers))
+                return Response()
+
+            def close(self):
+                pass
+
+        class Requests:
+            class ConnectionError(Exception):
+                pass
+
+            class Timeout(Exception):
+                pass
+
+            @staticmethod
+            def Session():
+                return Session()
+
+        with mock.patch.object(cloud_api, "_requests", return_value=Requests):
+            client = SeedAudioAPIClient(
+                "https://api.example", "secret", max_retries=0
+            )
+            client.request("POST", "/create", json_body={"model": "seed-audio-1.0"})
+            client.request("POST", "/create", json_body={"model": "seed-audio-1.0"})
+
+        first_id = captured_headers[0]["X-Api-Request-Id"]
+        second_id = captured_headers[1]["X-Api-Request-Id"]
+        uuid.UUID(first_id)
+        uuid.UUID(second_id)
+        self.assertNotEqual(first_id, second_id)
+        self.assertEqual(captured_headers[0]["X-Api-Key"], "secret")
 
     def test_unload_is_idempotent(self):
         model = make_model()
@@ -133,7 +194,6 @@ class TestInference(unittest.TestCase):
         method, path, kwargs = model._client.calls[0]
         self.assertEqual((method, path), ("POST", CREATE_PATH))
         payload = kwargs["json_body"]
-        uuid.UUID(kwargs["headers"]["X-Api-Request-Id"])
         self.assertEqual(payload["model"], "seed-audio-1.0")
         self.assertIn("发现目标", payload["text_prompt"])
         self.assertIn("Speak urgently", payload["text_prompt"])

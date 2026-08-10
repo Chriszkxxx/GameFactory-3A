@@ -20,11 +20,14 @@ from __future__ import annotations
 import base64
 import binascii
 import os
-import uuid
 from typing import Any, Optional
 
 from models.common import cloud_api
-from models.gen_audio.seed_audio_utils import decode_wav_bytes, encode_wav_base64
+from models.gen_audio.seed_audio_utils import (
+    SeedAudioAPIClient,
+    decode_wav_bytes,
+    encode_wav_base64,
+)
 
 DEFAULT_API_BASE = "https://openspeech.bytedance.com"
 DEFAULT_MODEL = "seed-audio-1.0"
@@ -94,12 +97,12 @@ class SeedAudioModel:
         if not -12 <= self.pitch_rate <= 12:
             raise ValueError("pitch_rate must be in [-12, 12]")
 
-        self._client: Optional[cloud_api.CloudAPIClient] = None
+        self._client: Optional[SeedAudioAPIClient] = None
         self._cache = cloud_api.ResponseCache(cache_dir, self.PROVIDER)
         self.last_call_info: dict[str, Any] = {}
 
     @property
-    def client(self) -> cloud_api.CloudAPIClient:
+    def client(self) -> SeedAudioAPIClient:
         """Resolve credentials lazily, so construction and harness runs stay offline."""
         if self._client is None:
             key = cloud_api.require_api_key(
@@ -108,13 +111,11 @@ class SeedAudioModel:
                 SIGNUP_URL,
                 who="SeedAudioModel",
             )
-            self._client = cloud_api.CloudAPIClient(
+            self._client = SeedAudioAPIClient(
                 self.api_base,
                 key,
                 timeout=self.http_timeout,
                 max_retries=self.max_retries,
-                auth_header="X-Api-Key",
-                auth_template="{key}",
             )
         return self._client
 
@@ -291,7 +292,6 @@ class SeedAudioModel:
                 "POST",
                 CREATE_PATH,
                 json_body=payload,
-                headers={"X-Api-Request-Id": str(uuid.uuid4())},
             )
             response_body = self._response_body(response)
             encoded_audio = response_body.get("audio")
