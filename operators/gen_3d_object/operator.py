@@ -39,6 +39,16 @@ Usage:
         "seed": 42,
     })
     print(result["glb_path"])
+
+Two optional extras, both additive and off unless asked for:
+
+  * naming an ``asset_id`` in the task hands the finished mesh to the
+    three.js adapter — staged, oriented, manifest rewritten;
+  * ``run_art_plan(game_id, image_model)`` generates a whole game's
+    recorded art plan (``funcs/art_plan.py``) that way in one call.
+
+``funcs/asset_pack.py`` covers the other case: three CC0 models,
+downloaded and imported in seconds, for when generating is overkill.
 """
 from __future__ import annotations
 
@@ -184,6 +194,27 @@ class Gen3DObjectOperator:
             "output_dir": str(task_dir),
         }
 
+        # Image-to-3D infers a floor under a subject that stands on the edge
+        # of its own crop, and it is never wanted: measured at a fifth of the
+        # triangle budget, and a grey pancake under the character in the
+        # scene. Removing it here means every consumer of this task output
+        # gets a clean mesh, rather than each game discovering the slab.
+        if inp.get("strip_ground_plate", True):
+            from .funcs.mesh_cleanup import strip_ground_plate
+
+            cleanup = strip_ground_plate(glb_path)
+            result["ground_plate"] = cleanup
+            if cleanup.get("applied"):
+                result.setdefault("warnings", []).append(
+                    f"removed an inferred floor: {cleanup['plate_count']} "
+                    f"sheets and {cleanup['debris_count']} loose lumps, "
+                    f"{cleanup['removed_fraction']:.0%} of the mesh"
+                )
+            elif cleanup.get("reason") and "nothing" not in cleanup["reason"]:
+                result.setdefault("warnings", []).append(
+                    f"left the mesh alone: {cleanup['reason']}"
+                )
+
         # meta.json only in per-game mode, so legacy output dirs stay untouched.
         if self.output_dir is None:
             from pipeline.common import paths
@@ -197,6 +228,10 @@ class Gen3DObjectOperator:
                 "texture_size": texture_size,
                 "model": type(self.model).__name__,
             }
+            for key in ("asset_id", "asset_type", "forward_axis",
+                        "scale_hint_metres", "notes"):
+                if inp.get(key) is not None:
+                    meta[key] = inp[key]
             # Cloud backends expose what the call cost and produced — task id,
             # credits, triangle count (api_model_require.md R9.8). Recording it
             # here is what makes a billed run reproducible after the fact.
@@ -205,7 +240,107 @@ class Gen3DObjectOperator:
                 meta["model_call"] = dict(call_info)
             paths.write_task_meta(task_dir, meta)
 
+        # Optional handover to the engine adapter, active only when the task
+        # names an asset. A generated mesh is not part of a game until the
+        # adapter has staged it and recorded which way it faces.
+        if inp.get("asset_id") and self.output_dir is None:
+            from .funcs.asset_import import import_asset
+            result.update(
+                import_asset(
+                    game_id,
+                    task_id,
+                    asset_id=str(inp["asset_id"]),
+                    asset_type=str(inp.get("asset_type") or "prop"),
+                    run_id=self.run_id,
+                    forward_axis=str(inp.get("forward_axis") or ""),
+                    scale_hint_metres=inp.get("scale_hint_metres"),
+                    verified_by=str(inp.get("verified_by") or "heuristic"),
+                    notes=str(inp.get("notes") or ""),
+                    project_hint=str(inp.get("project_hint") or ""),
+                    preview=bool(inp.get("preview", True)),
+                )
+            )
+
         return result
+
+    # --------------------------------------------------------------------------
+
+    def run_art_plan(
+        self,
+        game_id: str,
+        image_model: Any = None,
+        plan: Optional[list[dict]] = None,
+        assets: tuple[str, ...] = (),
+    ) -> list[dict]:
+        """
+        Generate a game's recorded art plan and import each asset.
+
+        The plan lives in `funcs/art_plan.py`; it names a subject, an asset
+        type and a **height in metres**, because a mesh normalised into a
+        unit box has no size of its own. Concept images come from
+        `image_model` unless an entry points at one.
+
+        Facing is recorded as `heuristic`, never as verified: single-image
+        reconstruction puts the input view on a predictable axis, but a
+        guess labelled as checked stops anyone checking. Each import leaves
+        a review sheet for `agent_skills/asset_qa/`.
+        """
+        from .funcs.art_plan import concept_image, plan_for_game
+
+        entries = plan if plan is not None else plan_for_game(game_id)
+        if not entries:
+            raise ValueError(
+                f"No art plan for {game_id!r}; add one to "
+                "operators/gen_3d_object/funcs/art_plan.py"
+            )
+
+        results: list[dict] = []
+        for entry in entries:
+            if assets and entry["asset_id"] not in assets:
+                continue
+            image, provenance, framing = concept_image(entry, image_model)
+            task_dir = Path(
+                self._resolve_out_path(
+                    {"game_id": game_id}, entry["task_id"]
+                )[1]
+            )
+            task_dir.mkdir(parents=True, exist_ok=True)
+            # Keep the concept image beside the mesh it produced: a bad
+            # asset is almost always a bad concept image, and that is not
+            # diagnosable after the fact if the input was thrown away.
+            image.save(task_dir / "concept.png")
+            result = self.run(
+                {
+                    "game_id": game_id,
+                    "task_id": entry["task_id"],
+                    "image": image,
+                    "prompt": entry["full_prompt"],
+                    "seed": entry.get("seed", 42),
+                    "decimation_target": entry["triangles"],
+                    "texture_size": entry["texture"],
+                    "asset_id": entry["asset_id"],
+                    "asset_type": entry["type"],
+                    "forward_axis": entry["faces"],
+                    "scale_hint_metres": entry["height"],
+                    "verified_by": "heuristic",
+                    "notes": entry["notes"]
+                    or f"Generated from: {provenance}. Facing assumed "
+                    "from the input view.",
+                }
+            )
+            result["asset_id"] = entry["asset_id"]
+            result["concept_source"] = provenance
+            result["framing"] = framing
+            if framing.get("touched_border"):
+                # The subject ran off the edge of the generated image, so
+                # part of it was never drawn. Cropping cannot invent it.
+                result.setdefault("warnings", []).append(
+                    "the concept image was cropped at the border, so the "
+                    "mesh is probably truncated: regenerate with another "
+                    "seed"
+                )
+            results.append(result)
+        return results
 
     # --------------------------------------------------------------------------
 
