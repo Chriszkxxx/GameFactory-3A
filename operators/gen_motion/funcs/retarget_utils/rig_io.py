@@ -5,12 +5,16 @@ Adapted from the Puppeteer ``export.py`` and ``export_glb.py`` utilities.
 from __future__ import annotations
 
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import bpy  # type: ignore
 import numpy as np
 import trimesh
 from mathutils import Vector  # type: ignore
+
+
+from .formats import SUPPORTED_MESH_SUFFIXES
 
 
 ROT = np.array(
@@ -253,17 +257,52 @@ def build_rigged_mesh_objects(
     return proxy, armature_object
 
 
-def import_glb(glb_path: str) -> bpy.types.Object:
-    """Import and join all mesh objects in a GLB, preserving materials."""
+def import_mesh(mesh_path: str) -> bpy.types.Object:
+    """
+    Import a character mesh in any format the rigging stage accepts.
+
+    Everything is joined into one object, because the rig's skin weights are a
+    single table indexed over one vertex array — a GLB that arrives as four
+    material-split meshes has no vertex 9000 to bind until they are one.
+
+    Import options are chosen so Blender's vertex order matches trimesh's, not
+    for looks. ``load_rigged_mesh_data`` reads the same file through trimesh to
+    get the weight table, and the two orders have to agree or the weights land
+    on the wrong vertices — a rig that loads, poses, and deforms into garbage.
+    Splitting by material or by sharp edges reorders vertices, so both are off.
+    """
+    path = Path(mesh_path)
+    suffix = path.suffix.lower()
     before = set(bpy.context.scene.objects)
-    bpy.ops.import_scene.gltf(filepath=glb_path)
+
+    if suffix in {".glb", ".gltf"}:
+        bpy.ops.import_scene.gltf(filepath=str(path), merge_vertices=False)
+    elif suffix == ".obj":
+        bpy.ops.wm.obj_import(
+            filepath=str(path),
+            use_split_objects=False,
+            use_split_groups=False,
+            validate_meshes=False,
+        )
+    elif suffix == ".ply":
+        bpy.ops.wm.ply_import(filepath=str(path))
+    elif suffix == ".stl":
+        bpy.ops.wm.stl_import(filepath=str(path))
+    elif suffix == ".fbx":
+        bpy.ops.import_scene.fbx(filepath=str(path))
+    else:
+        raise ValueError(
+            f"Cannot import {suffix!r} as a character mesh; expected one of "
+            f"{', '.join(SUPPORTED_MESH_SUFFIXES)}: {path}"
+        )
+
     meshes = [
         obj
         for obj in bpy.context.scene.objects
         if obj not in before and obj.type == "MESH"
     ]
     if not meshes:
-        raise RuntimeError(f"No mesh found in GLB: {glb_path}")
+        raise RuntimeError(f"No mesh found in {path}")
 
     bpy.ops.object.select_all(action="DESELECT")
     for obj in meshes:
@@ -274,6 +313,11 @@ def import_glb(glb_path: str) -> bpy.types.Object:
     result = bpy.context.view_layer.objects.active
     result.name = "TexturedMesh"
     return result
+
+
+def import_glb(glb_path: str) -> bpy.types.Object:
+    """Deprecated alias for `import_mesh`, kept for external callers."""
+    return import_mesh(glb_path)
 
 
 def parent_to_armature(

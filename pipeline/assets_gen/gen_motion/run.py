@@ -233,25 +233,41 @@ def _build_operator_for_types(
     )
 
 
+def _print_registries(*, mappings: bool, motion_sources: bool) -> None:
+    """Answer "what mappings and libraries do you know about" without a run."""
+    from operators.gen_motion.funcs.fetch_motion import list_motion_sources
+    from operators.gen_motion.funcs.retarget_utils.mapping_presets import (
+        registry,
+    )
+
+    payload: dict[str, Any] = {}
+    if mappings:
+        payload["mappings"] = registry()
+    if motion_sources:
+        payload["motion_sources"] = list_motion_sources()
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
 def _demo_task(args: argparse.Namespace, parser: argparse.ArgumentParser) -> dict:
     task_type = args.task_type
+    clip = args.source_motion or args.motion_url
     required: list[tuple[str, Any]] = []
     if task_type == "retarget":
         required.extend(
             [
-                ("--source-motion", args.source_motion),
-                ("--target-glb", args.target_glb),
+                ("--source-motion or --motion-url", clip),
+                ("--target-mesh", args.target_mesh),
                 ("--target-rig", args.target_rig),
             ]
         )
     elif task_type == "rig":
-        required.append(("--target-glb", args.target_glb))
+        required.append(("--target-mesh", args.target_mesh))
     elif task_type == "text_to_motion":
         required.append(("--prompt", args.prompt))
     elif task_type == "humanoid":
         required.extend(
             [
-                ("--target-glb", args.target_glb),
+                ("--target-mesh", args.target_mesh),
                 ("--prompt", args.prompt),
             ]
         )
@@ -260,14 +276,20 @@ def _demo_task(args: argparse.Namespace, parser: argparse.ArgumentParser) -> dic
         parser.error(
             f"--task-type {task_type} requires " + ", ".join(missing)
         )
+    if args.motion_url and not args.motion_source:
+        parser.error("--motion-url also needs --motion-source")
     return {
         "game_id": args.game,
         "task_id": args.task_id,
         "task_type": task_type,
         "source_motion_path": args.source_motion,
-        "target_glb_path": args.target_glb,
+        "source_motion_url": args.motion_url,
+        "source_motion_member": args.motion_member,
+        "motion_source": args.motion_source,
+        "target_mesh_path": args.target_mesh,
         "target_rig_path": args.target_rig,
         "mapping_path": args.mapping,
+        "mapping_preset": args.mapping_preset,
         "prompt": args.prompt,
         "seed": args.seed,
         "fps": args.fps,
@@ -350,11 +372,58 @@ def main() -> None:
         help="Legacy flat output directory.",
     )
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--list-mappings",
+        action="store_true",
+        help="Print the retarget mapping registry as JSON and exit.",
+    )
+    parser.add_argument(
+        "--list-motion-sources",
+        action="store_true",
+        help="Print the external motion library registry as JSON and exit.",
+    )
 
-    parser.add_argument("--source-motion", default=None)
-    parser.add_argument("--target-glb", default=None)
+    parser.add_argument(
+        "--source-motion",
+        default=None,
+        help="Motion clip to retarget: .bvh or .fbx.",
+    )
+    parser.add_argument(
+        "--motion-source",
+        default=None,
+        help=(
+            "Take the clip from an external library instead. Combine with "
+            "--source-motion (a downloaded file) or --motion-url. "
+            "Run --list-motion-sources to see what is known."
+        ),
+    )
+    parser.add_argument("--motion-url", default=None)
+    parser.add_argument(
+        "--motion-member",
+        default=None,
+        help="Which clip to take out of a downloaded archive.",
+    )
+    parser.add_argument(
+        "--target-mesh",
+        "--target-glb",
+        dest="target_mesh",
+        default=None,
+        help="Character mesh: .glb, .gltf, .obj, .ply, .stl or .fbx.",
+    )
     parser.add_argument("--target-rig", default=None)
-    parser.add_argument("--mapping", default=None)
+    parser.add_argument(
+        "--mapping",
+        default=None,
+        help="Bone-map JSON to use verbatim. Omit to derive one.",
+    )
+    parser.add_argument(
+        "--mapping-preset",
+        default=None,
+        help=(
+            "Named preset from the registry. Only valid for the rig it was "
+            "pinned to; --list-mappings shows them."
+        ),
+    )
     parser.add_argument("--prompt", default=None)
     parser.add_argument("--task-id", default="demo")
     parser.add_argument("--seed", type=int, default=42)
@@ -373,11 +442,19 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.list_mappings or args.list_motion_sources:
+        _print_registries(
+            mappings=args.list_mappings,
+            motion_sources=args.list_motion_sources,
+        )
+        return
+
     run_id = paths.new_run_id() if args.run_id == "auto" else args.run_id
     demo_requested = any(
         (
             args.source_motion,
-            args.target_glb,
+            args.motion_url,
+            args.target_mesh,
             args.target_rig,
             args.prompt,
         )

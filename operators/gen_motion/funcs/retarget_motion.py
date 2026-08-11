@@ -1,8 +1,20 @@
-"""File-oriented Puppeteer motion retargeting for ``gen_motion``.
+"""
+Driving the Blender retarget from a process that has no Blender.
 
-This module is a deterministic Blender function, not a learned model wrapper.
-The caller owns every input and output path; this function only validates the
-runtime and invokes the Blender backend.
+Retargeting is deterministic geometry, not a model — but it is geometry
+expressed in ``bpy``, and ``bpy`` is a Blender build that will not coexist with
+the pipeline's own environment. So this module owns the seam: it validates
+paths and the runtime here, then runs the real work as ``python -m`` in the
+interpreter that does have Blender, and treats "did the artifacts appear" as
+the success condition rather than the exit code.
+
+That last part is not laziness. ``bpy`` can segfault while tearing down its
+interpreter *after* flushing a complete, valid FBX; trusting the return code
+alone throws away finished work, so `_run_module` checks the files — existence,
+non-zero size, and a modification time from this run rather than a stale one
+left by the previous attempt.
+
+Every path is the caller's. Nothing here decides where an artifact lives.
 """
 from __future__ import annotations
 
@@ -13,22 +25,22 @@ import time
 from functools import lru_cache
 from pathlib import Path
 
-from .puppeteer_retarget.validate_mapping import load_and_validate_mapping
+from .retarget_utils.formats import (
+    SUPPORTED_MESH_SUFFIXES,
+    SUPPORTED_MOTION_SUFFIXES,
+)
+from .retarget_utils.validate_mapping import load_and_validate_mapping
 
 
-_RETARGET_MODULE = (
-    "operators.gen_motion.funcs.puppeteer_retarget.world_delta"
-)
-_MAPPING_MODULE = (
-    "operators.gen_motion.funcs.puppeteer_retarget.mapping_auto"
-)
+_RETARGET_MODULE = "operators.gen_motion.funcs.retarget_utils.world_delta"
+_MAPPING_MODULE = "operators.gen_motion.funcs.retarget_utils.mapping_auto"
 
 
 def retarget_motion(
     *,
     bpy_python: str,
     source_motion_path: str,
-    target_glb_path: str,
+    target_mesh_path: str,
     target_rig_path: str,
     output_path: str,
     anim_only_output_path: str | None,
@@ -45,10 +57,42 @@ def retarget_motion(
     device: str = "cpu",
     verbose: bool = False,
 ) -> dict[str, str | None]:
-    """Retarget one BVH/FBX clip and write artifacts to caller-owned paths."""
+    """
+    Retarget one BVH/FBX clip onto a rigged character and export FBX.
+
+    Args:
+        bpy_python: Interpreter that can import ``bpy``, ``numpy`` and
+            ``trimesh``.
+        source_motion_path: The clip, ``.bvh`` or ``.fbx``.
+        target_mesh_path: The character, in any format
+            `SUPPORTED_MESH_SUFFIXES` covers.
+        target_rig_path: The Puppeteer ``.txt`` rig for that mesh.
+        mapping_path: A bone map to use verbatim. ``None`` derives one from
+            the two skeletons, which is the normal path — see
+            ``retarget_utils.mapping_presets`` for why a stored map rarely
+            transfers between characters.
+        fps: Playback rate written into the FBX. Take it from the clip, not
+            from a default: a 20 fps generated clip exported at 30 plays half
+            again too fast without looking broken.
+        global_scale: Applied to the source clip on import. The usual reason
+            to change it is a library that exports centimetres or inches;
+            ``fetch_motion.suggest_global_scale`` measures it.
+        root_scale: Scales root travel only, leaving the pose alone. For
+            trimming the stride of a clip captured on a taller actor.
+        max_delta_deg: Clamps how far any bone may rotate from its rest pose.
+            0 disables it. A safety valve for source skeletons whose rest pose
+            differs enough from the target's that a joint would invert.
+        bake_root_to_bone: Put root travel on the hip bone instead of the
+            object transform. Unreal's root-motion extraction wants this;
+            Blender playback does not care.
+        export_anim_only: Also write an armature-only FBX beside the full one.
+
+    Returns:
+        The four artifact paths, as strings.
+    """
     ensure_retarget_runtime(bpy_python, device=device)
     source = Path(source_motion_path).resolve()
-    target_glb = Path(target_glb_path).resolve()
+    target_mesh = Path(target_mesh_path).resolve()
     target_rig = Path(target_rig_path).resolve()
     output = Path(output_path).resolve()
     mapping_output = Path(mapping_output_path).resolve()
@@ -59,7 +103,7 @@ def retarget_motion(
         else None
     )
 
-    _validate_inputs(source, target_glb, target_rig)
+    _validate_inputs(source, target_mesh, target_rig)
     for path in (output, mapping_output, info_output, anim_output):
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,8 +118,8 @@ def retarget_motion(
             bpy_python,
             _MAPPING_MODULE,
             [
-                "--glb",
-                str(target_glb),
+                "--mesh",
+                str(target_mesh),
                 "--rig",
                 str(target_rig),
                 "--source-anim",
@@ -93,8 +137,8 @@ def retarget_motion(
     mapping_snapshot = mapping_output.read_bytes()
 
     common_args = [
-        "--glb",
-        str(target_glb),
+        "--mesh",
+        str(target_mesh),
         "--rig",
         str(target_rig),
         "--source-anim",
@@ -202,28 +246,42 @@ def normalise_source_ext(value: str) -> str:
     ext = value.lower()
     if not ext.startswith("."):
         ext = f".{ext}"
-    if ext not in {".bvh", ".fbx"}:
+    if ext not in SUPPORTED_MOTION_SUFFIXES:
         raise ValueError(
-            f"source_ext must be '.bvh' or '.fbx', got {value!r}"
+            "source_ext must be "
+            f"{' or '.join(repr(s) for s in SUPPORTED_MOTION_SUFFIXES)}, "
+            f"got {value!r}"
+        )
+    return ext
+
+
+def normalise_mesh_ext(value: str) -> str:
+    """Return a validated lower-case character-mesh extension."""
+    ext = value.lower()
+    if not ext.startswith("."):
+        ext = f".{ext}"
+    if ext not in SUPPORTED_MESH_SUFFIXES:
+        raise ValueError(
+            "target mesh must be one of "
+            f"{', '.join(SUPPORTED_MESH_SUFFIXES)}, got {value!r}"
         )
     return ext
 
 
 def _validate_inputs(
     source: Path,
-    target_glb: Path,
+    target_mesh: Path,
     target_rig: Path,
 ) -> None:
     normalise_source_ext(source.suffix)
+    normalise_mesh_ext(target_mesh.suffix)
     for label, path in (
         ("source motion", source),
-        ("target GLB", target_glb),
+        ("target mesh", target_mesh),
         ("target rig", target_rig),
     ):
         if not path.is_file() or path.stat().st_size == 0:
             raise FileNotFoundError(f"{label} is missing or empty: {path}")
-    if target_glb.suffix.lower() != ".glb":
-        raise ValueError(f"target_glb_path must end in .glb: {target_glb}")
 
 
 def _run_module(
@@ -305,7 +363,10 @@ def _repo_root() -> Path:
 
 
 __all__ = [
+    "SUPPORTED_MESH_SUFFIXES",
+    "SUPPORTED_MOTION_SUFFIXES",
     "ensure_retarget_runtime",
+    "normalise_mesh_ext",
     "normalise_source_ext",
     "retarget_motion",
 ]

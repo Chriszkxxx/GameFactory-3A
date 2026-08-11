@@ -25,7 +25,7 @@ from .rig_io import (
     assign_vertex_weights,
     build_rigged_mesh_objects,
     clear_bpy_data,
-    import_glb,
+    import_mesh,
     load_rigged_mesh_data,
     parent_to_armature,
 )
@@ -135,13 +135,25 @@ def import_source_animation(
 
 
 def build_puppeteer_rig(
-    glb_path: str,
+    mesh_path: str,
     rig_path: str,
 ) -> Tuple[bpy.types.Object, bpy.types.Object]:
-    """Build the Puppeteer armature, transfer weights, and retain GLB materials."""
-    textured = import_glb(glb_path)
+    """
+    Build the Puppeteer armature and bind the character mesh to it.
+
+    The mesh is imported twice on purpose. Blender's importer gives the
+    *presentable* copy — materials, UVs, textures, everything a game needs —
+    while trimesh gives the plain vertex array the rig's weight table is
+    indexed over. The weights are computed against the second and assigned to
+    the first, then the plain copy is thrown away.
+
+    Any format `rig_io.import_mesh` accepts works here, which is what lets a
+    task retarget onto the OBJ the rigging model actually consumed rather than
+    onto a GLB that has been through one more conversion than the rig has.
+    """
+    textured = import_mesh(mesh_path)
     data = load_rigged_mesh_data(
-        glb_path,
+        mesh_path,
         rig_path,
         apply_coord_rot=True,
     )
@@ -426,7 +438,7 @@ def run(args: argparse.Namespace) -> None:
         args.src_root,
         args.dst_root,
     )
-    _, target_armature = build_puppeteer_rig(args.glb, args.rig)
+    _, target_armature = build_puppeteer_rig(args.mesh, args.rig)
     source_armature, source_action = import_source_animation(
         args.source_anim,
         global_scale=args.global_scale,
@@ -474,7 +486,9 @@ def run(args: argparse.Namespace) -> None:
         info = {
             "source_animation": str(Path(args.source_anim).resolve()),
             "source_type": Path(args.source_anim).suffix.lower().lstrip("."),
-            "target_skeleton": str(Path(args.glb).resolve()),
+            "target_mesh": str(Path(args.mesh).resolve()),
+            "target_mesh_type": Path(args.mesh).suffix.lower().lstrip("."),
+            "target_skeleton": str(Path(args.mesh).resolve()),
             "rig": str(Path(args.rig).resolve()),
             "mapping": str(Path(args.mapping).resolve()),
             "output": str(output),
@@ -506,7 +520,13 @@ def run(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--glb", required=True)
+    parser.add_argument(
+        "--mesh",
+        "--glb",
+        dest="mesh",
+        required=True,
+        help="Character mesh: .glb, .gltf, .obj, .ply, .stl or .fbx.",
+    )
     parser.add_argument("--rig", required=True)
     parser.add_argument("--source-anim", required=True)
     parser.add_argument("--mapping", required=True)

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -22,12 +23,26 @@ if str(_HARNESS) not in sys.path:
 
 import stubs  # noqa: E402
 
-from operators.gen_motion.funcs.puppeteer_retarget.validate_mapping import (  # noqa: E402
+from operators.gen_motion.funcs.fetch_motion import (  # noqa: E402
+    fetch_motion,
+    list_motion_sources,
+    measure_bvh_extent,
+    suggest_global_scale,
+)
+from operators.gen_motion.funcs.retarget_utils.mapping_presets import (  # noqa: E402
+    identify_motion_file,
+    identify_source_skeleton,
+    list_pinned_mappings,
+    pinned_mapping_fits_rig,
+    registry,
+)
+from operators.gen_motion.funcs.retarget_utils.validate_mapping import (  # noqa: E402
     load_and_validate_mapping,
 )
 from operators.gen_motion.funcs.retarget_motion import (  # noqa: E402
     _subprocess_env as _retarget_subprocess_env,
     ensure_retarget_runtime,
+    normalise_mesh_ext,
     normalise_source_ext,
     retarget_motion,
 )
@@ -124,7 +139,44 @@ class TestGenMotionOperator(unittest.TestCase):
         bad_source.write_text("not motion", encoding="utf-8")
         task = self.fixture.task()
         task["source_motion_path"] = str(bad_source)
-        with self.assertRaisesRegex(ValueError, r"\.bvh or \.fbx"):
+        with self.assertRaisesRegex(ValueError, r"\.bvh'? or '?\.fbx"):
+            self.operator.run(task)
+
+    def test_obj_target_mesh_is_accepted_under_either_key(self):
+        obj = self.root / "target.obj"
+        obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="utf-8")
+        for key in ("target_mesh_path", "target_glb_path"):
+            task = self.fixture.task()
+            task.pop("target_glb_path")
+            task[key] = str(obj)
+            task["task_id"] = f"obj_{key}"
+            result = self.operator.run(task)
+            self.assertTrue(Path(result["retargeted_fbx_path"]).is_file(), key)
+            self.assertEqual(
+                self.retarget_fn.call_args.kwargs["target_mesh_path"],
+                str(obj),
+            )
+
+    def test_unusable_target_mesh_format_is_rejected(self):
+        bad = self.root / "target.txt"
+        bad.write_text("not a mesh", encoding="utf-8")
+        task = self.fixture.task()
+        task["target_glb_path"] = str(bad)
+        with self.assertRaisesRegex(ValueError, "target mesh must be one of"):
+            self.operator.run(task)
+        self.retarget_fn.assert_not_called()
+
+    def test_mapping_preset_is_rejected_when_it_does_not_fit_the_rig(self):
+        task = self.fixture.task(mapping=False)
+        task["mapping_preset"] = "mixamo_to_puppeteer"
+        with self.assertRaisesRegex(ValueError, "does not fit this rig"):
+            self.operator.run(task)
+        self.retarget_fn.assert_not_called()
+
+    def test_unknown_mapping_preset_names_the_alternatives(self):
+        task = self.fixture.task(mapping=False)
+        task["mapping_preset"] = "not_a_preset"
+        with self.assertRaisesRegex(KeyError, "Available"):
             self.operator.run(task)
 
     def test_unknown_task_type_is_explicitly_unimplemented(self):
@@ -540,12 +592,222 @@ class TestMotionModelContracts(unittest.TestCase):
             self.assertFalse(any((root / "generation").glob("aaagf_*")))
 
 
+class TestMappingRegistry(unittest.TestCase):
+    """The registry an agent reads before deciding how to map bones."""
+
+    def test_registry_lists_source_skeletons_and_pinned_mappings(self):
+        payload = registry()
+        names = {entry["name"] for entry in payload["source_skeletons"]}
+        self.assertIn("mixamo", names)
+        self.assertIn("momask_bvh", names)
+        self.assertTrue(payload["pinned_mappings"])
+        for entry in payload["pinned_mappings"]:
+            self.assertFalse(
+                entry["reusable"],
+                "a pinned mapping must never advertise itself as reusable",
+            )
+
+    def test_pinned_mappings_load_and_normalise_legacy_keys(self):
+        for preset in list_pinned_mappings():
+            data = json.loads(preset.path.read_text(encoding="utf-8-sig"))
+            self.assertTrue(data["bone_map"])
+            self.assertGreater(preset.bone_count, 0)
+
+    def test_mixamo_bone_names_identify_their_skeleton(self):
+        name, confidence = identify_source_skeleton(
+            [
+                "mixamorig:Hips",
+                "mixamorig:Spine",
+                "mixamorig:Spine1",
+                "mixamorig:Spine2",
+                "mixamorig:Neck",
+                "mixamorig:Head",
+                "mixamorig:LeftShoulder",
+                "mixamorig:LeftArm",
+                "mixamorig:LeftForeArm",
+                "mixamorig:LeftHand",
+                "mixamorig:RightShoulder",
+                "mixamorig:RightArm",
+                "mixamorig:RightForeArm",
+                "mixamorig:RightHand",
+                "mixamorig:LeftUpLeg",
+                "mixamorig:LeftLeg",
+                "mixamorig:LeftFoot",
+                "mixamorig:LeftToeBase",
+                "mixamorig:RightUpLeg",
+                "mixamorig:RightLeg",
+                "mixamorig:RightFoot",
+                "mixamorig:RightToeBase",
+            ]
+        )
+        self.assertEqual(name, "mixamo")
+        self.assertGreater(confidence, 0.9)
+
+    def test_an_unrecognisable_skeleton_is_admitted_rather_than_guessed(self):
+        name, confidence = identify_source_skeleton(["a", "b", "c"])
+        self.assertIsNone(name)
+        self.assertLess(confidence, 0.6)
+
+    def test_bvh_hierarchy_is_read_without_blender(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = Path(tmp) / "walk.bvh"
+            clip.write_text(_MIXAMO_BVH, encoding="utf-8")
+            report = identify_motion_file(clip)
+        self.assertEqual(report["format"], "bvh")
+        self.assertEqual(report["bone_count"], 3)
+
+    def test_preset_fit_reports_the_joints_a_rig_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rig = Path(tmp) / "rig.txt"
+            rig.write_text("joints joint0 0 0 0\nroot joint0\n", "utf-8")
+            fit = pinned_mapping_fits_rig("mixamo_to_puppeteer", rig)
+        self.assertFalse(fit["fits"])
+        self.assertGreater(fit["missing_count"], 0)
+
+
+#: A three-bone Mixamo-named BVH. Short on purpose: identification reads the
+#: hierarchy only, so the sample block never has to be realistic.
+_MIXAMO_BVH = """HIERARCHY
+ROOT mixamorig:Hips
+{
+  OFFSET 0 0 0
+  CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation
+  JOINT mixamorig:Spine
+  {
+    OFFSET 0 10 0
+    CHANNELS 3 Zrotation Xrotation Yrotation
+    JOINT mixamorig:Head
+    {
+      OFFSET 0 50 0
+      CHANNELS 3 Zrotation Xrotation Yrotation
+      End Site
+      {
+        OFFSET 0 20 0
+      }
+    }
+  }
+}
+MOTION
+Frames: 1
+Frame Time: 0.033333
+0 0 0 0 0 0 0 0 0 0 0 0
+"""
+
+
+class TestExternalMotionSources(unittest.TestCase):
+    """Bringing a clip in from Mixamo and friends when generation is not good
+    enough."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="aaagf_fetch_")
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_known_sources_declare_licence_and_access(self):
+        sources = {entry["name"]: entry for entry in list_motion_sources()}
+        self.assertIn("mixamo", sources)
+        self.assertIn("cmu_bvh", sources)
+        for entry in sources.values():
+            self.assertIn(entry["access"], {"manual", "direct"})
+            self.assertTrue(entry["licence"])
+            self.assertTrue(entry["how_to_download"])
+
+    def test_local_clip_is_ingested_with_provenance(self):
+        clip = self.root / "downloaded.bvh"
+        clip.write_text(_MIXAMO_BVH, encoding="utf-8")
+        result = fetch_motion(
+            source="mixamo",
+            path=str(clip),
+            dest_dir=str(self.root / "task"),
+        )
+        self.assertTrue(Path(result["motion_path"]).is_file())
+        record = json.loads(
+            Path(result["provenance_path"]).read_text(encoding="utf-8")
+        )
+        self.assertEqual(record["source"], "mixamo")
+        self.assertTrue(record["licence"])
+        self.assertEqual(record["nominal_units"], "centimetres")
+
+    def test_a_zip_download_yields_its_single_clip(self):
+        archive = self.root / "pack.zip"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("clips/walk.bvh", _MIXAMO_BVH)
+            bundle.writestr("readme.txt", "not a clip")
+        result = fetch_motion(
+            source="local",
+            path=str(archive),
+            dest_dir=str(self.root / "task"),
+        )
+        self.assertTrue(Path(result["motion_path"]).name == "walk.bvh")
+
+    def test_an_ambiguous_archive_asks_which_clip(self):
+        archive = self.root / "pack.zip"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("walk.bvh", _MIXAMO_BVH)
+            bundle.writestr("run.bvh", _MIXAMO_BVH)
+        with self.assertRaisesRegex(ValueError, "pass member="):
+            fetch_motion(
+                source="local",
+                path=str(archive),
+                dest_dir=str(self.root / "task"),
+            )
+
+    def test_login_gated_sources_refuse_to_be_scraped(self):
+        with self.assertRaises(PermissionError) as caught:
+            fetch_motion(
+                source="mixamo",
+                url="https://www.mixamo.com/some/clip.fbx",
+                dest_dir=str(self.root / "task"),
+            )
+        message = str(caught.exception)
+        self.assertIn("Sign in at mixamo.com", message)
+        self.assertIn("path=", message)
+
+    def test_scale_is_measured_from_both_skeletons(self):
+        clip = self.root / "walk.bvh"
+        clip.write_text(_MIXAMO_BVH, encoding="utf-8")
+        rig = self.root / "rig.txt"
+        rig.write_text(
+            "joints joint0 0 0 0\njoints joint1 0 0 1.8\nroot joint0\n",
+            encoding="utf-8",
+        )
+        self.assertAlmostEqual(measure_bvh_extent(clip), 80.0, places=3)
+        suggestion = suggest_global_scale(clip, rig)
+        self.assertTrue(suggestion["confident"])
+        self.assertAlmostEqual(
+            suggestion["suggested_global_scale"],
+            1.8 / 80.0,
+            places=6,
+        )
+
+    def test_an_fbx_clip_cannot_be_measured_and_says_so(self):
+        clip = self.root / "walk.fbx"
+        clip.write_bytes(b"Kaydara FBX Binary  \x00" + bytes(32))
+        rig = self.root / "rig.txt"
+        rig.write_text(
+            "joints joint0 0 0 0\njoints joint1 0 0 1.8\nroot joint0\n",
+            encoding="utf-8",
+        )
+        suggestion = suggest_global_scale(clip, rig)
+        self.assertFalse(suggestion["confident"])
+        self.assertIsNone(suggestion["suggested_global_scale"])
+        self.assertIn("centimetres", suggestion["reason"])
+
+
 class TestRetargetFunction(unittest.TestCase):
     def test_source_extension_validation(self):
         self.assertEqual(normalise_source_ext("BVH"), ".bvh")
         self.assertEqual(normalise_source_ext(".fbx"), ".fbx")
         with self.assertRaisesRegex(ValueError, "source_ext"):
             normalise_source_ext(".glb")
+
+    def test_mesh_extension_validation(self):
+        for value in (".glb", "OBJ", ".gltf", ".ply", ".stl"):
+            self.assertTrue(normalise_mesh_ext(value).startswith("."))
+        with self.assertRaisesRegex(ValueError, "target mesh must be one of"):
+            normalise_mesh_ext(".bvh")
 
     def test_missing_bpy_runtime_has_actionable_error(self):
         ensure_retarget_runtime.cache_clear()
@@ -617,7 +879,7 @@ class TestRetargetFunction(unittest.TestCase):
                 result = retarget_motion(
                     bpy_python=sys.executable,
                     source_motion_path=str(fixture.source),
-                    target_glb_path=str(fixture.target),
+                    target_mesh_path=str(fixture.target),
                     target_rig_path=str(fixture.rig),
                     output_path=str(root / "retargeted.fbx"),
                     anim_only_output_path=str(root / "animation.fbx"),
@@ -1012,10 +1274,7 @@ class TestGenMotionRealHumanoidIntegration(unittest.TestCase):
             [
                 str(bpy_python),
                 "-m",
-                (
-                    "operators.gen_motion.funcs.puppeteer_retarget."
-                    "inspect_fbx"
-                ),
+                "operators.gen_motion.funcs.retarget_utils.inspect_fbx",
                 "--input",
                 result["retargeted_fbx_path"],
                 "--output",
@@ -1034,6 +1293,163 @@ class TestGenMotionRealHumanoidIntegration(unittest.TestCase):
         self.assertGreater(report["action_count"], 0)
         self.assertGreater(report["keyframe_count"], 0)
         self.assertEqual(report["fps"], 20)
+        self.assertTrue(report.get("pose_animated", True))
+
+
+@unittest.skipUnless(
+    _BPY_PYTHON,
+    "Set AAAGF_RETARGET_BPY_PYTHON for the humanoid fixture bpy integration test.",
+)
+class TestGenMotionHumanoidFixtureBpyIntegration(unittest.TestCase):
+    """
+    Build a synthetic Mixamo-named walk, retarget it, then re-import the FBX
+    through the Blender motion importer — the path a real asset takes.
+    """
+
+    game_id = "_motion_humanoid_fixture"
+    run_id = "_test"
+
+    @classmethod
+    def tearDownClass(cls):
+        from pipeline.common import paths
+
+        shutil.rmtree(paths.game_output_dir(cls.game_id), ignore_errors=True)
+
+    def test_fixture_retarget_and_blender_import(self):
+        sys.path.insert(0, str(_HARNESS))
+        import motion_fixtures  # noqa: E402
+
+        from pipeline.assets_gen.gen_motion.run import (
+            generate,
+            load_retarget_runtime,
+            make_operator,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="aaagf_mofix_") as tmp:
+            root = Path(tmp)
+            paths = motion_fixtures.build_all(root / "fixture", mesh_format=".glb")
+            obj_mesh = motion_fixtures.build_mesh(root / "fixture" / "character.obj")
+            obj_rig = motion_fixtures.build_rig(
+                root / "fixture" / "character_obj_rig.txt",
+                obj_mesh,
+            )
+
+            runtime = load_retarget_runtime(str(_BPY_PYTHON), device="cpu")
+            operator = make_operator(
+                runtime,
+                run_id=self.run_id,
+                default_game_id=self.game_id,
+            )
+
+            # GLB target
+            glb_result = generate(
+                {
+                    "game_id": self.game_id,
+                    "task_id": "fixture_glb",
+                    "task_type": "retarget",
+                    "source_motion_path": paths["motion_path"],
+                    "target_mesh_path": paths["mesh_path"],
+                    "target_rig_path": paths["rig_path"],
+                    "fps": 30,
+                },
+                operator,
+            )
+            for key in (
+                "retargeted_fbx_path",
+                "anim_only_fbx_path",
+                "mapping_path",
+                "retarget_info_path",
+            ):
+                self.assertTrue(Path(glb_result[key]).is_file(), key)
+
+            mapping = json.loads(
+                Path(glb_result["mapping_path"]).read_text(encoding="utf-8")
+            )
+            self.assertGreaterEqual(len(mapping["bone_map"]), 15)
+            self.assertEqual(
+                mapping["root_bones"].get("source")
+                or mapping["root_bones"].get("mixamo"),
+                "mixamorig:Hips",
+            )
+
+            # OBJ target (same topology)
+            obj_result = generate(
+                {
+                    "game_id": self.game_id,
+                    "task_id": "fixture_obj",
+                    "task_type": "retarget",
+                    "source_motion_path": paths["motion_path"],
+                    "target_mesh_path": str(obj_mesh),
+                    "target_rig_path": str(obj_rig),
+                    "fps": 30,
+                },
+                operator,
+            )
+            self.assertTrue(Path(obj_result["retargeted_fbx_path"]).is_file())
+
+            inspect_report = Path(glb_result["output_dir"]) / "fbx_inspection.json"
+            subprocess.run(
+                [
+                    str(runtime),
+                    "-m",
+                    "operators.gen_motion.funcs.retarget_utils.inspect_fbx",
+                    "--input",
+                    glb_result["retargeted_fbx_path"],
+                    "--output",
+                    str(inspect_report),
+                ],
+                cwd=str(_REPO_ROOT),
+                check=True,
+                capture_output=True,
+                text=True,
+                env=_retarget_subprocess_env(str(runtime), "cpu"),
+            )
+            inspection = json.loads(inspect_report.read_text(encoding="utf-8"))
+            self.assertTrue(inspection["valid"])
+            self.assertTrue(inspection["pose_animated"])
+            self.assertTrue(inspection["skinned"])
+            self.assertGreater(inspection["bone_count"], 10)
+            self.assertGreater(inspection["height_m"], 1.0)
+            self.assertLess(inspection["height_m"], 2.5)
+
+            import_report = Path(glb_result["output_dir"]) / "blender_import.json"
+            import_lib = Path(glb_result["output_dir"]) / "blender_lib"
+            proc = subprocess.run(
+                [
+                    str(runtime),
+                    str(
+                        _REPO_ROOT
+                        / "engine_adapters"
+                        / "blender"
+                        / "import_generated"
+                        / "import_motion.py"
+                    ),
+                    "--src",
+                    glb_result["retargeted_fbx_path"],
+                    "--dest",
+                    str(import_lib),
+                    "--name",
+                    "FixtureWalk",
+                    "--report",
+                    str(import_report),
+                ],
+                cwd=str(_REPO_ROOT),
+                capture_output=True,
+                text=True,
+                env={
+                    **_retarget_subprocess_env(str(runtime), "cpu"),
+                    "AAAGF_BLENDER_EXIT_ON_DONE": "1",
+                },
+            )
+            self.assertEqual(
+                proc.returncode,
+                0,
+                msg=(proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:],
+            )
+            imported = json.loads(import_report.read_text(encoding="utf-8"))
+            self.assertTrue(imported["ok"])
+            self.assertTrue(imported["pose_animated"])
+            self.assertEqual(imported["armature"], "FixtureWalk")
 
 
 if __name__ == "__main__":
