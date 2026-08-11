@@ -1,0 +1,459 @@
+"""Unified operator for rigging, text-to-motion and motion retargeting."""
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+
+TASK_KIND = "motion"
+SUPPORTED_TASK_TYPES = {"retarget", "rig", "text_to_motion", "humanoid"}
+
+_PER_GAME_NAMES = {
+    "rig_path": "rig.txt",
+    "skeleton_path": "skeleton.txt",
+    "mesh_obj_path": "mesh.obj",
+    "motion_bvh_path": "motion.bvh",
+    "raw_motion_bvh_path": "motion_raw.bvh",
+    "ik_motion_bvh_path": "motion_ik.bvh",
+    "joints_npy_path": "joints.npy",
+    "preview_mp4_path": "preview.mp4",
+    "retargeted_fbx_path": "retargeted.fbx",
+    "anim_only_fbx_path": "animation.fbx",
+    "mapping_path": "mapping.json",
+    "retarget_info_path": "retarget_info.json",
+}
+_LEGACY_SUFFIXES = {
+    "rig_path": "_rig.txt",
+    "skeleton_path": "_skeleton.txt",
+    "mesh_obj_path": "_mesh.obj",
+    "motion_bvh_path": "_motion.bvh",
+    "raw_motion_bvh_path": "_motion_raw.bvh",
+    "ik_motion_bvh_path": "_motion_ik.bvh",
+    "joints_npy_path": "_joints.npy",
+    "preview_mp4_path": "_preview.mp4",
+    "retargeted_fbx_path": ".fbx",
+    "anim_only_fbx_path": "_anim_only.fbx",
+    "mapping_path": "_mapping.json",
+    "retarget_info_path": "_retarget_info.json",
+}
+
+
+class GenMotionOperator:
+    """Run one of the four human-motion stages under the shared motion kind."""
+
+    def __init__(
+        self,
+        bpy_python: str | None = None,
+        output_dir: Optional[str] = None,
+        run_id: str = "default",
+        default_game_id: Optional[str] = None,
+        *,
+        puppeteer_model: Any | None = None,
+        momask_model: Any | None = None,
+        device: str = "cpu",
+        verbose: bool = False,
+        retarget_fn: Callable[..., dict] | None = None,
+    ):
+        self.bpy_python = str(bpy_python) if bpy_python else None
+        self.puppeteer_model = puppeteer_model
+        self.momask_model = momask_model
+        self.run_id = run_id
+        self.default_game_id = default_game_id
+        self.device = str(device)
+        self.verbose = bool(verbose)
+        self.retarget_fn = retarget_fn
+        self.output_dir = Path(output_dir) if output_dir else None
+        if self.output_dir is not None:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _resolve_outputs(
+        self,
+        inp: dict,
+        task_id: str,
+    ) -> tuple[str, Path, dict[str, Path]]:
+        if self.output_dir is not None:
+            root = self.output_dir
+            outputs = {
+                key: root / f"{task_id}{suffix}"
+                for key, suffix in _LEGACY_SUFFIXES.items()
+            }
+            return "", root, outputs
+
+        from pipeline.common import paths
+
+        game_id = paths.infer_game_id(inp, fallback=self.default_game_id)
+        root = paths.task_output_dir(
+            game_id,
+            TASK_KIND,
+            task_id,
+            run_id=self.run_id,
+        )
+        outputs = {
+            key: root / filename
+            for key, filename in _PER_GAME_NAMES.items()
+        }
+        return game_id, root, outputs
+
+    @staticmethod
+    def _required_path(inp: dict, key: str) -> Path:
+        value = inp.get(key)
+        if not value:
+            raise ValueError(f"Motion task requires {key!r}.")
+        from pipeline.common import paths
+
+        path = paths.resolve_input_path(value)
+        if not path.is_file() or path.stat().st_size == 0:
+            raise FileNotFoundError(f"{key} is missing or empty: {path}")
+        return path
+
+    @staticmethod
+    def _required_prompt(inp: dict) -> str:
+        prompt = inp.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("Motion task requires a non-empty 'prompt'.")
+        return prompt.strip()
+
+    def _rig(
+        self,
+        target_glb: Path,
+        outputs: dict[str, Path],
+        inp: dict,
+        seed: int,
+    ) -> dict[str, Any]:
+        if self.puppeteer_model is None:
+            raise RuntimeError(
+                "task_type='rig' and 'humanoid' require PuppeteerModel. "
+                "Configure --puppeteer-model-path and --puppeteer-python."
+            )
+        from .funcs.rig_character import rig_character
+
+        artifacts = rig_character(
+            target_glb.read_bytes(),
+            self.puppeteer_model,
+            mesh_format=target_glb.suffix,
+            seed=seed,
+            post_filter=bool(inp.get("post_filter", True)),
+        )
+        _write_text(outputs["rig_path"], artifacts.get("rig_text"), "rig")
+        _write_text(
+            outputs["skeleton_path"],
+            artifacts.get("skeleton_text"),
+            "skeleton",
+        )
+        _write_bytes(
+            outputs["mesh_obj_path"],
+            artifacts.get("mesh_obj_bytes"),
+            "mesh OBJ",
+        )
+        return artifacts
+
+    def _generate_motion(
+        self,
+        prompt: str,
+        outputs: dict[str, Path],
+        inp: dict,
+        seed: int,
+    ) -> dict[str, Any]:
+        if self.momask_model is None:
+            raise RuntimeError(
+                "task_type='text_to_motion' and 'humanoid' require "
+                "MoMaskModel. Configure --momask-model-path and "
+                "--momask-python."
+            )
+        from .funcs.generate_motion import generate_motion
+
+        artifacts = generate_motion(
+            prompt,
+            self.momask_model,
+            seed=seed,
+            motion_length=int(inp.get("motion_length", 0)),
+            repeat_times=int(inp.get("repeat_times", 1)),
+            cond_scale=float(inp.get("cond_scale", 4.0)),
+            time_steps=int(inp.get("time_steps", 18)),
+            temperature=float(inp.get("temperature", 1.0)),
+            use_ik=bool(inp.get("use_ik", True)),
+            in_place=bool(inp.get("in_place", False)),
+            in_place_lock_height=bool(
+                inp.get("in_place_lock_height", False)
+            ),
+        )
+        _write_bytes(
+            outputs["motion_bvh_path"],
+            artifacts.get("bvh_bytes"),
+            "selected motion BVH",
+        )
+        optional = (
+            ("raw_motion_bvh_path", "raw_bvh_bytes"),
+            ("ik_motion_bvh_path", "ik_bvh_bytes"),
+            ("preview_mp4_path", "preview_mp4_bytes"),
+        )
+        for output_key, artifact_key in optional:
+            value = artifacts.get(artifact_key)
+            if value:
+                _write_bytes(outputs[output_key], value, artifact_key)
+
+        joints = artifacts.get("joints")
+        if joints is not None:
+            import numpy as np
+
+            outputs["joints_npy_path"].parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            np.save(outputs["joints_npy_path"], joints, allow_pickle=False)
+        return artifacts
+
+    def _retarget(
+        self,
+        source_motion: Path,
+        target_glb: Path,
+        target_rig: Path,
+        outputs: dict[str, Path],
+        inp: dict,
+        *,
+        fps: int,
+    ) -> dict[str, Any]:
+        if source_motion.suffix.lower() not in {".bvh", ".fbx"}:
+            raise ValueError(
+                "source_motion_path must end in .bvh or .fbx: "
+                f"{source_motion}"
+            )
+        if target_glb.suffix.lower() != ".glb":
+            raise ValueError(f"target_glb_path must end in .glb: {target_glb}")
+
+        mapping_path: Path | None = None
+        mapping_value = inp.get("mapping_path")
+        if mapping_value:
+            from pipeline.common import paths
+            from .funcs.puppeteer_retarget.validate_mapping import (
+                load_and_validate_mapping,
+            )
+
+            mapping_path = paths.resolve_input_path(mapping_value)
+            load_and_validate_mapping(mapping_path)
+
+        if fps <= 0:
+            raise ValueError(f"fps must be positive, got {fps}")
+        global_scale = float(inp.get("global_scale", 1.0))
+        if global_scale <= 0:
+            raise ValueError(
+                f"global_scale must be positive, got {global_scale}"
+            )
+        root_scale_value = inp.get("root_scale")
+        root_scale = (
+            None if root_scale_value is None else float(root_scale_value)
+        )
+        max_delta_deg = float(inp.get("max_delta_deg", 0.0))
+        if max_delta_deg < 0:
+            raise ValueError(
+                f"max_delta_deg must be non-negative, got {max_delta_deg}"
+            )
+        export_anim_only = bool(inp.get("export_anim_only", True))
+        retarget_fn = self.retarget_fn
+        if retarget_fn is None:
+            if not self.bpy_python:
+                raise RuntimeError(
+                    "Motion retargeting requires a bpy Python executable. "
+                    "Pass bpy_python to GenMotionOperator or use --bpy-python."
+                )
+            from .funcs.retarget_motion import retarget_motion
+
+            retarget_fn = retarget_motion
+
+        return retarget_fn(
+            bpy_python=self.bpy_python or "",
+            source_motion_path=str(source_motion),
+            target_glb_path=str(target_glb),
+            target_rig_path=str(target_rig),
+            output_path=str(outputs["retargeted_fbx_path"]),
+            anim_only_output_path=str(outputs["anim_only_fbx_path"]),
+            mapping_path=str(mapping_path) if mapping_path else None,
+            mapping_output_path=str(outputs["mapping_path"]),
+            info_output_path=str(outputs["retarget_info_path"]),
+            fps=fps,
+            global_scale=global_scale,
+            root_scale=root_scale,
+            max_delta_deg=max_delta_deg,
+            bake_root_to_bone=bool(inp.get("bake_root_to_bone", False)),
+            export_anim_only=export_anim_only,
+            action_name=(
+                str(inp["action_name"]) if inp.get("action_name") else None
+            ),
+            device=self.device,
+            verbose=self.verbose,
+        )
+
+    def run(self, inp: dict) -> dict:
+        """Execute a retarget, rig, text-to-motion or humanoid task."""
+        task_type = str(inp.get("task_type", "retarget")).lower()
+        if task_type not in SUPPORTED_TASK_TYPES:
+            raise NotImplementedError(
+                f"Unsupported motion task_type={task_type!r}. Supported: "
+                + ", ".join(sorted(SUPPORTED_TASK_TYPES))
+            )
+
+        task_id = str(inp.get("task_id", f"task_{int(time.time())}"))
+        seed = int(inp.get("seed", 42))
+        game_id, task_dir, outputs = self._resolve_outputs(inp, task_id)
+        target_glb: Path | None = None
+        source_motion: Path | None = None
+        target_rig: Path | None = None
+        rig_artifacts: dict[str, Any] | None = None
+        motion_artifacts: dict[str, Any] | None = None
+        retarget_artifacts: dict[str, Any] | None = None
+
+        t0 = time.time()
+        if task_type in {"rig", "humanoid"}:
+            target_glb = self._required_path(inp, "target_glb_path")
+            if target_glb.suffix.lower() != ".glb":
+                raise ValueError(
+                    f"target_glb_path must end in .glb: {target_glb}"
+                )
+            rig_artifacts = self._rig(target_glb, outputs, inp, seed)
+
+        if task_type in {"text_to_motion", "humanoid"}:
+            motion_artifacts = self._generate_motion(
+                self._required_prompt(inp),
+                outputs,
+                inp,
+                seed,
+            )
+
+        if task_type == "retarget":
+            source_motion = self._required_path(inp, "source_motion_path")
+            target_glb = self._required_path(inp, "target_glb_path")
+            target_rig = self._required_path(inp, "target_rig_path")
+            retarget_artifacts = self._retarget(
+                source_motion,
+                target_glb,
+                target_rig,
+                outputs,
+                inp,
+                fps=int(inp.get("fps", 30)),
+            )
+        elif task_type == "humanoid":
+            source_motion = outputs["motion_bvh_path"]
+            target_rig = outputs["rig_path"]
+            retarget_artifacts = self._retarget(
+                source_motion,
+                target_glb,
+                target_rig,
+                outputs,
+                inp,
+                fps=int((motion_artifacts or {}).get("fps", 20)),
+            )
+
+        elapsed = time.time() - t0
+        result = {
+            "task_id": task_id,
+            "retargeted_fbx_path": _artifact_path(
+                retarget_artifacts,
+                "retargeted_fbx_path",
+            ),
+            "anim_only_fbx_path": _artifact_path(
+                retarget_artifacts,
+                "anim_only_fbx_path",
+            ),
+            "mapping_path": _artifact_path(
+                retarget_artifacts,
+                "mapping_path",
+            ),
+            "retarget_info_path": _artifact_path(
+                retarget_artifacts,
+                "retarget_info_path",
+            ),
+            "rig_path": _existing_path(outputs["rig_path"]),
+            "skeleton_path": _existing_path(outputs["skeleton_path"]),
+            "mesh_obj_path": _existing_path(outputs["mesh_obj_path"]),
+            "motion_bvh_path": _existing_path(outputs["motion_bvh_path"]),
+            "raw_motion_bvh_path": _existing_path(
+                outputs["raw_motion_bvh_path"]
+            ),
+            "ik_motion_bvh_path": _existing_path(
+                outputs["ik_motion_bvh_path"]
+            ),
+            "joints_npy_path": _existing_path(outputs["joints_npy_path"]),
+            "preview_mp4_path": _existing_path(outputs["preview_mp4_path"]),
+            "elapsed_sec": round(elapsed, 2),
+            "game_id": game_id,
+            "task_kind": TASK_KIND,
+            "task_type": task_type,
+            "output_dir": str(task_dir),
+        }
+
+        if self.output_dir is None:
+            from pipeline.common import paths
+
+            paths.write_task_meta(
+                task_dir,
+                {
+                    **result,
+                    "run_id": self.run_id,
+                    "seed": seed,
+                    "prompt": inp.get("prompt"),
+                    "source_motion_path": (
+                        str(source_motion) if source_motion else None
+                    ),
+                    "target_glb_path": (
+                        str(target_glb) if target_glb else None
+                    ),
+                    "target_rig_path": (
+                        str(target_rig) if target_rig else None
+                    ),
+                    "fps": (
+                        int((motion_artifacts or {}).get("fps", 20))
+                        if motion_artifacts
+                        else int(inp.get("fps", 30))
+                    ),
+                    "puppeteer_joint_count": (
+                        (rig_artifacts or {}).get("joint_count")
+                    ),
+                    "puppeteer_skin_vertex_count": (
+                        (rig_artifacts or {}).get("skin_vertex_count")
+                    ),
+                    "retarget_runtime": self.bpy_python,
+                },
+            )
+        return result
+
+    def run_batch(self, inputs: list[dict]) -> list[dict]:
+        """Run tasks serially so large models never overlap in GPU memory."""
+        return [self.run(inp) for inp in inputs]
+
+    def eval(self, result: dict, task: dict) -> dict:
+        """Evaluate existing artifacts only."""
+        from .metrics import evaluate
+
+        return evaluate(result, task)
+
+
+def _write_text(path: Path, value: Any, label: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(f"Puppeteer returned no usable {label} text.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value, encoding="utf-8")
+
+
+def _write_bytes(path: Path, value: Any, label: str) -> None:
+    if not isinstance(value, (bytes, bytearray)) or not value:
+        raise RuntimeError(f"Model returned no usable {label} bytes.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bytes(value))
+
+
+def _existing_path(path: Path) -> str | None:
+    return str(path) if path.is_file() and path.stat().st_size > 0 else None
+
+
+def _artifact_path(
+    artifacts: dict[str, Any] | None,
+    key: str,
+) -> str | None:
+    if not artifacts:
+        return None
+    value = artifacts.get(key)
+    return str(value) if value else None
+
+
+__all__ = ["GenMotionOperator", "SUPPORTED_TASK_TYPES", "TASK_KIND"]
