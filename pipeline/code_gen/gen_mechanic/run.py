@@ -25,7 +25,6 @@ from pipeline.code_gen.gen_mechanic.contracts import (
 )
 from pipeline.code_gen.gen_mechanic.packet import (
     CONTEXT_ROOT,
-    ENGINE_CONTEXT_ROOT,
     PROMPTS_ROOT,
     REPAIR_PROMPT_PATH,
     SKILL_PATH,
@@ -126,9 +125,15 @@ def _prepare_command(args: argparse.Namespace) -> int:
                 "skill_path": packet["context"][
                     "skill_path"
                 ],
-                "engine_context_path": packet[
+                "engine_context_root": packet[
                     "context"
-                ]["engine_context_path"],
+                ]["engine_context_root"],
+                "mechanic_example_roots": packet[
+                    "context"
+                ]["mechanic_example_roots"],
+                "mechanic_example_paths": packet[
+                    "context"
+                ]["mechanic_example_paths"],
             },
             indent=2,
             ensure_ascii=False,

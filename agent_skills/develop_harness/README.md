@@ -28,7 +28,7 @@ Executable part (under `test/`, where code belongs):
 ## The three layers
 
 ```
-models/<family>/<model>.py        Layer 1 — "how to talk to one model"
+models/<family>/<model_name>_model.py        Layer 1 — "how to talk to one model"
         │                          knows: weights, dtype, device, its own API
         │                          knows NOT: tasks, jsonl, output paths, games
         ▼
@@ -55,11 +55,11 @@ Add the new kind to the four tables in `pipeline/common/paths.py`:
 `TASK_LAYER`, `TASK_INPUT_DIR`, `TASK_JSONL`, `TASK_COLLECT_JSONL`.
 Nothing else in the repo hardcodes a path, so this is the only registration point.
 
-### 2. Model wrapper — `models/<family>/<model>.py`
+### 2. Model wrapper — `models/<family>/<model_name>_model.py`
 
 Follow `model_require.md`. Reference implementations:
 `models/gen_3d_object/trellis_2_model.py` (generation),
-`models/tools/image_matting/rmbg.py` (tool model, inherits `BaseToolModel`).
+`models/tools/image_matting/rmbg_model.py` (tool model, inherits `BaseToolModel`).
 
 ### 3. Operator — `operators/<task>/operator.py` (+ `funcs/`)
 
@@ -75,8 +75,8 @@ short script: resolve inputs → call funcs → save artifacts → return a dict
 Follow `pipeline_require.md`. Reference:
 `pipeline/assets_gen/gen_3d_object/run.py`. Copy its structure verbatim; the
 five module-level functions (`load_*`, `make_operator`, `generate`,
-`run_from_jsonl`, `main`) are a contract, not a style preference — `eval.py`
-and `test/` import them by name.
+`run_from_jsonl`, `main`) are the generation-runner API; callers and `test/`
+import them by name. `eval.py` stays independent and reads existing artifacts.
 
 ### 5. Test data
 
@@ -149,6 +149,6 @@ Operators are consumed by `run.py`, `eval.py` and `test/`. When changing one:
 | model writes to `test_data/outputs/` | model returns data; operator saves it |
 | `os.path.join("outputs", ...)` | `paths.task_output_dir(...)` |
 | `torch` imported at module top-level of an operator | import inside the function |
-| task loop duplicated in `run.py` and `eval.py` | `eval.py` imports `run.generate` |
+| evaluation imports `run.generate()` or loads generation models | resolve and score existing artifacts only |
 | `except Exception: pass` around inference | let it fail with the real traceback |
 

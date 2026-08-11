@@ -11,6 +11,10 @@ from pipeline.code_gen.gen_mechanic.contracts import (
     validate_mechanic_contract,
 )
 from pipeline.common.artifacts import read_json
+from pipeline.common.code_gen import (
+    resolve_engine_registration,
+    validate_context_used,
+)
 from pipeline.common.finalize import finalize_workspace
 
 
@@ -104,6 +108,13 @@ def required_artifact_checks(
     *,
     engine: str,
     gameplay_module_name: str,
+    mechanic_example_roots: Sequence[Path],
+    allowed_example_purposes: Sequence[str],
+    require_example_purpose: bool,
+    provenance_digests: Mapping[
+        str,
+        Mapping[str, Any],
+    ],
 ) -> tuple[dict[str, bool | None], list[str], list[str]]:
     checks: dict[str, bool | None] = {}
     errors: list[str] = []
@@ -161,6 +172,51 @@ def required_artifact_checks(
     checks["mechanic_contract"] = contract_ok
     errors.extend(contract_errors)
 
+    try:
+        registration = resolve_engine_registration(
+            engine
+        )
+        context_ok, context_errors = (
+            validate_context_used(
+                workspace / "context_used.json",
+                engine=engine,
+                context_expectations=[
+                    {
+                        "stage": "mechanic",
+                        "role": "engine_api",
+                        "path": registration[
+                            "primary_api"
+                        ],
+                    }
+                ],
+                example_expectations={},
+                example_roots={
+                    "mechanic_example": (
+                        mechanic_example_roots
+                    ),
+                },
+                required_example_roles=(
+                    "mechanic_example",
+                ),
+                allowed_example_purposes=(
+                    allowed_example_purposes
+                ),
+                require_example_purpose=(
+                    require_example_purpose
+                ),
+                expected_digests=provenance_digests,
+            )
+        )
+    except (
+        FileNotFoundError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        context_ok = False
+        context_errors = [str(exc)]
+    checks["context_used"] = context_ok
+    errors.extend(context_errors)
+
     if engine.strip().lower() in _UE_ENGINE_IDS:
         ui_free, contamination_errors = (
             scan_ue_ui_contamination(
@@ -189,7 +245,46 @@ def finalize(
     gameplay_module_name = str(
         packet.get("gameplay_module_name") or ""
     )
-
+    context = packet.get("context")
+    if not isinstance(context, Mapping):
+        raise TypeError(
+            "Prepared Mechanic packet context must be an object"
+        )
+    raw_example_roots = context.get(
+        "mechanic_example_roots"
+    )
+    if (
+        isinstance(raw_example_roots, (str, bytes))
+        or not isinstance(raw_example_roots, Sequence)
+    ):
+        raise TypeError(
+            "Prepared Mechanic packet mechanic_example_roots "
+            "must be a sequence"
+        )
+    raw_digests = context.get("provenance_digests")
+    if not isinstance(raw_digests, Mapping):
+        raise TypeError(
+            "Prepared Mechanic packet provenance_digests "
+            "must be an object"
+        )
+    usage_contract = packet.get("context_usage_contract")
+    if not isinstance(usage_contract, Mapping):
+        raise TypeError(
+            "Prepared Mechanic packet context_usage_contract "
+            "must be an object"
+        )
+    raw_purposes = usage_contract.get(
+        "allowed_example_purposes",
+        [],
+    )
+    if (
+        isinstance(raw_purposes, (str, bytes))
+        or not isinstance(raw_purposes, Sequence)
+    ):
+        raise TypeError(
+            "Prepared Mechanic packet allowed_example_purposes "
+            "must be a sequence"
+        )
     def artifact_checker(
         workspace: Path,
         required: Sequence[str],
@@ -205,6 +300,27 @@ def finalize(
             current_task_files,
             engine=engine,
             gameplay_module_name=gameplay_module_name,
+            mechanic_example_roots=[
+                Path(str(path)).expanduser().resolve(
+                    strict=False
+                )
+                for path in raw_example_roots
+            ],
+            allowed_example_purposes=[
+                str(purpose)
+                for purpose in raw_purposes
+            ],
+            require_example_purpose=bool(
+                usage_contract.get(
+                    "example_purpose_required",
+                    False,
+                )
+            ),
+            provenance_digests={
+                str(path): dict(value)
+                for path, value in raw_digests.items()
+                if isinstance(value, Mapping)
+            },
         )
 
     return finalize_workspace(

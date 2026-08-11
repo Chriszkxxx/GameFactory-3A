@@ -19,8 +19,8 @@ classification, response cache, submit → poll → download) lives in
 | `gen_3d_object` | `TripoModel` | `gen_3d_object/tripo_model.py` | cloud API | `$TRIPO_API_KEY` + `scripts/installing/cloud_api_install.sh` |
 | `gen_3d_object` | `MeshyModel` | `gen_3d_object/meshy_model.py` | cloud API | `$MESHY_API_KEY` + `scripts/installing/cloud_api_install.sh` |
 | `gen_cg_video` | `SeedanceModel` | `gen_cg_video/seedance_model.py` | cloud API | `$ARK_API_KEY` + `scripts/installing/cloud_api_install.sh` |
-| `gen_image` | `QwenEditModel` | `gen_image/qwen_edit.py` | local weights | GPU |
-| `tools/image_matting` | `RMBGModel`, `DepthAnythingModel` | `tools/image_matting/` | local weights | — |
+| `gen_image` | `QwenEditModel` | `gen_image/qwen_edit_model.py` | local weights | GPU |
+| `tools/image_matting` | `RMBGModel`, `DepthAnythingModel` | `tools/image_matting/{rmbg_model.py,depth_anything_model.py}` | local weights | — |
 
 All three `gen_3d_object` backends expose the same
 `infer_and_save(image, output_path, seed, decimation_target, texture_size)`, so

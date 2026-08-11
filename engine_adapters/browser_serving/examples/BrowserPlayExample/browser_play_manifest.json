@@ -1,0 +1,23 @@
+{
+  "schema_version": "aaagameforge.browser_play_manifest.v1",
+  "engine": "selected_by_packet",
+  "entry_point": "index.html",
+  "launch_script": "launch.cmd",
+  "gateway_route": "/game",
+  "backend_entry_point": "selected_by_packet",
+  "session_bootstrap": {
+    "mode": "create_or_recover",
+    "health_path": "/api/health",
+    "create_path": "/api/sessions",
+    "recover_path": "/api/sessions/recover"
+  },
+  "streaming": {
+    "session_url_field": "stream_url",
+    "embed_mode": "iframe",
+    "external_frontend": false,
+    "transport_owned_by_backend": true
+  },
+  "required_environment": [
+    "A3GAME_BROWSER_PLAY_DIR"
+  ]
+}

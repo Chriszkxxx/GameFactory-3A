@@ -52,7 +52,7 @@ def _generate_tpose_rgb(
     prompt = TPOSE_PROMPT
     if description:
         prompt = f"Character description: {description}. " + prompt
-    return gen_model.edit(ref_image, prompt=prompt, seed=seed, steps=steps)
+    return gen_model.infer(ref_image, prompt=prompt, seed=seed, steps=steps)
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ def _extract_foreground_via_depth(
     """Segment foreground using depth cues + white-bg suppression."""
     img = np.array(image.convert("RGB"))
 
-    depth = depth_model.predict(image)
+    depth = depth_model.infer(image)
     depth_norm = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
 
     white_mask = (
@@ -107,7 +107,7 @@ def _extract_foreground_via_mask(
     used as-is for the alpha channel; a binary version is also computed for
     light morphological cleanup so post-processing can find a stable bbox.
     """
-    out = mask_model.predict(image)
+    out = mask_model.infer(image)
 
     if isinstance(out, Image.Image):
         rgba = np.array(out.convert("RGBA"))

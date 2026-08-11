@@ -157,6 +157,50 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def path_digest(path: str | Path) -> dict[str, Any]:
+    target = Path(path).expanduser().resolve(strict=False)
+    if target.is_file():
+        return {
+            "kind": "file",
+            "sha256": _sha256(target),
+            "size": target.stat().st_size,
+            "files": 1,
+        }
+    if not target.is_dir():
+        raise FileNotFoundError(
+            f"Digest input was not found: {target}"
+        )
+    manifest: dict[str, dict[str, Any]] = {}
+    total_size = 0
+    for item in sorted(target.rglob("*")):
+        if not item.is_file():
+            continue
+        resolved = item.resolve(strict=False)
+        if not is_relative_to(resolved, target):
+            raise ValueError(
+                "Digest input resolves outside its root: "
+                f"{item}"
+            )
+        relative = item.relative_to(target).as_posix()
+        size = item.stat().st_size
+        manifest[relative] = {
+            "sha256": _sha256(item),
+            "size": size,
+        }
+        total_size += size
+    serialized = json.dumps(
+        manifest,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "kind": "directory",
+        "sha256": hashlib.sha256(serialized).hexdigest(),
+        "size": total_size,
+        "files": len(manifest),
+    }
+
+
 def build_file_manifest(
     workspace: str | Path,
     *,
