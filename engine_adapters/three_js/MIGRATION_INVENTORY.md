@@ -33,7 +33,8 @@ required splitting the work in two:
 
 1. **Python adapter** - the same eleven namespaces as `UEClient`, with
    the same result contract and the same repository task identity
-   resolution. This is a strict mirror.
+   resolution. This is a strict mirror, plus one namespace the web needs
+   and Unreal does not (`three.preview`, see below).
 2. **JavaScript runtime framework** - everything Unreal supplies natively
    and three.js does not: a renderer/loop host, an asset resolver, a
    world builder, an input normalizer, an animation director, raycast
@@ -59,6 +60,7 @@ lives in the framework precisely so it stays game-neutral and testable.
 | `ue.runtime.sessions.*` | `three.runtime.sessions.*` | Yes |
 | `ue.reflection.*` | `three.reflection.*` | Yes, plus `list_object_names` |
 | `ue.observe.check_status` | `three.observe.check_status` | Yes |
+| — | `three.preview.*` | New: renders an artifact from named axes so a facing decision can be made and recorded |
 
 ## Deliberate Divergences
 
@@ -80,6 +82,8 @@ mirror was incomplete.
 | Frame loop | Engine tick | `A3GameRuntimeHost.onTick` | Framework must own `requestAnimationFrame` |
 | Physics | Chaos | `A3GameCollisionProbe` raycasts | three.js ships no physics |
 | Resource release | Garbage collector | Explicit `dispose()` | WebGL resources are not collected |
+| Facing convention | Actor forward is `+X`, and the editor shows it | Recorded per artifact as `orientation.forward_axis`, applied at instantiation | glTF fixes up and unit but not facing, and there is no editor viewport to notice in |
+| Asset review | Editor viewport and thumbnails | `three.preview.*` renders orthographic views on the CPU | There is no editor, and a build machine has no GPU or display |
 
 ## Implementation Progress
 

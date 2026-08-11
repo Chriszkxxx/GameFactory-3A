@@ -319,15 +319,28 @@ export class A3GameSceneLoader {
         );
         continue;
       }
+      // `tryInstantiate` rather than `instantiate`, so the facing axis
+      // the adapter recorded is applied. It wraps the model when a
+      // rotation is needed, which is what lets the world spec's own
+      // rotation be written below without erasing the correction.
       const instance = await this.assets
-        .instantiate(spec.artifact_id)
+        .tryInstantiate(spec.artifact_id, {
+          castShadow: spec.cast_shadow !== false,
+          receiveShadow: spec.receive_shadow !== false,
+        })
         .catch((error) => {
           this.warnings.push(
             `Entity ${spec.entity_id} failed to load: ${error.message}`,
           );
           return null;
         });
-      if (!instance) continue;
+      if (!instance) {
+        this.warnings.push(
+          `Entity ${spec.entity_id} references an unstaged artifact ` +
+            `${spec.artifact_id} and was skipped`,
+        );
+        continue;
+      }
       const object = instance.object;
       object.name = spec.entity_id;
       applyTransform(object, spec.transform);

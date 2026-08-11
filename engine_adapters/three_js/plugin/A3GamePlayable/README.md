@@ -35,16 +35,21 @@ import {
   bootA3GameRuntime,
   createContactShadow,
   createFillLight,
+  createInstancedFromModel,
   createMaterial,
   createRoundedBox,
   createSeededRandom,
   createSunLight,
   disposeObject3D,
   fitToHeight,
+  forwardAxisYaw,
   groundObject,
   measureObject,
+  orientModel,
   prepareModel,
   resolveEntityId,
+  A3GameForwardAxis,
+  A3GAME_RUNTIME_FORWARD_AXIS,
 } from '@a3game/playable';
 ```
 
@@ -133,12 +138,66 @@ if (loaded) entity.setVisual(loaded.object, loaded.animations);
 Two problems have no glTF-level solution and are handled there:
 
 - **scale** — every model arrives in the author's unit of choice, so
-  normalise with `height` rather than a magic constant;
+  normalise with `height` rather than a magic constant. When the adapter
+  recorded a `scale_hint_metres`, it is used as the default;
 - **shadows** — glTF cannot express `castShadow`, so every mesh loads
   with it false.
 
+A third has no glTF-level solution either, and unlike the other two it
+cannot even be detected:
+
+- **facing** — a model authored facing +Z and the same model facing -Z
+  produce identical files. The framework's convention is **local forward
+  = -Z**, matching `Math.atan2(-x, -z)`, and the manifest's
+  `orientation.forward_axis` says which way the model actually faces. The
+  correction is applied to the model inside a wrapper `Group`, and the
+  wrapper is what you receive — so assigning `visual.rotation.y` for
+  gameplay facing cannot undo it. Override with
+  `{ forwardAxis: '+x' }`, or opt out with `{ orient: false }`.
+
+  ```js
+  // Equivalent, when a game knows better than the manifest:
+  orientModel(model, { forwardAxis: '+z' });        // rotates in place
+  forwardAxisYaw('+z');                            // → Math.PI
+  ```
+
+  With nothing recorded, nothing rotates: an unannotated asset behaves
+  exactly as it did before this existed.
+
 Set `frustumCulled: false` on a skinned character, which is otherwise
 culled on its bind-pose bounds and blinks out at the screen edge.
+
+## Many copies of one model
+
+A character is one model; scenery is seventy-four trees, and instantiating
+a generated body per placement is what makes a generated game slow rather
+than merely plain — seventy-four draw calls and seventy-four copies of
+tens of thousands of triangles.
+
+```js
+const loaded = await assets.tryInstantiate('explorer_pine', { height: 9 });
+const trees = createInstancedFromModel(loaded.object, placements.length);
+if (trees) {
+  placements.forEach((holder, index) => {
+    trees.setMatrixAt(index, matrixFor(holder));
+    holder.visible = false;       // keep it as the collision volume
+  });
+  trees.instanceMatrix.needsUpdate = true;
+  host.add(trees, 'environment');
+}
+```
+
+`createInstancedFromModel` bakes the source model's transform into the
+geometry, so a model already fitted with `height` keeps its metre size and
+each instance matrix only says where a copy goes. It returns `null` for
+skinned or multi-part models instead of flattening them — losing a
+skeleton is not something to discover at runtime — so the caller keeps
+whatever it was drawing.
+
+Hiding the primitive rather than removing it is the point: `Raycaster`
+does not test `visible` and `Mesh.raycast` only needs a material, so an
+invisible box still blocks movement and stops a hitscan, far more cheaply
+than the art would. Cover that looks solid stays solid.
 
 ## Tick ordering
 

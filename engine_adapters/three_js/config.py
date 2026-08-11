@@ -336,3 +336,21 @@ class ThreeClientConfig:
                 strict=False
             )
         return self.data_root / "worlds"
+
+    @property
+    def preview_root(self) -> Path:
+        """Where review renders land.
+
+        Deliberately *not* under ``public/``: an orientation sheet is
+        evidence for a reviewer, not content for the bundle, and staging
+        it would ship megabytes of PNG to every player.
+        """
+
+        configured = _first_environment_value(
+            "A3GAME_THREE_PREVIEW_ROOT",
+        )
+        if configured:
+            return Path(configured).expanduser().resolve(
+                strict=False
+            )
+        return self.data_root / "previews"

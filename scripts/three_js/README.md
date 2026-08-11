@@ -76,6 +76,29 @@ scripts/three_js/import_asset.sh \
 `--type scene` routes to `three.world.build` and publishes a runtime
 scene graph under `public/assets/worlds/` instead of staging a mesh.
 
+## Where art comes from
+
+Not a launcher: acquiring content is an operator concern, so both paths
+live in `operators/gen_3d_object/funcs/` and are called from Python.
+
+```python
+# Three CC0 models, seconds, no GPU — when generating is overkill.
+from operators.gen_3d_object.funcs import fetch_asset_pack
+fetch_asset_pack(games=["game_archer_explorer"])
+
+# The props a particular game actually needed.
+from models.gen_3d_object.trellis_2_model import Trellis2Model
+from operators.gen_3d_object.operator import Gen3DObjectOperator
+op = Gen3DObjectOperator(model=Trellis2Model(model_path="…/TRELLIS.2-4B"))
+op.run_art_plan("game_archer_explorer", image_model=…)
+```
+
+Both end identically: an asset task output, a public
+`ThreeClient.assets` import that declares the facing axis and the height
+in metres, and a review sheet. Neither copies a file into `public/`.
+
+Set `https_proxy` if the download needs one.
+
 ## Run the dev server
 
 ```bash

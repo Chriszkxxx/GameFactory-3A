@@ -302,6 +302,138 @@ export function groundObject(object, options = {}) {
 }
 
 /**
+ * The local direction a prepared model must point along.
+ *
+ * The generated games derive facing with `Math.atan2(-x, -z)`, so a yaw
+ * of zero means "travelling toward -Z". That is the convention every
+ * imported model is rotated into, and it is also what the camera looks
+ * down, which is why it was chosen.
+ */
+export const A3GAME_RUNTIME_FORWARD_AXIS = '-z';
+
+/**
+ * The axis an imported model faces *as authored*.
+ *
+ * glTF fixes the up axis and the unit and says nothing binding about
+ * facing, so this is the one fact about a model that cannot be
+ * discovered by loading it. The adapter records it in the manifest after
+ * a reviewer looks at rendered views; `A3GameAssetLibrary` then applies
+ * it, and gameplay code never sees the difference.
+ */
+export const A3GameForwardAxis = Object.freeze({
+  POSITIVE_X: '+x',
+  NEGATIVE_X: '-x',
+  POSITIVE_Z: '+z',
+  NEGATIVE_Z: '-z',
+});
+
+const FORWARD_AXIS_VECTORS = Object.freeze({
+  '+x': [1, 0],
+  '-x': [-1, 0],
+  '+z': [0, 1],
+  '-z': [0, -1],
+});
+
+function normalizeForwardAxis(value) {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) return '';
+  const resolved = text.length === 1 ? `+${text}` : text;
+  return resolved in FORWARD_AXIS_VECTORS ? resolved : '';
+}
+
+/**
+ * Yaw, in radians, that turns `forwardAxis` into `runtimeForwardAxis`.
+ *
+ * Both arguments name a cardinal axis, so the result is always one of
+ * four quarter turns — no arbitrary angle, and no accumulated error.
+ *
+ * @param {string} forwardAxis for example `'+z'`
+ * @param {string} [runtimeForwardAxis]
+ * @returns {number} radians about +Y
+ */
+export function forwardAxisYaw(
+  forwardAxis,
+  runtimeForwardAxis = A3GAME_RUNTIME_FORWARD_AXIS,
+) {
+  const source = normalizeForwardAxis(forwardAxis);
+  const target = normalizeForwardAxis(runtimeForwardAxis);
+  if (!source || !target) return 0;
+  const [sx, sz] = FORWARD_AXIS_VECTORS[source];
+  const [tx, tz] = FORWARD_AXIS_VECTORS[target];
+  // three.js rotates about +Y as x' = x·cos + z·sin, z' = -x·sin + z·cos.
+  for (const quarter of [0, 1, 2, 3]) {
+    const angle = (quarter * Math.PI) / 2;
+    const cos = Math.round(Math.cos(angle));
+    const sin = Math.round(Math.sin(angle));
+    if (sx * cos + sz * sin === tx && -sx * sin + sz * cos === tz) {
+      return angle;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Rotate an imported model until it faces the way the runtime assumes.
+ *
+ * A model facing +Z and the same model facing -Z are indistinguishable
+ * from their file: same bounding box, same node tree, same clips. So the
+ * facing axis is supplied, not detected, and applied here. With nothing
+ * supplied this is a no-op, which is what keeps an already-correct game
+ * unchanged.
+ *
+ * The rotation is written to `object.rotation`, so pass a wrapper when
+ * gameplay code also writes `rotation.y` on the same object — otherwise
+ * the game's facing assignment overwrites the correction on the first
+ * frame. `A3GameAssetLibrary.tryInstantiate` wraps for exactly this
+ * reason.
+ *
+ * @param {THREE.Object3D} object
+ * @param {{forwardAxis?: string, runtimeForwardAxis?: string,
+ *          yawOffsetDegrees?: number, pitchOffsetDegrees?: number,
+ *          rollOffsetDegrees?: number, orientation?: object}} [options]
+ * @returns {THREE.Object3D} the same object
+ */
+export function orientModel(object, options = {}) {
+  if (!object) throw new TypeError('orientModel requires an Object3D');
+  const orientation = options.orientation ?? {};
+  const forwardAxis = normalizeForwardAxis(
+    options.forwardAxis ?? orientation.forward_axis,
+  );
+  const runtimeForwardAxis =
+    normalizeForwardAxis(
+      options.runtimeForwardAxis ?? orientation.runtime_forward_axis,
+    ) || A3GAME_RUNTIME_FORWARD_AXIS;
+  const yawDegrees = Number(
+    options.yawOffsetDegrees ?? orientation.yaw_offset_degrees ?? 0,
+  );
+  const pitchDegrees = Number(
+    options.pitchOffsetDegrees ?? orientation.pitch_offset_degrees ?? 0,
+  );
+  const rollDegrees = Number(
+    options.rollOffsetDegrees ?? orientation.roll_offset_degrees ?? 0,
+  );
+
+  const yaw =
+    (forwardAxis ? forwardAxisYaw(forwardAxis, runtimeForwardAxis) : 0) +
+    THREE.MathUtils.degToRad(Number.isFinite(yawDegrees) ? yawDegrees : 0);
+  const pitch = THREE.MathUtils.degToRad(
+    Number.isFinite(pitchDegrees) ? pitchDegrees : 0,
+  );
+  const roll = THREE.MathUtils.degToRad(
+    Number.isFinite(rollDegrees) ? rollDegrees : 0,
+  );
+  if (yaw === 0 && pitch === 0 && roll === 0) return object;
+
+  object.rotation.set(
+    object.rotation.x + pitch,
+    object.rotation.y + yaw,
+    object.rotation.z + roll,
+  );
+  object.updateMatrixWorld(true);
+  return object;
+}
+
+/**
  * Make a freshly loaded model behave like scene content.
  *
  * A glTF mesh does not cast or receive shadows until told to: the format
@@ -309,14 +441,22 @@ export function groundObject(object, options = {}) {
  * that lights correctly but floats shadowless above the floor is the
  * single most common "why does my imported asset look wrong" symptom.
  *
+ * Facing is corrected first, because every measurement that follows —
+ * the fit to height, the grounding, the bounding box a game reads back —
+ * is taken from the rotated model.
+ *
  * @param {THREE.Object3D} object
  * @param {{height?: number, ground?: boolean,
  *          castShadow?: boolean, receiveShadow?: boolean,
- *          envMapIntensity?: number, frustumCulled?: boolean}} [options]
+ *          envMapIntensity?: number, frustumCulled?: boolean,
+ *          forwardAxis?: string, runtimeForwardAxis?: string,
+ *          yawOffsetDegrees?: number, pitchOffsetDegrees?: number,
+ *          rollOffsetDegrees?: number, orientation?: object}} [options]
  * @returns {THREE.Object3D} the same object
  */
 export function prepareModel(object, options = {}) {
   if (!object) throw new TypeError('prepareModel requires an Object3D');
+  orientModel(object, options);
   if (options.height !== undefined) fitToHeight(object, options.height);
   if (options.ground) groundObject(object, { horizontal: false });
 
@@ -343,6 +483,56 @@ export function prepareModel(object, options = {}) {
     }
   });
   return object;
+}
+
+/**
+ * Draw one imported model many times, in one draw call.
+ *
+ * This is what makes generated art usable for *scenery*. A generated mesh
+ * costs tens of thousands of triangles, which is affordable once for a
+ * character the player inspects and ruinous seventy-four times for trees:
+ * seventy-four clones are seventy-four draw calls and seventy-four times
+ * the geometry. An `InstancedMesh` is one of each, with the per-copy
+ * transforms living on the GPU.
+ *
+ * Only single-mesh bodies qualify, which is exactly what image-to-3D
+ * produces. A skinned or multi-part model returns `null` rather than being
+ * silently flattened — losing a skeleton is not a detail to discover at
+ * runtime — so a caller can fall back to whatever it was drawing before.
+ *
+ * The source model's own transform is baked into each instance, so a model
+ * already scaled by `fitToHeight` keeps its metre size.
+ *
+ * @param {THREE.Object3D} source a prepared, non-skinned model
+ * @param {number} count
+ * @param {{castShadow?: boolean, receiveShadow?: boolean,
+ *          frustumCulled?: boolean}} [options]
+ * @returns {THREE.InstancedMesh | null}
+ */
+export function createInstancedFromModel(source, count, options = {}) {
+  if (!source || !Number.isFinite(count) || count <= 0) return null;
+  const meshes = [];
+  let skinned = false;
+  source.traverse((child) => {
+    if (child.isSkinnedMesh) skinned = true;
+    else if (child.isMesh) meshes.push(child);
+  });
+  if (skinned || meshes.length !== 1) return null;
+
+  const [mesh] = meshes;
+  source.updateMatrixWorld(true);
+  const geometry = mesh.geometry.clone();
+  // Bake the model's transform into the geometry, so an instance matrix
+  // only has to carry where the copy goes, not how the model was fitted.
+  geometry.applyMatrix4(mesh.matrixWorld);
+  const instanced = new THREE.InstancedMesh(geometry, mesh.material, count);
+  instanced.castShadow = options.castShadow !== false;
+  instanced.receiveShadow = options.receiveShadow !== false;
+  if (options.frustumCulled !== undefined) {
+    instanced.frustumCulled = options.frustumCulled;
+  }
+  instanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  return instanced;
 }
 
 /**

@@ -62,10 +62,12 @@ export {
 } from './subsystems/index.js';
 
 export {
+  A3GAME_RUNTIME_FORWARD_AXIS,
   A3GameAnimationDirector,
   A3GameAssetLibrary,
   A3GameCollisionProbe,
   A3GameEnvironmentPreset,
+  A3GameForwardAxis,
   A3GameHudLayer,
   A3GameInputRouter,
   A3GameLookMode,
@@ -76,6 +78,7 @@ export {
   DEFAULT_KEY_BINDINGS,
   createContactShadow,
   createFillLight,
+  createInstancedFromModel,
   createMaterial,
   createRadialGradientTexture,
   createRoundedBox,
@@ -83,8 +86,10 @@ export {
   createSunLight,
   disposeObject3D,
   fitToHeight,
+  forwardAxisYaw,
   groundObject,
   measureObject,
+  orientModel,
   prepareModel,
   resolveEntityId,
 } from './engine/index.js';

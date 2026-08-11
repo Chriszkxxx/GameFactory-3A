@@ -16,7 +16,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { prepareModel } from './visual-kit.js';
+import { orientModel, prepareModel } from './visual-kit.js';
 
 export class A3GameAssetLibrary {
   /**
@@ -128,8 +128,25 @@ export class A3GameAssetLibrary {
     return entry;
   }
 
-  /** @returns {object | null} */
+  /**
+   * @returns {object | null}
+   *
+   * An **array** is a preference list: the first staged candidate wins.
+   * That is what lets a game name the art it wants without knowing what
+   * was actually produced — `['explorer_ranger', 'robot_expressive']`
+   * uses the generated ranger when one exists, the CC0 stand-in when it
+   * does not, and returns null so the caller falls back to a primitive
+   * when neither has been staged. Nothing about that decision belongs in
+   * gameplay code, and none of it needs a manifest to be present.
+   */
   findEntry(reference) {
+    if (Array.isArray(reference)) {
+      for (const candidate of reference) {
+        const entry = this.findEntry(candidate);
+        if (entry) return entry;
+      }
+      return null;
+    }
     const key = String(reference ?? '');
     if (this.byArtifactId.has(key)) return this.byArtifactId.get(key);
     const group = this.byAssetId.get(key);
@@ -196,27 +213,31 @@ export class A3GameAssetLibrary {
    * A generated game is written to run with an empty manifest — a
    * mechanic task usually precedes its art — so "use the good model when
    * there is one" is the normal case rather than an edge case. The
-   * returned object is scene-ready: normalised to `height` if given, and
-   * shadow-enabled, which `GLTFLoader` never does on its own.
+   * returned object is scene-ready: rotated to face the runtime forward
+   * axis, normalised to `height` if given, and shadow-enabled, which
+   * `GLTFLoader` never does on its own.
    *
    * A staged-but-unloadable artifact records a warning and yields `null`
    * rather than throwing, because a broken asset must not cost the player
    * the whole game.
    *
-   * @param {string} reference artifact_id or asset_id
+   * @param {string | string[]} reference artifact_id, asset_id, or a
+   *        preference list of either
    * @param {{height?: number, ground?: boolean, envMapIntensity?: number,
    *          castShadow?: boolean, receiveShadow?: boolean,
-   *          frustumCulled?: boolean}} [options]
+   *          frustumCulled?: boolean, forwardAxis?: string,
+   *          yawOffsetDegrees?: number, orient?: boolean}} [options]
    * @returns {Promise<{object: THREE.Object3D,
    *                    animations: THREE.AnimationClip[],
-   *                    entry: object} | null>}
+   *                    entry: object,
+   *                    orientation: object} | null>}
    */
   async tryInstantiate(reference, options = {}) {
     if (!this.has(reference)) return null;
     try {
       const loaded = await this.instantiate(reference);
-      prepareModel(loaded.object, options);
-      return loaded;
+      const prepared = this.#prepare(loaded, options);
+      return prepared;
     } catch (error) {
       this.warnings.push(
         `Staged asset ${String(reference)} failed to load: ` +
@@ -252,11 +273,19 @@ export class A3GameAssetLibrary {
     const loaded = await this.tryInstantiate(reference, options);
     if (loaded) return { ...loaded, source: 'asset' };
 
+    // A procedural body is authored by the game, so it already faces the
+    // runtime forward axis: no orientation correction applies to it.
     const object = fallback();
     if (!object?.isObject3D) {
       throw new TypeError('The fallback factory must return an Object3D');
     }
-    return { object, animations: [], source: 'fallback', entry: null };
+    return {
+      object,
+      animations: [],
+      source: 'fallback',
+      entry: null,
+      orientation: {},
+    };
   }
 
   /**
@@ -325,8 +354,75 @@ export class A3GameAssetLibrary {
     this.fileLoaders.glb?.dracoLoader?.dispose?.();
   }
 
-  #createGltfLoader() {
-    const loader = new GLTFLoader();
+  /**
+   * Turn a loaded artifact into scene-ready content.
+   *
+   * Two facts the adapter recorded are applied here, because neither can
+   * be recovered from the glTF at runtime:
+   *
+   * - **facing**, which is rotated into the runtime convention;
+   * - **scale**, when the reviewer recorded a real-world height and the
+   *   caller did not override it.
+   *
+   * The correction is applied to the *model*, inside a wrapper that is
+   * handed back as the object. That split is deliberate: gameplay code
+   * and world specs both assign `rotation.y` on the object they are
+   * given, and rotating the same node the correction lives on would undo
+   * it on the first frame. The wrapper is the game's to turn; the model
+   * inside it is already facing the right way.
+   *
+   * With no orientation recorded this reduces to the previous behaviour
+   * exactly: no wrapper, no rotation, no implied height.
+   */
+  #prepare(loaded, options = {}) {
+    const orientation = { ...(loaded.entry?.orientation ?? {}) };
+    const forwardAxis = options.forwardAxis ?? orientation.forward_axis ?? '';
+    const yaw = Number(
+      options.yawOffsetDegrees ?? orientation.yaw_offset_degrees ?? 0,
+    );
+    const pitch = Number(
+      options.pitchOffsetDegrees ?? orientation.pitch_offset_degrees ?? 0,
+    );
+    const roll = Number(
+      options.rollOffsetDegrees ?? orientation.roll_offset_degrees ?? 0,
+    );
+    const rotates =
+      options.orient !== false &&
+      (Boolean(forwardAxis) || yaw !== 0 || pitch !== 0 || roll !== 0);
+
+    const hint = Number(orientation.scale_hint_metres);
+    const height =
+      options.height ?? (Number.isFinite(hint) && hint > 0 ? hint : undefined);
+
+    let object = loaded.object;
+    if (rotates) {
+      const model = object;
+      orientModel(model, {
+        forwardAxis,
+        runtimeForwardAxis: orientation.runtime_forward_axis,
+        yawOffsetDegrees: yaw,
+        pitchOffsetDegrees: pitch,
+        rollOffsetDegrees: roll,
+      });
+      object = new THREE.Group();
+      object.name = `${model.name || loaded.entry?.asset_id || 'asset'}_oriented`;
+      object.add(model);
+    }
+
+    prepareModel(object, { ...options, height, orientation: {}, forwardAxis: '' });
+
+    if (!forwardAxis && orientation.needs_vision_check) {
+      this.warnings.push(
+        `Asset ${String(loaded.entry?.asset_id ?? '')} has no verified ` +
+          'facing axis, so it is placed exactly as authored. Render it ' +
+          'with three.preview.orientation_report and record the answer ' +
+          'with three.assets.set_orientation if it faces the wrong way.',
+      );
+    }
+    return { ...loaded, object, model: loaded.object, orientation };
+  }
+
+  #createGltfLoader() {    const loader = new GLTFLoader();
     const draco = new DRACOLoader();
     draco.setDecoderPath(this.dracoDecoderPath);
     loader.setDRACOLoader(draco);

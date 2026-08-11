@@ -13,6 +13,7 @@ from .build import ThreeBuildClient
 from .config import DEFAULT_API_VERSION, ThreeClientConfig
 from .observe import ThreeObserveClient
 from .plugin import ThreePluginClient
+from .preview import ThreePreviewClient
 from .project import ThreeProjectClient
 from .reflection import ThreeReflectionClient
 from .runtime import ThreeRuntimeClient
@@ -79,6 +80,10 @@ class ThreeClient:
             self._config,
             self.assets,
         )
+        self.preview = ThreePreviewClient(
+            self._config,
+            self.assets,
+        )
         self.runtime = ThreeRuntimeClient(
             self._config,
             self.assets,
@@ -108,5 +113,8 @@ class ThreeClient:
         )
         info["payload"]["world_registry_root"] = str(
             self._config.world_registry_root
+        )
+        info["payload"]["preview_root"] = str(
+            self._config.preview_root
         )
         return info

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Mapping
 
 from ..config import DEFAULT_IMPORT_ROOT, ThreeClientConfig
@@ -11,6 +12,15 @@ from ._internal import (
     AssetService,
     GeneratedAssetSourceResolver,
     ResolvedAssetSource,
+)
+from ._internal.inspectors import inspect_source
+from ._internal.orientation import (
+    RUNTIME_FORWARD_AXIS,
+    RUNTIME_UP_AXIS,
+    ORIENTATION_OPTION_KEYS,
+    OrientationError,
+    analyze_geometry,
+    summarize,
 )
 
 
@@ -378,6 +388,199 @@ class ThreeAssetsClient:
             "assets.get_metadata",
             artifacts=[record.to_dict()],
         ).to_dict()
+
+    # ── Orientation ──────────────────────────────────────────────────────
+    #
+    # glTF records which way is up and nothing about which way is front.
+    # These three operations make the missing fact explicit: analyze it,
+    # record it, read it back. The runtime applies whatever is recorded
+    # and leaves an unrecorded model untouched, so annotating an asset can
+    # never make an already-correct game worse.
+
+    def set_orientation(
+        self,
+        reference: str,
+        *,
+        forward_axis: str = "",
+        up_axis: str = "",
+        yaw_offset_degrees: float | None = None,
+        pitch_offset_degrees: float | None = None,
+        roll_offset_degrees: float | None = None,
+        scale_hint_metres: float | None = None,
+        pivot: str = "",
+        verified_by: str = "",
+        notes: str = "",
+    ) -> dict[str, Any]:
+        """Record which way a staged model faces.
+
+        ``forward_axis`` names the axis the model *currently* faces in its
+        own space; the runtime derives the yaw that turns it to face the
+        runtime forward axis, so a caller never computes an angle.
+        ``yaw_offset_degrees`` remains available for the models that face
+        no cardinal axis at all.
+
+        Set ``verified_by='agent_vision'`` when the answer came from
+        looking at rendered views, so a later pass can tell a checked
+        asset from a guessed one.
+        """
+
+        operation = "assets.set_orientation"
+        artifact_id = self._resolve_artifact_id(reference)
+        if artifact_id is None:
+            return ThreeOperationResult.failure(
+                operation,
+                f"Unknown asset reference: {reference}",
+            ).to_dict()
+        updates = {
+            "forward_axis": forward_axis,
+            "up_axis": up_axis,
+            "yaw_offset_degrees": yaw_offset_degrees,
+            "pitch_offset_degrees": pitch_offset_degrees,
+            "roll_offset_degrees": roll_offset_degrees,
+            "scale_hint_metres": scale_hint_metres,
+            "pivot": pivot,
+            "verified_by": verified_by,
+            "notes": notes,
+        }
+        updates = {
+            key: value
+            for key, value in updates.items()
+            if value not in (None, "")
+        }
+        if not updates:
+            return ThreeOperationResult.failure(
+                operation,
+                "Nothing to record; pass at least one of "
+                f"{list(ORIENTATION_OPTION_KEYS)}",
+            ).to_dict()
+        try:
+            payload = self._service.set_orientation(artifact_id, updates)
+        except OrientationError as exc:
+            return ThreeOperationResult.failure(
+                operation,
+                str(exc),
+                payload={"reference": reference},
+            ).to_dict()
+        except Exception as exc:
+            return ThreeOperationResult.failure(
+                operation,
+                f"{type(exc).__name__}: {exc}",
+                payload={"reference": reference},
+            ).to_dict()
+        record = self._service.artifacts.get(artifact_id)
+        return ThreeOperationResult.success(
+            operation,
+            artifacts=[record.to_dict()] if record else [],
+            payload={
+                **payload,
+                "reference": reference,
+                "summary": summarize(payload.get("orientation")),
+            },
+        ).to_dict()
+
+    def get_orientation(self, reference: str) -> dict[str, Any]:
+        """Read the recorded orientation of one staged artifact."""
+
+        operation = "assets.get_orientation"
+        artifact_id = self._resolve_artifact_id(reference)
+        if artifact_id is None:
+            return ThreeOperationResult.failure(
+                operation,
+                f"Unknown asset reference: {reference}",
+            ).to_dict()
+        payload = self._service.get_orientation(artifact_id)
+        return ThreeOperationResult.success(
+            operation,
+            payload={
+                **payload,
+                "reference": reference,
+                "summary": summarize(payload.get("orientation")),
+            },
+        ).to_dict()
+
+    def analyze_orientation(
+        self,
+        reference: str | Mapping[str, Any],
+        *,
+        asset_type: str = "",
+    ) -> dict[str, Any]:
+        """Report what geometry alone says about a model's facing.
+
+        Accepts a staged reference or an unstaged repository task
+        identity. The result narrows the answer and never states it: a
+        bounding box cannot tell a chest from a back. Pair it with
+        ``three.preview.orientation_report`` when a decision is needed.
+        """
+
+        operation = "assets.analyze_orientation"
+        resolved_type = asset_type
+        if isinstance(reference, Mapping):
+            resolved = self.resolve_source(
+                reference,
+                asset_type=asset_type,
+            )
+            if not resolved.get("ok"):
+                resolved["operation"] = operation
+                return resolved
+            path = Path(
+                str((resolved.get("payload") or {}).get("path") or "")
+            )
+            source_descriptor: Any = dict(reference)
+        else:
+            artifact_id = self._resolve_artifact_id(reference)
+            record = (
+                self._service.artifacts.get(artifact_id)
+                if artifact_id
+                else None
+            )
+            if record is None:
+                return ThreeOperationResult.failure(
+                    operation,
+                    f"Unknown asset reference: {reference}",
+                ).to_dict()
+            public_root = self._config.public_root
+            if public_root is None:
+                return ThreeOperationResult.failure(
+                    operation,
+                    "project_path is not configured",
+                ).to_dict()
+            path = public_root / record.backend_path.lstrip("/")
+            resolved_type = asset_type or record.type
+            source_descriptor = {"reference": reference}
+
+        try:
+            inspection = inspect_source(path, asset_type=resolved_type)
+        except Exception as exc:
+            return ThreeOperationResult.failure(
+                operation,
+                f"{type(exc).__name__}: {exc}",
+                payload={"source_path": str(path)},
+            ).to_dict()
+        evidence = analyze_geometry(inspection, asset_type=resolved_type)
+        return ThreeOperationResult.success(
+            operation,
+            payload={
+                "source": source_descriptor,
+                "source_path": str(path),
+                "asset_type": resolved_type,
+                "evidence": evidence,
+                "runtime_forward_axis": RUNTIME_FORWARD_AXIS,
+                "runtime_up_axis": RUNTIME_UP_AXIS,
+            },
+        ).to_dict()
+
+    def _resolve_artifact_id(self, reference: str) -> str | None:
+        """Accept an ``artifact_id`` or an ``asset_id``, as the runtime does."""
+
+        key = str(reference or "")
+        if not key:
+            return None
+        if self._service.artifacts.get(key) is not None:
+            return key
+        for record in self._service.artifacts.list():
+            if record.asset_id == key:
+                return record.artifact_id
+        return None
 
     def write_manifest(self) -> dict[str, Any]:
         try:

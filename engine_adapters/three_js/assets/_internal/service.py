@@ -25,6 +25,13 @@ from .artifacts import (
     normalize_backend_path,
 )
 from .inspectors import inspect_source
+from .orientation import (
+    RUNTIME_FORWARD_AXIS,
+    apply_orientation_update,
+    default_orientation,
+    orientation_from_options,
+    orientation_is_directional,
+)
 
 MANIFEST_RELATIVE_PATH = "assets/manifest.json"
 MANIFEST_VERSION = 1
@@ -150,9 +157,21 @@ class AssetService:
         inspection = inspect_source(source, asset_type=asset_type)
         normalized_type = normalize_artifact_type(asset_type)
         destination = self.resolve_destination(asset_type, dst_path)
+        explicit_asset_id = str(asset_id or "").strip()
         resolved_asset_id = (
-            str(asset_id or "").strip()
-            or asset_id_from_source(str(source))
+            explicit_asset_id or asset_id_from_source(str(source))
+        )
+        # Name the staged file after the asset when the caller named the
+        # asset. Generated task outputs are all called `model.glb` — that
+        # is the artifact key, not an identity — so staging them under the
+        # source name makes every generated prop overwrite the last one,
+        # leaving a manifest whose entries all point at the same URL.
+        # When no asset_id was supplied the source name *is* the identity,
+        # and is kept.
+        staged_name = (
+            f"{resolved_asset_id}{source.suffix}"
+            if explicit_asset_id and source.is_file()
+            else source.name
         )
 
         target_root = public_root / destination
@@ -174,7 +193,7 @@ class AssetService:
                 else f"{destination}/{resolved_asset_id}"
             )
         else:
-            target = target_root / source.name
+            target = target_root / staged_name
             if target.is_file() and not replace_existing:
                 warnings.append(
                     f"Existing staged file was overwritten: {target}"
@@ -185,7 +204,7 @@ class AssetService:
                 relative = sidecar.relative_to(source.parent)
                 if _copy_file(sidecar, target_root / relative):
                     staged.append(target_root / relative)
-            runtime_relative = f"{destination}/{source.name}"
+            runtime_relative = f"{destination}/{staged_name}"
 
         backend_path = "/" + normalize_backend_path(runtime_relative)
         backend_class = backend_class_for(
@@ -194,13 +213,37 @@ class AssetService:
             skinned=bool(inspection.get("skinned")),
         )
         spawnable = backend_class in SPAWNABLE_BACKEND_CLASSES
+
+        # Orientation is parsed out of `options` rather than being left to
+        # fall through as an opaque `option_*` hint: a facing axis that
+        # only the metadata knows about cannot reach the runtime, and the
+        # runtime is the only place that can act on it.
+        orientation, remaining_options = orientation_from_options(
+            options,
+            asset_type=asset_type,
+            inspection=inspection,
+        )
         metadata = {
             "destination": destination,
             "staged_root": str(target_root),
             "staged_files": [str(item) for item in staged],
             "inspection": inspection,
         }
-        for key, value in options.items():
+        if orientation_is_directional(normalized_type):
+            metadata["orientation"] = orientation
+            if (
+                orientation.get("needs_vision_check")
+                and not orientation.get("forward_axis")
+            ):
+                warnings.append(
+                    "No forward_axis was declared for a directional "
+                    f"{normalized_type}. glTF does not record facing, so "
+                    "the runtime will place this model exactly as it was "
+                    "authored — which is a coin flip. Render it with "
+                    "three.preview.orientation_report and record the "
+                    "answer with three.assets.set_orientation."
+                )
+        for key, value in remaining_options.items():
             metadata.setdefault(f"option_{key}", value)
 
         record = ArtifactRecord(
@@ -239,6 +282,7 @@ class AssetService:
             metadata=metadata,
         )
         self.artifacts.upsert(record)
+        warnings.extend(self._supersede_stale(record))
         self.write_manifest()
         return {
             "ok": True,
@@ -252,6 +296,106 @@ class AssetService:
             "manifest_path": str(self.manifest_path or ""),
             "staged_file_count": len(staged),
             "inspection": inspection,
+            "orientation": dict(metadata.get("orientation") or {}),
+        }
+
+    def _supersede_stale(self, record: Any) -> list[str]:
+        """Drop older records of the same asset staged at another path.
+
+        An ``asset_id`` names one asset in one project, but an artifact_id
+        is derived partly from where the file was staged — so re-importing
+        an asset to a different filename registers a *second* record
+        instead of replacing the first. The project then carries two
+        entries for one asset, and a runtime lookup takes whichever comes
+        first, which may be the version nobody wanted.
+
+        The stale staged file goes too. Nothing references it, and an
+        orphaned mesh in ``public/`` is pure download weight in a shipped
+        build.
+        """
+
+        warnings: list[str] = []
+        public_root = self._config.public_root
+        for existing in self.artifacts.list(type=record.type):
+            if existing.artifact_id == record.artifact_id:
+                continue
+            if existing.asset_id != record.asset_id:
+                continue
+            self.artifacts.remove(existing.artifact_id)
+            warnings.append(
+                f"Superseded an earlier record for {record.asset_id!r} "
+                f"staged at {existing.backend_path}"
+            )
+            if public_root is None:
+                continue
+            for staged in existing.metadata.get("staged_files") or []:
+                path = Path(str(staged))
+                try:
+                    relative = path.relative_to(public_root)
+                except ValueError:
+                    continue  # never delete outside the project's public/
+                if path.is_file() and str(relative) not in {
+                    item.backend_path.lstrip("/")
+                    for item in self.artifacts.list()
+                }:
+                    path.unlink()
+
+        return warnings
+
+    def set_orientation(
+        self,
+        artifact_id: str,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Record a facing decision against one registered artifact.
+
+        Separate from ``import_asset`` on purpose. The decision usually
+        arrives *after* the import, from whoever looked at the rendered
+        views, and re-staging a5 MB mesh to write one string would be an
+        absurd price for a fact about it.
+        """
+
+        record = self.artifacts.get(artifact_id)
+        if record is None:
+            raise ValueError(f"Unknown artifact_id: {artifact_id}")
+        metadata = dict(record.metadata or {})
+        existing = dict(metadata.get("orientation") or {}) or (
+            default_orientation(
+                asset_type=record.type,
+                inspection=metadata.get("inspection"),
+            )
+        )
+        orientation = apply_orientation_update(existing, updates)
+        metadata["orientation"] = orientation
+        updated = ArtifactRecord.from_dict(
+            {**record.to_dict(), "metadata": metadata}
+        )
+        self.artifacts.upsert(updated)
+        self.write_manifest()
+        return {
+            "artifact_id": updated.artifact_id,
+            "asset_id": updated.asset_id,
+            "type": updated.type,
+            "orientation": orientation,
+            "manifest_path": str(self.manifest_path or ""),
+        }
+
+    def get_orientation(self, artifact_id: str) -> dict[str, Any]:
+        record = self.artifacts.get(artifact_id)
+        if record is None:
+            raise ValueError(f"Unknown artifact_id: {artifact_id}")
+        metadata = dict(record.metadata or {})
+        return {
+            "artifact_id": record.artifact_id,
+            "asset_id": record.asset_id,
+            "type": record.type,
+            "orientation": dict(metadata.get("orientation") or {})
+            or default_orientation(
+                asset_type=record.type,
+                inspection=metadata.get("inspection"),
+            ),
+            "inspection": dict(metadata.get("inspection") or {}),
+            "runtime_forward_axis": RUNTIME_FORWARD_AXIS,
         }
 
     def validate_asset(
@@ -416,6 +560,13 @@ class AssetService:
                         "bounds"
                     )
                     or {}
+                ),
+                # The runtime reads this to turn an imported model until
+                # it faces the way the game thinks it does. Absent means
+                # "nobody recorded it", and the runtime then leaves the
+                # model exactly as authored rather than guessing.
+                "orientation": dict(
+                    record.metadata.get("orientation") or {}
                 ),
             }
             for record in self.artifacts.list()
