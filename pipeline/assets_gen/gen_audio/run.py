@@ -1,9 +1,10 @@
 """
 AudioGen batch/demo runner.
 
-One registered ``audio`` task exposes two offline asset routes:
-  * ``audio_type=dialogue``     -> Qwen3-TTS
-  * ``audio_type=sound_effect`` -> Woosh-DFlow
+One registered ``audio`` task exposes two asset routes. Each route can use a
+local model or the Seed Audio cloud API:
+  * ``audio_type=dialogue``     -> Qwen3-TTS (default) / Seed Audio
+  * ``audio_type=sound_effect`` -> Woosh-DFlow (default) / Seed Audio
 
 Examples:
     python pipeline/assets_gen/gen_audio/run.py --game gameA_cyberpunk_shooter
@@ -12,6 +13,9 @@ Examples:
         --text "发现目标" --task-id spotted_target
     python pipeline/assets_gen/gen_audio/run.py --audio-type sound_effect \
         --prompt "a single futuristic rifle shot" --task-id rifle_shot
+    python pipeline/assets_gen/gen_audio/run.py --dialogue-backend seed_audio \
+        --audio-type dialogue --text "发现目标" \
+        --cache-dir test_data/outputs/_api_cache
 """
 from __future__ import annotations
 
@@ -37,6 +41,9 @@ DEFAULT_WOOSH_AE_CKPT = str(_REPO_ROOT / "checkpoints" / "Woosh-AE")
 DEFAULT_WOOSH_TEXT_CONDITIONER_CKPT = str(
     _REPO_ROOT / "checkpoints" / "TextConditionerA"
 )
+DEFAULT_SEED_AUDIO_MODEL = "seed-audio-1.0"
+DIALOGUE_BACKENDS = ("qwen3_tts", "seed_audio")
+SOUND_EFFECT_BACKENDS = ("woosh", "seed_audio")
 DEFAULT_TASKS = paths.collect_jsonl(TASK_KIND)
 
 
@@ -75,6 +82,33 @@ def load_sound_effect_model(
         release_base_url=release_base_url,
         num_steps=num_steps,
         cfg=cfg,
+    )
+
+
+def load_seed_audio_model(
+    mode: str,
+    model_id: str = DEFAULT_SEED_AUDIO_MODEL,
+    device: str = "cpu",
+    cache_dir: str | None = None,
+    speaker_id: str | None = None,
+    api_base: str | None = None,
+    http_timeout: int = 300,
+    sample_rate: int = 24_000,
+):
+    """Load the synchronous Seed Audio API wrapper for one AudioGen slot."""
+    from models.gen_audio.seed_audio_model import SeedAudioModel
+
+    print(f"[run] Loading SeedAudioModel ({mode}) from API model: {model_id}")
+    return SeedAudioModel(
+        model_path=model_id,
+        device=device,
+        mode=mode,
+        cache_dir=cache_dir,
+        speaker_id=speaker_id,
+        api_base=api_base,
+        http_timeout=http_timeout,
+        sample_rate=sample_rate,
+        verbose=True,
     )
 
 
@@ -125,7 +159,19 @@ def run_from_jsonl(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate offline dialogue and game SFX assets.")
+    parser = argparse.ArgumentParser(description="Generate dialogue and game SFX assets.")
+    parser.add_argument(
+        "--dialogue-backend",
+        choices=DIALOGUE_BACKENDS,
+        default=os.environ.get("AAAGF_DIALOGUE_BACKEND", "qwen3_tts"),
+        help="Dialogue model slot: local Qwen3-TTS or the Seed Audio API.",
+    )
+    parser.add_argument(
+        "--sound-effect-backend",
+        choices=SOUND_EFFECT_BACKENDS,
+        default=os.environ.get("AAAGF_SOUND_EFFECT_BACKEND", "woosh"),
+        help="Sound-effect model slot: local Woosh or the Seed Audio API.",
+    )
     parser.add_argument(
         "--dialogue-ckpt",
         default=os.environ.get("QWEN3_TTS_CKPT", DEFAULT_DIALOGUE_CKPT),
@@ -158,6 +204,38 @@ def main() -> None:
         action="store_false",
         dest="auto_download",
         help="Fail instead of downloading missing Woosh checkpoints.",
+    )
+    parser.add_argument(
+        "--seed-audio-model",
+        default=os.environ.get("SEED_AUDIO_MODEL", DEFAULT_SEED_AUDIO_MODEL),
+        help="Seed Audio API model id.",
+    )
+    parser.add_argument(
+        "--seed-audio-api-base",
+        default=os.environ.get("SEED_AUDIO_API_BASE"),
+        help="Optional Seed Audio API root override.",
+    )
+    parser.add_argument(
+        "--seed-audio-speaker-id",
+        default=os.environ.get("SEED_AUDIO_SPEAKER_ID"),
+        help="Optional Seed Audio speaker resource id; Qwen speaker names are not reused.",
+    )
+    parser.add_argument(
+        "--seed-audio-sample-rate",
+        type=int,
+        default=24_000,
+        choices=[8000, 16000, 24000, 32000, 44100, 48000],
+    )
+    parser.add_argument(
+        "--seed-audio-timeout",
+        type=int,
+        default=300,
+        help="Per-request HTTP timeout in seconds for Seed Audio.",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=os.environ.get("AAAGF_API_CACHE"),
+        help="Cloud API response cache; reuse identical requests instead of paying twice.",
     )
     parser.add_argument("--game", default=None,
                         help=f"Game project id. Known: {paths.list_games() or '<none>'}")
@@ -207,18 +285,41 @@ def main() -> None:
     dialogue_model = None
     sound_effect_model = None
     if active_filter != "sound_effect":
-        dialogue_model = load_dialogue_model(args.dialogue_ckpt, device=args.device)
+        if args.dialogue_backend == "seed_audio":
+            dialogue_model = load_seed_audio_model(
+                "dialogue",
+                model_id=args.seed_audio_model,
+                device=args.device,
+                cache_dir=args.cache_dir,
+                speaker_id=args.seed_audio_speaker_id,
+                api_base=args.seed_audio_api_base,
+                http_timeout=args.seed_audio_timeout,
+                sample_rate=args.seed_audio_sample_rate,
+            )
+        else:
+            dialogue_model = load_dialogue_model(args.dialogue_ckpt, device=args.device)
     if active_filter != "dialogue":
-        sound_effect_model = load_sound_effect_model(
-            args.sound_effect_ckpt,
-            device=args.device,
-            num_steps=args.woosh_steps,
-            cfg=args.woosh_cfg,
-            autoencoder_ckpt=args.woosh_ae_ckpt,
-            text_conditioner_ckpt=args.woosh_text_conditioner_ckpt,
-            auto_download=args.auto_download,
-            release_base_url=args.woosh_release_base_url,
-        )
+        if args.sound_effect_backend == "seed_audio":
+            sound_effect_model = load_seed_audio_model(
+                "sound_effect",
+                model_id=args.seed_audio_model,
+                device=args.device,
+                cache_dir=args.cache_dir,
+                api_base=args.seed_audio_api_base,
+                http_timeout=args.seed_audio_timeout,
+                sample_rate=args.seed_audio_sample_rate,
+            )
+        else:
+            sound_effect_model = load_sound_effect_model(
+                args.sound_effect_ckpt,
+                device=args.device,
+                num_steps=args.woosh_steps,
+                cfg=args.woosh_cfg,
+                autoencoder_ckpt=args.woosh_ae_ckpt,
+                text_conditioner_ckpt=args.woosh_text_conditioner_ckpt,
+                auto_download=args.auto_download,
+                release_base_url=args.woosh_release_base_url,
+            )
     operator = make_operator(
         dialogue_model,
         sound_effect_model,
