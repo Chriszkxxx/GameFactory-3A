@@ -22,5 +22,8 @@
     {"name": "light_attack"},
     {"name": "heavy_attack"},
     {"name": "restart_arena"}
+  ],
+  "public_api_paths": [
+    "Source/ArenaFighterExample/Public/ArenaFighterMechanicContract.h"
   ]
 }

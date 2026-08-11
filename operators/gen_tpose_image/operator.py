@@ -6,9 +6,9 @@ foreground / matting model) and processes an input dict into a T-pose RGBA
 image saved as PNG.
 
 The operator is intentionally model-agnostic: you inject any object that
-implements the same interface as `QwenEditModel` (`.edit(image, prompt, seed,
+implements the same interface as `QwenEditModel` (`.infer(image, prompt, seed,
 steps) -> PIL.Image`), and any tool model that behaves like `RMBGModel` or
-`DepthAnythingModel` (`.predict(image) -> np.ndarray`). New model wrappers
+`DepthAnythingModel` (`.infer(image) -> np.ndarray`). New model wrappers
 can be swapped in without touching this file.
 
 Output layout — two modes, chosen by whether `output_dir` is given:
@@ -26,8 +26,8 @@ Output layout — two modes, chosen by whether `output_dir` is given:
     byte-for-byte the historical behaviour. Existing callers are unaffected.
 
 Usage:
-    from models.gen_image.qwen_edit import QwenEditModel
-    from models.tools.image_matting.rmbg import RMBGModel
+    from models.gen_image.qwen_edit_model import QwenEditModel
+    from models.tools.image_matting.rmbg_model import RMBGModel
     from operators.gen_tpose_image.operator import GenTPoseImageOperator
 
     gen_model  = QwenEditModel(model_path="Qwen/Qwen-Image-Edit-2511")
@@ -71,11 +71,11 @@ class GenTPoseImageOperator:
 
     Args:
         gen_model:  A loaded image-edit model with an
-                    `.edit(image, prompt, seed, steps) -> PIL.Image` method
+                    `.infer(image, prompt, seed, steps) -> PIL.Image` method
                     (currently supports QwenEditModel).
         mask_model: (optional) A loaded foreground / matting model — either
                     `RMBGModel` or `DepthAnythingModel` (or any object with a
-                    `.predict(image) -> np.ndarray` method). The extraction
+                    `.infer(image) -> np.ndarray` method). The extraction
                     branch is selected automatically based on the class name.
         output_dir (str, optional): **Legacy flat mode.** When given, PNGs are
                     written as `<output_dir>/<task_id>_tpose_fg.png` (and

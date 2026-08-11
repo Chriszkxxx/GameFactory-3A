@@ -6,7 +6,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from pipeline.common.artifacts import read_json
+from pipeline.common.artifacts import (
+    is_relative_to,
+    read_json,
+)
 
 
 MECHANIC_CONTRACT_SCHEMA = (
@@ -77,4 +80,49 @@ def validate_mechanic_contract(
                 "Mechanic contract must define a non-empty "
                 f"{section} collection"
             )
+    raw_public_paths = contract.get("public_api_paths")
+    if (
+        isinstance(raw_public_paths, (str, bytes))
+        or not isinstance(raw_public_paths, Sequence)
+        or not raw_public_paths
+    ):
+        errors.append(
+            "Mechanic contract must define non-empty "
+            "public_api_paths"
+        )
+        raw_public_paths = []
+    seen: set[Path] = set()
+    for index, value in enumerate(raw_public_paths):
+        relative = Path(str(value or "").strip())
+        if (
+            not str(relative)
+            or relative.is_absolute()
+            or ".." in relative.parts
+        ):
+            errors.append(
+                "Mechanic contract public_api_paths entry "
+                f"is invalid at index {index}"
+            )
+            continue
+        target = (workspace / relative).resolve(
+            strict=False
+        )
+        if (
+            not is_relative_to(
+                target,
+                workspace.resolve(strict=False),
+            )
+            or not target.is_file()
+        ):
+            errors.append(
+                "Mechanic contract public_api_paths entry "
+                f"does not exist inside the workspace: {value}"
+            )
+            continue
+        if target in seen:
+            errors.append(
+                "Mechanic contract public_api_paths contains "
+                f"a duplicate entry: {value}"
+            )
+        seen.add(target)
     return not errors, errors

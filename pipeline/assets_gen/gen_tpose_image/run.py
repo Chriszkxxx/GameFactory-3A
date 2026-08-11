@@ -59,7 +59,7 @@ DEFAULT_TASKS = paths.collect_jsonl(TASK_KIND)
 
 
 def load_gen_model(ckpt: str, device: str = "cuda"):
-    from models.gen_image.qwen_edit import QwenEditModel
+    from models.gen_image.qwen_edit_model import QwenEditModel
     print(f"[run] Loading QwenEditModel from: {ckpt}")
     return QwenEditModel(model_path=ckpt, device=device)
 
@@ -67,17 +67,17 @@ def load_gen_model(ckpt: str, device: str = "cuda"):
 def load_mask_model(ckpt: str, device: str = "cuda", model_type: str = "rmbg"):
     """Load the foreground / matting model. `model_type` ∈ {"rmbg", "depth"}."""
     if model_type == "depth":
-        from models.tools.image_matting.depth_anything import DepthAnythingModel
+        from models.tools.image_matting.depth_anything_model import DepthAnythingModel
         print(f"[run] Loading DepthAnythingModel from: {ckpt}")
         return DepthAnythingModel(model_path=ckpt, device=device)
-    from models.tools.image_matting.rmbg import RMBGModel
+    from models.tools.image_matting.rmbg_model import RMBGModel
     print(f"[run] Loading RMBGModel from: {ckpt}")
     return RMBGModel(model_path=ckpt, device=device)
 
 
 def make_operator(
     gen_model,
-    mask_model,
+    mask_model=None,
     output_dir: str | None = None,
     run_id: str = paths.DEFAULT_RUN_ID,
     default_game_id: str | None = None,

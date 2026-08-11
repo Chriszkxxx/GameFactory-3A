@@ -4,7 +4,11 @@
 
 It covers the full production pipeline — 3D assets, scenes, motion, CG video, mechanics, and UI — and doubles as the evaluation harness for 3A game generation.
 
-> Use `pipeline/assets_gen/<task>/run.py`'s `generate()` for game generation and user testing; it loads/reuses models and calls the Operator. `eval.py` is the Benchmark-only artifact evaluator.
+> For asset generation, use the task runner's public API in
+> `pipeline/assets_gen/<task>/run.py`: call `load_*()` to load/reuse models,
+> `make_operator()` to wire them, then `generate(inp, operator)` for one asset.
+> The lower-level `operator.run(inp)` API expects injected models. `eval.py` only
+> evaluates existing artifacts.
 
 ---
 

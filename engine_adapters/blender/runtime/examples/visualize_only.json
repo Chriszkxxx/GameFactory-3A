@@ -1,0 +1,11 @@
+[
+  {"type": "load_scene", "payload": {"scene_path": ""}},
+  {"type": "trigger_vfx", "payload": {
+      "vfx_kind": "particle",
+      "location": [0.0, 0.0, 0.5],
+      "params": {"count": 400, "lifetime": 60}
+  }},
+  {"type": "dump_scene_report", "payload": {}},
+  {"type": "render_snapshot", "payload": {"resolution": [960, 540], "samples": 16}},
+  {"type": "save_blend", "payload": {}}
+]

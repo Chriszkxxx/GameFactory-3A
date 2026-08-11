@@ -19,10 +19,10 @@ classification, response cache, submit → poll → download) lives in
 | `gen_3d_object` | `TripoModel` | `gen_3d_object/tripo_model.py` | cloud API | `$TRIPO_API_KEY` + `scripts/installing/cloud_api_install.sh` |
 | `gen_3d_object` | `MeshyModel` | `gen_3d_object/meshy_model.py` | cloud API | `$MESHY_API_KEY` + `scripts/installing/cloud_api_install.sh` |
 | `gen_cg_video` | `SeedanceModel` | `gen_cg_video/seedance_model.py` | cloud API | `$ARK_API_KEY` + `scripts/installing/cloud_api_install.sh` |
-| `gen_image` | `QwenEditModel` | `gen_image/qwen_edit.py` | local weights | GPU |
+| `gen_image` | `QwenEditModel` | `gen_image/qwen_edit_model.py` | local weights | GPU |
 | `gen_motion` | `PuppeteerModel` | `gen_motion/puppeteer_model.py` | external source + local weights | CUDA rigging runtime |
 | `gen_motion` | `MoMaskModel` | `gen_motion/momask_model.py` | external source + local weights | CPU or CUDA generation runtime |
-| `tools/image_matting` | `RMBGModel`, `DepthAnythingModel` | `tools/image_matting/` | local weights | — |
+| `tools/image_matting` | `RMBGModel`, `DepthAnythingModel` | `tools/image_matting/{rmbg_model.py,depth_anything_model.py}` | local weights | — |
 
 `PuppeteerModel` and `MoMaskModel` run their fixed upstream repositories in
 isolated subprocesses. This avoids namespace collisions and releases GPU memory

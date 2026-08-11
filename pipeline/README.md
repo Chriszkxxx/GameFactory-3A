@@ -30,6 +30,50 @@ pipeline/
 └── full_pipeline/{run.py, eval.py}          # design doc → playable vertical slice
 ```
 
+## Public asset-generation API
+
+Each implemented `pipeline/assets_gen/<task>/run.py` exposes the same lifecycle:
+
+1. `load_*()` loads or reuses each required model slot.
+2. `make_operator()` injects those loaded models into the task Operator.
+3. `generate(inp, operator)` generates one asset and returns its result dict.
+4. `run_from_jsonl(...)` batch-drives the same `generate()` function.
+
+`generate()` does **not** load models or construct an Operator. Callers that
+already manage loaded models may use the lower-level `operator.run(inp)` API.
+
+### T-pose image example
+
+```python
+from pipeline.assets_gen.gen_tpose_image.run import (
+    generate,
+    load_gen_model,
+    load_mask_model,
+    make_operator,
+)
+
+gen_model = load_gen_model("Qwen/Qwen-Image-Edit-2511")
+mask_model = load_mask_model("briaai/RMBG-1.4", model_type="rmbg")
+operator = make_operator(gen_model, mask_model, run_id="default")
+
+result = generate(
+    {
+        "game_id": "gameA_cyberpunk_shooter",
+        "task_id": "hero_tpose",
+        "image_path": "path/to/character.png",
+        "description": "Full-body character in a neutral T-pose.",
+        "seed": 42,
+    },
+    operator,
+)
+print(result["tpose_rgba_path"])
+```
+
+The concrete wrappers used by this runner live at
+`models/gen_image/qwen_edit_model.py` and
+`models/tools/image_matting/{rmbg_model.py,depth_anything_model.py}`. Call
+`unload()` on loaded models when they are no longer needed.
+
 ## Responsibilities
 
 ### `run.py`
@@ -41,8 +85,9 @@ pipeline/
 ### `eval.py`
 1. Iterate the test set from `test_data/test_samples/<game>/<task>/*_tasks.jsonl`
    (or the cross-game `*_collect.jsonl`)
-2. Reuse `run.py`'s generation function (`from .run import generate`)
-3. Invoke `operators/<task>/metrics/` on each output
+2. Resolve artifacts from an existing `game_id` / `run_id`; never import
+   `run.py`, load generation models, or trigger generation
+3. Invoke `operators/<task>/metrics/` on each existing output
 4. Write per-task scores to `paths.eval_output_dir(...)` and the aggregate to
    `paths.eval_summary_path(...)`
 
@@ -89,8 +134,9 @@ def generate(inp: dict, operator) -> dict: ...
 def run_from_jsonl(tasks_path, operator, game_filter=None) -> list[dict]: ...
 
 # pipeline/assets_gen/gen_3d_object/eval.py
-from .run import generate
-from operators.gen_3d_object.metrics import evaluate
+# Resolve artifacts for an existing game_id/run_id and score them.
+# Do not import run.py or invoke generate().
 ```
 
-These five names are an API — `eval.py` and `test/` import them.
+These five names are the generation-runner API — callers and `test/` import
+them. `eval.py` remains independent and reads existing artifacts only.

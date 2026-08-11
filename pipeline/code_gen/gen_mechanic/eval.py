@@ -151,6 +151,10 @@ def evaluate_artifact(
             artifact_checks.get("mechanic_contract")
             is True
         )
+        checks["context_used"] = (
+            artifact_checks.get("context_used")
+            is True
+        )
         ui_free_source = artifact_checks.get(
             "ue_ui_free_source"
         )
@@ -162,6 +166,7 @@ def evaluate_artifact(
         checks["required_artifacts_passed"] = False
         checks["generated_test_source"] = False
         checks["mechanic_contract"] = False
+        checks["context_used"] = False
         checks["ui_free_source"] = False
         errors.append(
             "meta.required_artifact_checks must be an object"

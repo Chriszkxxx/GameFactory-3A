@@ -36,10 +36,10 @@ Target Engine identifier:
 {{ENGINE}}
 ```
 
-Engine Context directory:
+Existing Engine Context directory:
 
 ```text
-{{ENGINE_CONTEXT_PATH}}
+{{ENGINE_CONTEXT_ROOT}}
 ```
 
 Task:
@@ -78,19 +78,64 @@ Generated motion descriptors:
 {{MOTION_SOURCES}}
 ```
 
-Optional read-only example paths:
+Engine-validated Mechanic reference roots:
+
+```json
+{{MECHANIC_EXAMPLE_ROOTS}}
+```
+
+Task-suggested reference paths, when present:
+
+```json
+{{MECHANIC_EXAMPLE_PATHS}}
+```
+
+Allowed engineering reference purposes:
+
+```json
+{{EXAMPLE_REFERENCE_PURPOSES}}
+```
+
+Required Context usage manifest:
 
 ```text
-{{OPTIONAL_EXAMPLE_PATHS}}
+{{CONTEXT_USED_PATH}}
 ```
 
 Implement this task inside the workspace under the packet boundaries. Use the
 referenced Skill for implementation workflow, Engine API discovery,
-Mechanic/UI separation, descriptor consumption, contract publication, and
-generated-test requirements.
+Mechanic/UI separation, reference inspection, descriptor consumption, contract
+publication, provenance recording, and generated-test requirements.
+
+Do not scan or read the entire Mechanic reference root. Select the smallest set
+of files needed to understand how this Engine expresses a game-owned plugin or
+module, build configuration, public runtime adapter, and native tests in code.
+The reference may come from a completely different genre or mechanic. For
+example, a shooter plugin may teach the correct Engine plugin architecture for
+a strategy, simulation, MOBA, or entirely novel game.
+
+These files are educational engineering references only. They are not a base
+implementation, gameplay template, inheritance target, scaffold to copy, or
+runtime dependency.
+
+Derive all gameplay behavior and architecture from the current task. You may
+implement mechanics, classes, systems, and code organization that do not exist
+in any Example. Record only the reference paths actually consulted in
+`context_used.json`.
+
+Every `examples_used` entry must include a non-empty `purpose` list selected
+from the allowed engineering reference purposes above. Use purposes to state
+why the file was read, not what gameplay it contains.
+
+Do not classify the task into an Example category or search for a matching
+genre, mechanic, camera, control scheme, or game loop. Choose any same-Engine
+reference that demonstrates the engineering pattern you need to learn. The
+absence of a similar Example is never a missing input, blocker, or reason to
+reduce the requested game.
 
 Use the exact project and game-owned module names above. Produce every
 task-required artifact, including the packet-defined
-`mechanic_contract.json`. Do not invoke execution or evaluation-only APIs and
-do not declare an authoritative result. Report changed files, requirement and
-generated-test coverage, and unresolved risks.
+`mechanic_contract.json`, public runtime adapter, and `context_used.json`.
+Do not invoke execution or evaluation-only APIs and do not declare an
+authoritative result. Report changed files, requirement and generated-test
+coverage, and unresolved risks.

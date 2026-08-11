@@ -8,6 +8,9 @@ __pycache__/
 .venv/
 .venv-*/
 .env
+build/
+# Eigen, checked out by o-voxel's setup.py rather than vendored.
+models/gen_3d_object/trellis_utils/trellis_2_utils/o-voxel/third_party/
 
 # OS
 .DS_Store
@@ -46,5 +49,9 @@ third_party/*/
 !third_party/.gitkeep
 
 _cache_code/
+
+# tmp
 .tmp/
+
+# agent
 .codex/
