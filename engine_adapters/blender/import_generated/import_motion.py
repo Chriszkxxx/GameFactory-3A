@@ -1,33 +1,11 @@
 """
-engine_adapters/blender/import_generated/import_motion.py
+Import a retargeted FBX (mesh + armature + action) into Blender.
 
-Import a **retargeted** FBX (mesh + armature + action) into Blender and prove
-the animation is usable.
-
-This is deliberately a different path from ``import_mesh.py``. That script
-exists to condition static generated props: join every mesh part, drop
-armatures, optionally decimate. Doing any of those to a motion FBX destroys
-the asset — the armature is the animation, the vertex groups are the skin,
-and joining parts reorders vertices against the weight table.
-
-What this script does instead:
-
-1. Import the FBX as authored.
-2. Keep mesh, armature and action together.
-3. Measure whether the pose actually changes across the clip (not just whether
-   the root slides).
-4. Optionally write a short preview movie and a conditioned re-export.
+Unlike ``import_mesh.py``, this keeps the armature and skin intact and checks
+that the pose actually changes across the clip.
 
     blender --background --factory-startup \\
         --python engine_adapters/blender/import_generated/import_motion.py -- \\
-        --src /path/to/retargeted.fbx \\
-        --dest /path/to/library \\
-        --name Walk_001 \\
-        --report /path/to/import_report.json
-
-Or with the pip ``bpy`` wheel:
-
-    python engine_adapters/blender/import_generated/import_motion.py \\
         --src retargeted.fbx --dest out/ --report report.json
 """
 from __future__ import annotations
@@ -38,13 +16,9 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-#: Files the motion pipeline actually emits for engine consumption.
 SUPPORTED_SUFFIXES = (".fbx", ".glb", ".gltf", ".bvh")
-
 JOB_ENV_VAR = "AAAGF_IMPORT_JOB"
-
-#: Metres a bone head must travel (with root translation removed) before the
-#: clip counts as posed. Matches ``retarget_utils.inspect_fbx``.
+# Matches retarget_utils.inspect_fbx
 POSE_EPSILON = 1e-3
 
 
@@ -76,13 +50,7 @@ def import_retargeted_motion(
     preview_frames: int = 24,
     reset_scene: bool = True,
 ) -> dict:
-    """
-    Import one retargeted motion FBX and report whether it animates.
-
-    Returns a dict with ``ok``, structural counts, pose/root displacement, and
-    optional ``exports`` / ``preview`` paths. ``ok`` is True only when an
-    armature, an action and a measurable pose change are all present.
-    """
+    """Import one motion FBX; ``ok`` requires armature + action + pose change."""
     bpy = _bpy()
     from mathutils import Vector  # noqa: PLC0415
 
@@ -148,8 +116,7 @@ def import_retargeted_motion(
             "pipeline's world_delta stage."
         )
     if not new_actions:
-        # Some FBX exporters attach the action before Blender registers a new
-        # datablock name; fall back to whatever is on the armature.
+        # Some exporters attach the action without a new datablock name.
         attached = [
             arm.animation_data.action
             for arm in armatures

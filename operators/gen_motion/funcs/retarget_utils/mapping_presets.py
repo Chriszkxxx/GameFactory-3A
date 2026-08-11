@@ -1,54 +1,13 @@
 """
-The mappings we know about, and how a new one gets made.
+Bone-mapping registry for retargeting.
 
-Retargeting needs a bone map: which bone of the clip drives which joint of the
-character. This module is the registry an agent reads to answer "do I already
-have one, or do I have to derive it?" — and the answer is almost always the
-second one, for a reason worth stating up front.
+- ``SOURCE_SKELETONS``: reusable clip-side names (Mixamo, CMU, …) by anatomical slot.
+- ``presets/*.json``: full maps pinned to one Puppeteer rig — check with
+  ``pinned_mapping_fits_rig`` before reuse.
+- Default: ``mapping_auto`` (topology/geometry); Puppeteer joint names are
+  per-mesh and not portable.
 
-Why a checked-in bone map is usually the wrong answer
------------------------------------------------------
-Puppeteer predicts a skeleton *per mesh* and names the joints ``joint0`` …
-``jointN`` in prediction order. Those names carry no anatomy: ``joint23`` is the
-hips of the one character it was predicted for, and on the next character the
-same string is a shoulder or a finger. So the **target half of a bone map is
-never reusable**, and a file that pins one is only valid for the single rig it
-was generated against.
-
-The **source half is different**. Mixamo always calls the hips
-``mixamorig:Hips``; the UE5 mannequin always calls it ``pelvis``. That half is a
-property of the library the clip came from, so it is worth writing down, and it
-is what ``SOURCE_SKELETONS`` below holds.
-
-That gives the two kinds of entry in this registry:
-
-``SOURCE_SKELETONS``
-    Reusable descriptions of where the bones of a well-known library sit,
-    keyed by anatomical slot. Used to recognise an unknown clip
-    (`identify_source_skeleton`), to tell an agent what it is holding, and to
-    sanity-check a derived mapping.
-
-``presets/*.json``
-    Complete source-to-target maps, each **pinned to one rig**. Cheap to reuse
-    when you are re-animating the same character, and actively wrong on any
-    other — so `pinned_mapping_fits_rig` checks every target joint against the
-    rig file before anything uses one.
-
-Anything not covered by either is derived by ``mapping_auto``, which reads the
-two skeletons' topology and geometry and needs no names at all. That is the
-default path and the one the operator takes when a task names no mapping.
-
-Reading the registry without Blender
-------------------------------------
-Everything here is stdlib, including the BVH hierarchy parser, so the pipeline
-process and an agent can both query it. FBX bone names need Blender; ask
-``mapping_auto`` instead of trying to parse the container here.
-
-    python -m operators.gen_motion.funcs.retarget_utils.mapping_presets --list
-    python -m operators.gen_motion.funcs.retarget_utils.mapping_presets \\
-        --identify motion.bvh
-    python -m operators.gen_motion.funcs.retarget_utils.mapping_presets \\
-        --check mixamo_to_puppeteer --rig rig.txt
+CLI: ``--list`` / ``--identify motion.bvh`` / ``--check PRESET --rig rig.txt``
 """
 from __future__ import annotations
 
@@ -63,9 +22,7 @@ from .validate_mapping import load_and_validate_mapping
 
 PRESET_DIR = Path(__file__).resolve().parent / "presets"
 
-#: Anatomical slots, in the order a humanoid hierarchy visits them. A skeleton
-#: profile may leave any of them out — Mixamo has toes, MoMask's BVH does not —
-#: and matching is over the slots both sides actually fill.
+# Anatomical slots in humanoid walk order; profiles may omit some (e.g. no toes).
 SLOTS: tuple[str, ...] = (
     "hips",
     "spine",
@@ -134,15 +91,7 @@ def _humanoid(
     right: str,
     axial: str = "{}",
 ) -> dict[str, str]:
-    """
-    Build a slot table from a library's naming rule.
-
-    Every library here names limbs as one stem plus a side affix, so the table
-    is written once per library instead of forty times; ``left``/``right`` are
-    format strings taking the stem (``"Left{}"``, ``"{}_l"``), and ``axial``
-    is the same idea for the bones that have no side (Mixamo's ``mixamorig:``
-    prefix reaches those too).
-    """
+    """Build slot→bone names from limb stems + side/axial format strings."""
     bones = {
         "hips": axial.format(hips),
         "neck": axial.format(neck),
@@ -316,11 +265,8 @@ SOURCE_SKELETONS: dict[str, SourceSkeleton] = {
 }
 
 
-# ── source skeleton identification ────────────────────────────────────────────
-
-
 def _normalise(name: str) -> str:
-    """Fold the spelling differences that are never semantic."""
+    """Lowercase, strip Mixamo prefixes, keep alphanumerics only."""
     text = name.strip().lower()
     for prefix in ("mixamorig:", "mixamorig1:", "mixamorig_"):
         if text.startswith(prefix):
@@ -331,15 +277,7 @@ def _normalise(name: str) -> str:
 def identify_source_skeleton(
     bone_names: Iterable[str],
 ) -> tuple[str | None, float]:
-    """
-    Name the library a set of bone names came from, with a confidence.
-
-    Scored as the fraction of a profile's slots whose bone is present, so a
-    skeleton carrying extra bones is not penalised — CMU's helper joints and
-    Mixamo's fingers are exactly that. Below 0.6 nothing is claimed, because a
-    half-match is worse than admitting the clip is unknown: it would send
-    retargeting to a preset built for another skeleton.
-    """
+    """Match bone names to a known library; score = slots found / slots known."""
     present = {_normalise(name) for name in bone_names}
     if not present:
         return None, 0.0
@@ -355,13 +293,7 @@ def identify_source_skeleton(
 
 
 def read_bvh_bone_names(path: str | Path) -> list[str]:
-    """
-    Bone names from a BVH hierarchy, without Blender.
-
-    BVH is text and its hierarchy is a prefix of the file, so identifying a
-    clip costs a few kilobytes rather than a Blender start-up. Reading stops at
-    ``MOTION``; the sample block below it can be hundreds of megabytes.
-    """
+    """Bone names from the BVH hierarchy (stops at ``MOTION``)."""
     names: list[str] = []
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -408,12 +340,9 @@ def identify_motion_file(path: str | Path) -> dict:
     }
 
 
-# ── pinned mappings ───────────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True)
 class PinnedMapping:
-    """A complete bone map, valid only for the rig it was generated against."""
+    """Full bone map pinned to one target rig."""
 
     name: str
     path: Path
@@ -438,7 +367,7 @@ class PinnedMapping:
 
 
 def list_pinned_mappings() -> list[PinnedMapping]:
-    """Every mapping in ``presets/``, sorted by name."""
+    """Load every ``presets/*.json``, sorted by stem."""
     presets = []
     for path in sorted(PRESET_DIR.glob("*.json")):
         try:
@@ -464,7 +393,7 @@ def list_pinned_mappings() -> list[PinnedMapping]:
 
 
 def find_pinned_mapping(name: str) -> PinnedMapping:
-    """Look up one mapping by file stem, listing the alternatives on a miss."""
+    """Look up a preset by stem; raise with available names on miss."""
     presets = list_pinned_mappings()
     for preset in presets:
         if preset.name == name:
@@ -476,13 +405,7 @@ def find_pinned_mapping(name: str) -> PinnedMapping:
 
 
 def normalise_mapping(data: dict) -> dict:
-    """
-    Accept the older key spellings without carrying them any further.
-
-    The first mappings written here said ``mixamo`` where they meant "the
-    source", back when Mixamo was the only source. Readers should only ever see
-    ``source``, so the rename happens once, on load.
-    """
+    """Rename legacy keys (``mixamo``/``src`` → ``source``) on load."""
     result = dict(data)
     roots = dict(result.get("root_bones") or {})
     if "source" not in roots:
@@ -510,7 +433,7 @@ def normalise_mapping(data: dict) -> dict:
 
 
 def load_pinned_mapping(name: str) -> dict:
-    """Load and validate one preset, with legacy keys already renamed."""
+    """Load, normalise, and validate one preset."""
     preset = find_pinned_mapping(name)
     return normalise_mapping(load_and_validate_mapping(preset.path))
 
@@ -527,14 +450,7 @@ def read_rig_joint_names(rig_path: str | Path) -> list[str]:
 
 
 def pinned_mapping_fits_rig(name: str, rig_path: str | Path) -> dict:
-    """
-    Decide whether a pinned mapping may be used against a given rig.
-
-    Every target joint has to exist in the rig file. A partial match is a
-    rejection, not a warning: Puppeteer's joint names are positional, so a
-    mapping that resolves half its joints is not half right — it is driving the
-    wrong body parts with a straight face.
-    """
+    """True only if every target joint in the preset exists in the rig."""
     preset = find_pinned_mapping(name)
     available = set(read_rig_joint_names(rig_path))
     missing = sorted(set(preset.target_joints) - available)
@@ -552,13 +468,7 @@ def resolve_mapping(
     preset: str | None,
     target_rig_path: str | Path,
 ) -> str | None:
-    """
-    Turn a task's ``mapping_preset`` into a file path, or ``None`` for auto.
-
-    ``None`` in, ``None`` out — the caller then derives the mapping, which is
-    the normal path. A named preset that does not fit the rig raises rather
-    than silently falling back, because a task that named one wanted that one.
-    """
+    """Return preset path, or ``None`` to auto-derive. Misfit raises."""
     if not preset:
         return None
     fit = pinned_mapping_fits_rig(preset, target_rig_path)
@@ -574,7 +484,7 @@ def resolve_mapping(
 
 
 def registry() -> dict:
-    """The whole registry as plain data, for an agent or a report."""
+    """Full registry as plain data (agent / report)."""
     return {
         "source_skeletons": [
             profile.as_dict() for profile in SOURCE_SKELETONS.values()

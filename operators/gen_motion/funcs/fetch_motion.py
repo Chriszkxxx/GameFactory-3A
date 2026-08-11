@@ -1,43 +1,8 @@
 """
-Bringing a clip in from somewhere other than the generator.
+Ingest an external motion clip (Mixamo, CMU, …) for retargeting.
 
-Text-to-motion is good at "a person walks forward and waves" and bad at
-"a two-handed greatsword overhead slam with a recovery step". When the
-generated clip is not good enough, the fix is not a better prompt — it is a
-captured clip from a library, retargeted onto the same rig by the same code.
-This module is the front door for that, and the retarget stage downstream does
-not care which door the clip came through.
-
-What it will and will not do
-----------------------------
-It will take a file you already have, prove it is usable, record where it came
-from, and hand back the same shape ``generate_motion`` does — so the operator's
-next step is identical either way.
-
-It will **not** log into anything. Mixamo, MoCap Online and the rest gate
-downloads behind an account and a licence you accept as a person, and a scraper
-that pretends to be that person breaks the terms the asset is licensed under.
-So sources are marked ``manual`` or ``direct``: ``manual`` sources produce an
-error that tells you exactly what to click, and ``direct`` sources are fetched
-over plain HTTPS. That line is a licensing decision, not a technical one.
-
-Provenance is not optional
---------------------------
-Every clip that lands writes a ``motion_source.json`` next to itself naming the
-source, the licence, and the file it came from. A retargeted FBX is
-indistinguishable from a generated one once it is in the output directory, and
-"which of these can we actually ship" is a question that gets asked late, by
-someone who was not here.
-
-The units problem
------------------
-This is what actually breaks a downloaded clip. Mixamo exports centimetres, CMU
-BVH is in inches, this repo's own generator is in metres — and a clip retargeted
-at the wrong scale does not fail, it produces a character that moon-walks a
-hundred metres per step, or vibrates in place. ``suggest_global_scale`` measures
-both skeletons and reports the ratio instead of trusting the registry's
-per-source default, because a library's nominal units and a given file's actual
-units are not the same claim.
+Manual sources (login-gated) refuse automated download — pass a local path.
+Writes ``*_motion_source.json`` next to the clip for licence tracking.
 """
 from __future__ import annotations
 
@@ -47,54 +12,39 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .retarget_utils.formats import SUPPORTED_MOTION_SUFFIXES
 from .retarget_utils.mapping_presets import (
     identify_motion_file,
     read_rig_joint_names,
 )
 
-
-#: Extensions the retarget stage can read. Anything else has to be converted
-#: first — Blender will open a .blend or a .dae, but the retarget subprocess
-#: takes an armature with one action and these are the two that guarantee it.
-SUPPORTED_MOTION_FORMATS = (".bvh", ".fbx")
-
-#: Refuse to stream more than this from a URL. A motion clip is kilobytes to a
-#: few megabytes; a gigabyte means the URL points at a whole library archive,
-#: and silently filling a disk is a worse outcome than a clear failure.
+SUPPORTED_MOTION_FORMATS = SUPPORTED_MOTION_SUFFIXES
 MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 
 
 @dataclass(frozen=True)
 class MotionSource:
-    """One external library, and the terms on which a clip leaves it."""
+    """One external motion library."""
 
     name: str
     title: str
     url: str
     formats: tuple[str, ...]
     skeleton: str | None
-    access: str
+    access: str  # "manual" | "direct"
     licence: str
     nominal_units: str
     how_to_download: str
     notes: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "title": self.title,
-            "url": self.url,
-            "formats": list(self.formats),
-            "skeleton": self.skeleton,
-            "access": self.access,
-            "licence": self.licence,
-            "nominal_units": self.nominal_units,
-            "how_to_download": self.how_to_download,
-            "notes": list(self.notes),
-        }
+        data = asdict(self)
+        data["formats"] = list(self.formats)
+        data["notes"] = list(self.notes)
+        return data
 
 
 MOTION_SOURCES: dict[str, MotionSource] = {
@@ -105,25 +55,13 @@ MOTION_SOURCES: dict[str, MotionSource] = {
         formats=(".fbx",),
         skeleton="mixamo",
         access="manual",
-        licence=(
-            "Free with an Adobe account; royalty-free for use in your own "
-            "projects. Redistributing the raw clips is not permitted, so keep "
-            "downloads out of the repository."
-        ),
+        licence="Free with Adobe account; do not redistribute raw clips.",
         nominal_units="centimetres",
         how_to_download=(
-            "Sign in at mixamo.com, pick an animation, press Download, and "
-            "choose Format=FBX Binary, Skin='Without Skin', Frames per "
-            "Second=30, Keyframe Reduction=none. Pass the saved .fbx as "
-            "source_motion_path (or fetch_motion(source='mixamo', "
-            "path=...))."
+            "Sign in at mixamo.com → Download → FBX Binary, Skin=Without Skin. "
+            "Pass the file as path=."
         ),
-        notes=(
-            "'Without Skin' gives the armature only, which is what "
-            "retargeting wants and a tenth of the file size.",
-            "In-place variants exist for locomotion clips; take them when the "
-            "game drives movement itself and set in_place accordingly.",
-        ),
+        notes=("Prefer Without Skin; use global_scale=0.01 vs metre-scale rigs.",),
     ),
     "mocap_online": MotionSource(
         name="mocap_online",
@@ -132,45 +70,23 @@ MOTION_SOURCES: dict[str, MotionSource] = {
         formats=(".fbx", ".bvh"),
         skeleton="ue5_mannequin",
         access="manual",
-        licence=(
-            "Free sample packs require checkout at zero cost; paid packs "
-            "carry a commercial licence. Read the pack's own terms."
-        ),
+        licence="Free samples via zero-cost checkout; check pack terms.",
         nominal_units="centimetres",
         how_to_download=(
-            "Add the free sample pack to the cart, complete the zero-cost "
-            "checkout, download the FBX or BVH archive, then pass the "
-            "archive with member='<clip>.fbx' or the extracted file."
-        ),
-        notes=(
-            "Ships against the UE5 mannequin skeleton, so it retargets to a "
-            "Puppeteer rig the same way any other humanoid does.",
+            "Checkout the free sample pack, then pass the archive/file as path=."
         ),
     ),
     "cmu_bvh": MotionSource(
         name="cmu_bvh",
-        title="CMU Graphics Lab Motion Capture Database (BVH conversion)",
+        title="CMU MoCap (BVH conversion)",
         url="http://mocap.cs.cmu.edu/",
         formats=(".bvh",),
         skeleton="cmu_bvh",
         access="direct",
-        licence=(
-            "Free for all uses, including commercial; CMU asks for a credit. "
-            "Created with funding from NSF EIA-0196217."
-        ),
+        licence="Free for all uses; please credit CMU / NSF EIA-0196217.",
         nominal_units="inches",
-        how_to_download=(
-            "Fetched directly: pass url= pointing at a .bvh or a .zip plus "
-            "member='<clip>.bvh'. Community mirrors of the BVH conversion "
-            "are the usual host."
-        ),
-        notes=(
-            "2500+ clips of very uneven quality — preview before committing "
-            "one to a character.",
-            "Carries helper bones (LHipJoint, LowerBack) that no anatomical "
-            "slot maps to. Unmapped source bones are ignored, so this is "
-            "harmless.",
-        ),
+        how_to_download="Pass url= to a .bvh (or .zip + member=).",
+        notes=("Quality varies; preview before committing.",),
     ),
     "bandai_namco": MotionSource(
         name="bandai_namco",
@@ -182,48 +98,29 @@ MOTION_SOURCES: dict[str, MotionSource] = {
         formats=(".bvh",),
         skeleton=None,
         access="direct",
-        licence=(
-            "CC BY-NC-ND 4.0 — non-commercial, no derivatives. Usable for "
-            "research and evaluation, not for a shipped game."
-        ),
+        licence="CC BY-NC-ND 4.0 — research only, not for shipped games.",
         nominal_units="centimetres",
-        how_to_download=(
-            "Fetched directly from the GitHub raw URL of a dataset .bvh."
-        ),
-        notes=(
-            "Clips are labelled by style (elderly, tired, proud), which "
-            "makes it a good source for evaluating style preservation.",
-            "The no-derivatives clause covers retargeted output. Keep it out "
-            "of anything shipped.",
-        ),
+        how_to_download="Pass url= to a raw dataset .bvh on GitHub.",
     ),
     "local": MotionSource(
         name="local",
-        title="A file you already have",
+        title="Local file",
         url="",
         formats=SUPPORTED_MOTION_FORMATS,
         skeleton=None,
         access="manual",
         licence="Whatever the file came with — record it in the task.",
         nominal_units="unknown",
-        how_to_download=(
-            "Nothing to download; pass path= to a .bvh or .fbx on disk."
-        ),
-        notes=(
-            "The escape hatch for a hand-authored clip or a library not "
-            "listed here. Everything downstream behaves identically.",
-        ),
+        how_to_download="Pass path= to a .bvh or .fbx on disk.",
     ),
 }
 
 
 def list_motion_sources() -> list[dict]:
-    """Every known external library as plain data, for an agent or a CLI."""
     return [source.as_dict() for source in MOTION_SOURCES.values()]
 
 
 def get_motion_source(name: str) -> MotionSource:
-    """Look up one source, listing the alternatives on a miss."""
     try:
         return MOTION_SOURCES[str(name).lower()]
     except KeyError:
@@ -231,9 +128,6 @@ def get_motion_source(name: str) -> MotionSource:
         raise KeyError(
             f"Unknown motion source {name!r}. Known: {available}"
         ) from None
-
-
-# ── acquisition ───────────────────────────────────────────────────────────────
 
 
 def fetch_motion(
@@ -246,31 +140,16 @@ def fetch_motion(
     name: str | None = None,
 ) -> dict:
     """
-    Put one external clip where the retarget stage can read it.
+    Copy/download one clip into ``dest_dir`` and write provenance JSON.
 
-    Exactly one of ``path`` or ``url`` says where the clip comes from; the
-    ``source`` names which library, which is what decides whether a URL may be
-    fetched at all and what gets written into the provenance record.
-
-    Args:
-        source: A key of `MOTION_SOURCES`. ``local`` for a file with no
-            library behind it.
-        path: A ``.bvh``/``.fbx`` on disk, or a ``.zip`` holding one.
-        url: An https URL to the same. Only for ``direct`` sources.
-        member: Which file to take out of a zip. Optional when the archive
-            holds exactly one usable clip.
-        dest_dir: Where the clip and its provenance record land.
-        name: Filename to save under; defaults to the source file's name.
-
-    Returns:
-        ``{"motion_path", "provenance_path", "source", "skeleton",
-        "identified", "licence"}``.
+    Provide exactly one of ``path`` or ``url``. ``url`` is only allowed for
+    ``access=direct`` sources.
     """
     library = get_motion_source(source)
     if bool(path) == bool(url):
         raise ValueError(
-            "fetch_motion needs exactly one of path= or url=; got "
-            f"path={path!r}, url={url!r}"
+            "fetch_motion needs exactly one of path= or url=; "
+            f"got path={path!r}, url={url!r}"
         )
 
     destination = Path(dest_dir)
@@ -278,7 +157,11 @@ def fetch_motion(
 
     if url:
         if library.access != "direct":
-            raise PermissionError(_manual_source_message(library, url))
+            raise PermissionError(
+                f"{library.title} does not allow automated downloads "
+                f"({url}).\nDownload by hand:\n  {library.how_to_download}\n"
+                "Then pass path=."
+            )
         origin = _download(url, destination / "_download")
     else:
         origin = Path(path).expanduser().resolve()
@@ -304,19 +187,7 @@ def fetch_motion(
     }
 
 
-def _manual_source_message(library: MotionSource, url: str) -> str:
-    return (
-        f"{library.title} does not allow automated downloads, so "
-        f"fetch_motion will not request {url}. Its clips are licensed to a "
-        "signed-in account, and fetching them with a script is a licence "
-        "violation rather than a technical problem.\n\n"
-        f"Download it by hand instead:\n  {library.how_to_download}\n\n"
-        "Then pass the saved file as path=."
-    )
-
-
 def _download(url: str, into: Path) -> Path:
-    """Fetch one https URL to disk, refusing anything unreasonable."""
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in {"http", "https"}:
         raise ValueError(f"Only http(s) URLs can be fetched, got {url!r}")
@@ -325,17 +196,15 @@ def _download(url: str, into: Path) -> Path:
     filename = Path(urllib.parse.unquote(parsed.path)).name or "download.bin"
     target = into / filename
     request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "AAAGameForge/gen_motion"},
+        url, headers={"User-Agent": "AAAGameForge/gen_motion"}
     )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             declared = int(response.headers.get("Content-Length") or 0)
             if declared > MAX_DOWNLOAD_BYTES:
                 raise ValueError(
-                    f"{url} is {declared} bytes, over the "
-                    f"{MAX_DOWNLOAD_BYTES} limit. Download the archive "
-                    "yourself and pass path= with member=."
+                    f"{url} is {declared} bytes (limit {MAX_DOWNLOAD_BYTES}). "
+                    "Download locally and pass path=."
                 )
             written = 0
             with open(target, "wb") as handle:
@@ -345,8 +214,7 @@ def _download(url: str, into: Path) -> Path:
                         handle.close()
                         target.unlink(missing_ok=True)
                         raise ValueError(
-                            f"{url} exceeded the {MAX_DOWNLOAD_BYTES} byte "
-                            "download limit."
+                            f"{url} exceeded the {MAX_DOWNLOAD_BYTES} byte limit."
                         )
                     handle.write(chunk)
     except urllib.error.URLError as exc:
@@ -362,7 +230,6 @@ def _extract_clip(
     destination: Path,
     name: str | None,
 ) -> Path:
-    """Resolve a file or an archive down to one clip in ``destination``."""
     if origin.suffix.lower() == ".zip":
         source_name, payload = _read_zip_member(origin, member)
         clip = destination / (name or Path(source_name).name)
@@ -394,20 +261,18 @@ def _read_zip_member(archive: Path, member: str | None) -> tuple[str, bytes]:
             ]
             if not matches:
                 raise KeyError(
-                    f"{member!r} is not a motion clip inside {archive.name}. "
-                    f"It holds {len(candidates)}: {candidates[:8]}"
+                    f"{member!r} not found in {archive.name} "
+                    f"({len(candidates)} clips: {candidates[:8]})"
                 )
             chosen = matches[0]
         elif len(candidates) == 1:
             chosen = candidates[0]
         elif not candidates:
-            raise ValueError(
-                f"{archive.name} contains no .bvh or .fbx clip."
-            )
+            raise ValueError(f"{archive.name} contains no .bvh or .fbx clip.")
         else:
             raise ValueError(
-                f"{archive.name} holds {len(candidates)} clips; pass "
-                f"member= to choose one. First few: {candidates[:8]}"
+                f"{archive.name} holds {len(candidates)} clips; "
+                f"pass member=. First: {candidates[:8]}"
             )
         return chosen, bundle.read(chosen)
 
@@ -443,25 +308,12 @@ def _write_provenance(
         "notes": list(library.notes),
     }
     path = clip.with_name(f"{clip.stem}_motion_source.json")
-    path.write_text(
-        json.dumps(record, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
 
 
-# ── units ─────────────────────────────────────────────────────────────────────
-
-
 def measure_bvh_extent(bvh_path: str | Path) -> float:
-    """
-    Height of a BVH's rest pose, in whatever units the file is written in.
-
-    Walks the hierarchy accumulating OFFSET vectors, so this is the rest-pose
-    joint cloud rather than the animation — cheap, and the only part of the
-    file that describes the skeleton's proportions. Returns the vertical
-    extent; BVH is Y-up by convention and every library here follows it.
-    """
+    """Rest-pose height (Y extent) of a BVH hierarchy."""
     positions: list[tuple[float, float, float]] = []
     stack: list[tuple[float, float, float]] = []
     current = (0.0, 0.0, 0.0)
@@ -477,26 +329,23 @@ def measure_bvh_extent(bvh_path: str | Path) -> float:
                 break
             if head in {"ROOT", "JOINT", "END"}:
                 pending = True
-            elif head == "OFFSET" and len(token) >= 4:
-                offset = tuple(float(value) for value in token[1:4])
-                if pending:
-                    current = tuple(
-                        base + delta for base, delta in zip(current, offset)
-                    )
-                    positions.append(current)  # type: ignore[arg-type]
-                    pending = False
+            elif head == "OFFSET" and len(token) >= 4 and pending:
+                offset = tuple(float(v) for v in token[1:4])
+                current = tuple(a + b for a, b in zip(current, offset))
+                positions.append(current)  # type: ignore[arg-type]
+                pending = False
             elif head == "{":
                 stack.append(current)
             elif head == "}":
                 current = stack.pop() if stack else (0.0, 0.0, 0.0)
     if not positions:
         return 0.0
-    heights = [position[1] for position in positions]
+    heights = [p[1] for p in positions]
     return max(heights) - min(heights)
 
 
 def measure_rig_extent(rig_path: str | Path) -> float:
-    """Height of a Puppeteer rig's joint cloud, in metres."""
+    """Height of a Puppeteer rig joint cloud (metres)."""
     heights = []
     with open(rig_path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -506,27 +355,8 @@ def measure_rig_extent(rig_path: str | Path) -> float:
     return max(heights) - min(heights) if heights else 0.0
 
 
-def suggest_global_scale(
-    motion_path: str | Path,
-    rig_path: str | Path,
-) -> dict:
-    """
-    Measure both skeletons and report the scale that makes them agree.
-
-    This is the single most common failure of an imported clip, and the one
-    that is hardest to read from the output: at the wrong scale the pose is
-    still correct, so the character animates properly while travelling a
-    hundred metres a step — or not moving at all.
-
-    Only the root *translation* is affected. World-delta retargeting transfers
-    rotations, which are scale-free, so a wrong scale never breaks the pose
-    itself. That is precisely why it survives review.
-
-    Returns a suggestion, not a setting: ``ratio`` is measured, ``confident``
-    says whether both measurements were usable, and an FBX source cannot be
-    measured here at all — the registry's ``nominal_units`` is the fallback
-    for those (Mixamo centimetres against a metre rig means 0.01).
-    """
+def suggest_global_scale(motion_path: str | Path, rig_path: str | Path) -> dict:
+    """Suggest ``global_scale`` so clip and rig rest heights match (BVH only)."""
     motion = Path(motion_path)
     rig_extent = measure_rig_extent(rig_path)
     joint_count = len(read_rig_joint_names(rig_path))
@@ -539,10 +369,8 @@ def suggest_global_scale(
             "rig_extent": rig_extent or None,
             "rig_joint_count": joint_count,
             "reason": (
-                "Only BVH can be measured without Blender. For FBX, start "
-                "from the source's nominal units (Mixamo exports "
-                "centimetres, so 0.01 against a metre-scale rig) and check "
-                "the retargeted root travel."
+                "Only BVH is measurable here. Mixamo FBX is usually "
+                "centimetres — try global_scale=0.01 against a metre-scale rig."
             ),
         }
 
@@ -554,10 +382,7 @@ def suggest_global_scale(
             "motion_extent": motion_extent or None,
             "rig_extent": rig_extent or None,
             "rig_joint_count": joint_count,
-            "reason": (
-                "One of the two skeletons measured as flat, so the ratio "
-                "would be meaningless. Retarget at 1.0 and inspect."
-            ),
+            "reason": "One skeleton measured flat; retarget at 1.0 and inspect.",
         }
 
     ratio = rig_extent / motion_extent
@@ -568,8 +393,8 @@ def suggest_global_scale(
         "rig_extent": round(rig_extent, 6),
         "rig_joint_count": joint_count,
         "reason": (
-            f"Rest-pose height {motion_extent:.4g} in the clip against "
-            f"{rig_extent:.4g} m in the rig."
+            f"Rest-pose height {motion_extent:.4g} (clip) vs "
+            f"{rig_extent:.4g} m (rig)."
         ),
     }
 

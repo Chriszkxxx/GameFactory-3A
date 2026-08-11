@@ -1,32 +1,8 @@
 """
-A humanoid you can retarget onto, built from arithmetic.
+Synthetic humanoid for motion unit tests: mesh + Puppeteer rig + Mixamo BVH.
 
-The motion chain's interesting failures are all structural — auto-mapping needs
-a hip junction with three branches, world-delta needs two skeletons whose rest
-poses are comparable, the FBX export needs an armature with a baked action —
-and none of that can be exercised by the one-bone fixture the unit tests use.
-The alternative is committing a rigged character, which means committing
-someone's licence terms along with it.
-
-So the fixture is generated: a blocky figure, a Puppeteer-format rig whose
-joints sit where its limbs do, and a Mixamo-named BVH with the same topology.
-Everything is deterministic, so a failure is the pipeline's and not the
-fixture's.
-
-What "the same topology" has to mean
-------------------------------------
-`mapping_auto` classifies a skeleton by walking it: the hips are the branch
-point with three children, the spine is the branch that goes up, the arms hang
-off the first branch above it. A fixture that gets that wrong tests nothing but
-its own error message. Both skeletons here are built from `HUMANOID`, one
-structure, so they agree by construction rather than by my counting twice.
-
-Units and axes
---------------
-Both are authored Y-up in metres, which is what glTF uses and what the rig
-reader expects — it applies its own Y-up-to-Z-up rotation to rig and mesh
-alike, so authoring in Blender's Z-up here would tip the character onto its
-face at retarget time.
+Same topology (``HUMANOID``) on both sides so ``mapping_auto`` can succeed.
+Authored Y-up in metres (glTF convention; rig_io rotates into Blender Z-up).
 """
 from __future__ import annotations
 
@@ -37,7 +13,7 @@ from pathlib import Path
 
 @dataclass
 class Joint:
-    """One joint, its rest position in metres, and what hangs off it."""
+    """Rest pose (metres) and children."""
 
     slot: str
     position: tuple[float, float, float]
@@ -54,7 +30,7 @@ def _joint(slot: str, position, *children: Joint) -> Joint:
 
 
 def _limb(side: str, sign: float) -> tuple[Joint, Joint]:
-    """One side's arm and leg, mirrored across X by ``sign``."""
+    """Arm + leg for one side; ``sign`` mirrors across X."""
     arm = _joint(
         f"{side}_shoulder",
         (0.06 * sign, 1.42, 0.0),
@@ -87,8 +63,7 @@ def _limb(side: str, sign: float) -> tuple[Joint, Joint]:
 _LEFT_ARM, _LEFT_LEG = _limb("left", 1.0)
 _RIGHT_ARM, _RIGHT_LEG = _limb("right", -1.0)
 
-#: The one skeleton both the rig and the BVH are generated from. A 1.8 m
-#: figure: hips at 0.95, head top at 1.72, arms out to 0.66 either side.
+# ~1.8 m figure shared by mesh, rig, and BVH.
 HUMANOID = _joint(
     "hips",
     (0.0, 0.95, 0.0),
@@ -111,8 +86,6 @@ HUMANOID = _joint(
     _RIGHT_LEG,
 )
 
-#: Slot -> Mixamo bone name, so the generated clip is something the mapping
-#: registry recognises rather than an invented naming scheme.
 MIXAMO_NAMES = {
     "hips": "mixamorig:Hips",
     "spine": "mixamorig:Spine",
@@ -137,9 +110,7 @@ MIXAMO_NAMES = {
     "right_toe": "mixamorig:RightToeBase",
 }
 
-#: Boxes approximating each body part: slot -> (centre, half-extents). Only
-#: the skinning cares about these, and only that each vertex has a nearest
-#: joint that is the one a human would pick.
+# slot -> (centre, half-extents) for the blocky skin.
 _BLOCKS = {
     "hips": ((0.0, 0.98, 0.0), (0.16, 0.10, 0.10)),
     "spine1": ((0.0, 1.25, 0.0), (0.19, 0.20, 0.11)),
@@ -157,17 +128,8 @@ _BLOCKS = {
 }
 
 
-# ── mesh ──────────────────────────────────────────────────────────────────────
-
-
 def build_mesh(path: str | Path):
-    """
-    Write the blocky figure to ``path``; the extension picks the format.
-
-    Boxes are concatenated rather than unioned. A boolean union needs an engine
-    that may not be installed, and skinning does not care whether the mesh is
-    watertight — it cares that every vertex has a defensible nearest joint.
-    """
+    """Write concatenated boxes; format follows the file suffix."""
     import numpy as np
     import trimesh
 
@@ -186,22 +148,8 @@ def build_mesh(path: str | Path):
     return output
 
 
-# ── Puppeteer rig ─────────────────────────────────────────────────────────────
-
-
 def build_rig(path: str | Path, mesh_path: str | Path) -> Path:
-    """
-    Write a Puppeteer-format ``.txt`` rig for a mesh built by `build_mesh`.
-
-    Joints are named ``joint0…jointN`` in depth-first order, which is exactly
-    what Puppeteer emits and exactly why a bone map cannot be reused between
-    characters: the names encode traversal order, not anatomy.
-
-    Every vertex is bound to its nearest joint at full weight. Rigid rather
-    than smooth, which is what a blocky figure should deform like anyway, and
-    it keeps the fixture free of a weight-painting heuristic that would itself
-    need testing.
-    """
+    """Puppeteer ``.txt``: ``joint0…N`` DFS names, nearest-joint skinning."""
     import numpy as np
     import trimesh
 
@@ -239,9 +187,6 @@ def build_rig(path: str | Path, mesh_path: str | Path) -> Path:
     return output
 
 
-# ── BVH clip ──────────────────────────────────────────────────────────────────
-
-
 def build_bvh(
     path: str | Path,
     *,
@@ -249,17 +194,7 @@ def build_bvh(
     fps: int = 30,
     scale: float = 1.0,
 ) -> Path:
-    """
-    Write a Mixamo-named BVH walking on the spot.
-
-    The motion is a sine swing on the hips, thighs and upper arms — enough that
-    a retarget which drops a channel, mismatches a side, or bakes an empty
-    action is visible in the exported curves rather than merely plausible.
-
-    ``scale`` multiplies every offset, so a caller can produce the
-    centimetre-scale file a real Mixamo download would be and check that
-    ``global_scale`` puts it back.
-    """
+    """Mixamo-named in-place walk; ``scale`` multiplies offsets (e.g. cm)."""
     moving = {
         "hips": (0.0, 6.0, 0.0),
         "left_thigh": (0.0, 22.0, 0.0),
@@ -319,8 +254,6 @@ def build_bvh(
                 else (0.0, 0.0, 0.0)
             )
             if joint is HUMANOID:
-                # Root translation, so the clip has something for root motion
-                # extraction to find on the way out.
                 values += [
                     "0.000000",
                     f"{HUMANOID.position[1] * scale:.6f}",
@@ -347,7 +280,7 @@ def build_bvh(
 
 
 def build_all(root: str | Path, *, mesh_format: str = ".glb") -> dict[str, str]:
-    """Build mesh, rig and clip into one directory and name what landed."""
+    """Build mesh, rig, and clip into one directory."""
     directory = Path(root)
     mesh = build_mesh(directory / f"character{mesh_format}")
     rig = build_rig(directory / "character_rig.txt", mesh)

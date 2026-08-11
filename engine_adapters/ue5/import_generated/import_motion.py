@@ -1,36 +1,14 @@
 """
-engine_adapters/ue5/import_generated/import_motion.py
+Import a retargeted FBX into Unreal as SkeletalMesh + AnimSequence.
 
-Import a **retargeted** FBX into Unreal as a SkeletalMesh + AnimSequence.
+Do not use the static ``import_mesh.py`` sibling (it forces non-skeletal).
 
-The static ``import_mesh.py`` sibling forces ``import_as_skeletal=False`` and
-is the wrong tool for motion: Unreal would land a StaticMesh with no bones and
-silently drop the animation. This script does the opposite — SkeletalMesh +
-animations on, materials/textures on — and reports the Skeleton / AnimSequence
-paths the rest of the adapter expects.
-
-Two modes of use:
-
-1. **Full character** (``retargeted.fbx`` — mesh + armature + action)::
-
-       UnrealEditor.exe MyGame.uproject \\
-           -ExecutePythonScript=engine_adapters/ue5/import_generated/import_motion.py \\
-           ... with AAAGF_IMPORT_JOB pointing at a job JSON
-
-2. **Animation onto an existing skeleton** (``animation.fbx`` — armature only)::
-
-       the same script with ``"existing_skeleton": "/Game/.../Skeleton"``
-
-Host launcher::
+- Full character: leave ``existing_skeleton`` empty.
+- Anim onto an existing Skeleton: set ``existing_skeleton`` / ``--no-mesh``.
 
     python scripts/import_generated_asset.py \\
-        --src outputs/.../retargeted.fbx \\
-        --engine ue5 --kind motion \\
+        --src retargeted.fbx --engine ue5 --kind motion \\
         --uproject /path/to/MyGame.uproject
-
-Coordinate systems: FBX from the motion pipeline is centimetre-friendly for UE
-(``FBX_SCALE_ALL`` on export, axis_forward=-Z / axis_up=Y). Do **not**
-pre-rotate the file. Verify the first real import's facing and record it.
 """
 from __future__ import annotations
 
@@ -73,22 +51,9 @@ def import_retargeted_motion(
     save: bool = True,
 ) -> dict:
     """
-    Import one retargeted FBX as skeletal content.
+    Import one FBX as skeletal content.
 
-    Args:
-        src_path: Absolute path to ``retargeted.fbx`` or ``animation.fbx``.
-        dest_package: UE package path, e.g. ``/Game/Generated/Motion``.
-        asset_name: Base name for the imported assets.
-        existing_skeleton: When set, import animation onto that Skeleton
-            (the anim-only FBX path). Leave empty to create a new SkeletalMesh
-            + Skeleton from the full FBX.
-        import_mesh: Import the mesh. Set False for anim-only when the
-            skeleton already exists.
-        replace_existing: Overwrite assets with the same path.
-        save: Persist packages after import.
-
-    Returns:
-        dict with ``ok, skeletal_mesh, skeleton, animations, warnings, error``.
+    Returns ``ok, skeletal_mesh, skeleton, animations, warnings, error``.
     """
     unreal = _unreal()
     src = Path(src_path)

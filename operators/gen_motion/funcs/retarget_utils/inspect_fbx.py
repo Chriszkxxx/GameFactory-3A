@@ -1,24 +1,13 @@
 """
-Re-import an exported FBX and check that it is actually animated.
+Re-import an exported FBX and check that it actually animates.
 
-The export step can succeed on a file no engine will animate. An armature with
-no action, an action whose curves are all one key, a mesh whose vertex groups
-survived but whose armature modifier did not — each of these writes a
-well-formed FBX of a plausible size, and each of them lands in Unreal as a
-character standing perfectly still.
-
-So the check is not "does the file parse". It is Blender importing the file
-from scratch and then **evaluating the mesh on two different frames** to see
-whether any vertex moved. That is the one measurement no amount of structural
-validity can fake, and it is the difference between "the pipeline ran" and "the
-asset works".
+Structural validity is not enough — evaluate the mesh/bones on several frames
+and require a measurable pose change (``pose_animated``).
 
     python -m operators.gen_motion.funcs.retarget_utils.inspect_fbx \\
         --input retargeted.fbx --output fbx_inspection.json
 
-Run it in the same ``bpy`` interpreter as the retarget. Pass ``--allow-no-mesh``
-for the armature-only export, where a still mesh is the point rather than a
-bug — the deformation check falls back to the bones' own motion there.
+Use ``--allow-no-mesh`` for armature-only exports.
 """
 from __future__ import annotations
 
@@ -27,11 +16,10 @@ import json
 from pathlib import Path
 
 
-#: Metres a vertex must travel across the clip before the mesh counts as
-#: animated. Chosen well under any real motion and well over the noise of
-#: float round-tripping through FBX: a millimetre is not a pose, but a mesh
-#: that is genuinely frozen does not reach it either.
-DEFORMATION_EPSILON = 1e-3
+# Metres of travel before we count the clip as animated (noise floor).
+DEFORM_EPSILON = 1e-3
+# Sample across the clip — ends alone often look like rest pose.
+MOTION_SAMPLES = 8
 
 
 def inspect_fbx(input_path: str, *, require_mesh: bool = True) -> dict:
@@ -79,9 +67,7 @@ def inspect_fbx(input_path: str, *, require_mesh: bool = True) -> dict:
     report.update(_measure_motion(bpy, meshes, armatures, keyframes))
     report.update(_measure_scale(Vector, meshes or armatures))
 
-    # `pose_animated` rather than `animated`: a clip whose bones never move is
-    # broken even when its root travels, and that is the failure that survives
-    # every structural check.
+    # pose_animated: root slide alone is not enough (T-pose sliding fails).
     report["valid"] = bool(
         (meshes or not require_mesh)
         and armatures
@@ -93,30 +79,8 @@ def inspect_fbx(input_path: str, *, require_mesh: bool = True) -> dict:
     return report
 
 
-#: How many keyframes to evaluate. A clip usually starts and ends near its
-#: rest pose, so sampling only the ends can measure almost nothing on a
-#: perfectly good walk cycle; spreading the samples finds the extremes.
-MOTION_SAMPLES = 8
-
-
 def _measure_motion(bpy, meshes, armatures, keyframes) -> dict:
-    """
-    Separate "the character moves" from "the character's pose changes".
-
-    Both numbers are needed because each catches a failure the other misses.
-    Total displacement alone passes a retarget that dropped every rotation and
-    kept only root translation — a character sliding through the level in a
-    T-pose. Pose displacement alone passes a clip whose root motion was lost,
-    which animates correctly on the spot and never goes anywhere.
-
-    Pose is measured by subtracting the armature's own translation from every
-    sample, which leaves exactly the part of the motion the bones are
-    responsible for.
-
-    The mesh is read through the dependency graph rather than from its stored
-    vertices. The stored ones never change no matter what the armature does —
-    reading them is how an unbound skin passes a naive check.
-    """
+    """Measure total vs pose-only displacement across sampled frames."""
     blank = {
         "mesh_displacement_m": None,
         "pose_displacement_m": None,
@@ -180,20 +144,13 @@ def _measure_motion(bpy, meshes, armatures, keyframes) -> dict:
         ),
         "bone_displacement_m": round(bone_move, 6),
         "root_travel_m": round(travel, 6),
-        "animated": max(mesh_move, bone_move, travel) > DEFORMATION_EPSILON,
-        "pose_animated": pose_change > DEFORMATION_EPSILON,
+        "animated": max(mesh_move, bone_move, travel) > DEFORM_EPSILON,
+        "pose_animated": pose_change > DEFORM_EPSILON,
     }
 
 
 def _measure_scale(Vector, objects) -> dict:
-    """
-    The imported height, which is the units check every engine argues about.
-
-    Blender works in metres and Unreal in centimetres, and the FBX importer at
-    each end applies its own conversion. A humanoid that arrives 1.8 units tall
-    is right; one that arrives 180 or 0.018 will look correct in isolation and
-    wrong the moment it stands next to anything.
-    """
+    """Imported height / AABB (metres) for unit sanity checks."""
     if not objects:
         return {"height_m": None, "bounds_m": None}
     lows, highs = [], []
@@ -236,4 +193,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["DEFORMATION_EPSILON", "inspect_fbx"]
+__all__ = ["DEFORM_EPSILON", "inspect_fbx"]
