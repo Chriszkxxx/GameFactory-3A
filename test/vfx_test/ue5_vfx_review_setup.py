@@ -5,14 +5,16 @@ import os
 
 import unreal
 
+from ue5_test_paths import content_path
 
-SOURCE_CONFIG = "/Game/VFXGenEngine/Preview/MRQ_Preview512"
-CONFIG_DIR = "/Game/VFXGenEngine/Preview"
+
+SOURCE_CONFIG = content_path("Preview/MRQ_Preview512")
+CONFIG_DIR = content_path("Preview")
 OUTPUT_ROOT = os.environ.get("AAAGF_VFX_REVIEW_ROOT", "").replace("\\", "/")
 
 CASES = {
-    "fire": "/Game/VFXGenEngine/Preview/seq_NS_Fire",
-    "smoke": "/Game/VFXGenEngine/Preview/seq_NS_Smoke_Plume",
+    "fire": content_path("Preview/seq_NS_Fire"),
+    "smoke": content_path("Preview/seq_NS_Smoke_Plume"),
 }
 
 

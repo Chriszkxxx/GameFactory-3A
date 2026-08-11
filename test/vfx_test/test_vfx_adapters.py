@@ -1,6 +1,7 @@
 """Offline contract tests for the reusable engine VFX adapters."""
 from __future__ import annotations
 
+import os
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from unittest import mock
 
 from engine_adapters.ue5.vfx import vfx_functions as vfx
 from engine_adapters.ue5.vfx import action_binding, style_presets
+from test.vfx_test import ue5_test_paths
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -173,8 +175,9 @@ class TestUnityAndSkillContracts(unittest.TestCase):
                 self.assertIn(contract, source)
 
     def test_unity_review_supports_interactive_play_mode(self):
-        source = (REPO_ROOT / "test" / "engine_test" /
-                  "A3Game_VFXRuntimeCapture.cs").read_text(encoding="utf-8")
+        source = (
+            REPO_ROOT / "test" / "vfx_test" / "A3Game_VFXRuntimeCapture.cs"
+        ).read_text(encoding="utf-8")
         self.assertIn("StartInteractiveReview();", source)
         self.assertIn('instance.name = "REVIEW_"', source)
 
@@ -195,6 +198,21 @@ class TestUnityAndSkillContracts(unittest.TestCase):
             for path in skill_dir.rglob("*") if path.is_file()
         )
         self.assertEqual(files, ["SKILL.md"])
+
+    def test_ue_assets_resolve_from_configured_content_root(self):
+        with mock.patch.dict(
+            os.environ,
+            {ue5_test_paths.CONTENT_ROOT_ENV: "/Game/Project/VFXTests/"},
+        ):
+            self.assertEqual(
+                ue5_test_paths.content_path("Sequences/Fire"),
+                "/Game/Project/VFXTests/Sequences/Fire",
+            )
+
+    def test_ue_content_root_is_required(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, ue5_test_paths.CONTENT_ROOT_ENV):
+                ue5_test_paths.content_root()
 
 
 if __name__ == "__main__":

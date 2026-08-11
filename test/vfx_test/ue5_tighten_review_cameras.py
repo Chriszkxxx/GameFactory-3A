@@ -3,29 +3,31 @@ from __future__ import annotations
 
 import unreal
 
+from ue5_test_paths import content_path
+
 
 CAMERAS = {
-    "/Game/VFXGenEngine/Preview/seq_NS_Fire": (
+    content_path("Preview/seq_NS_Fire"): (
         unreal.Vector(170.0, 108.0, 120.0),
         unreal.Vector(0.0, 0.0, 100.0),
     ),
-    "/Game/VFXGenEngine/Preview/seq_NS_Smoke_Plume": (
+    content_path("Preview/seq_NS_Smoke_Plume"): (
         unreal.Vector(200.0, 127.0, 128.0),
         unreal.Vector(0.0, 0.0, 110.0),
     ),
-    "/Game/VFXGenEngine/Sequences/seq_sp_ink_full_c0": (
+    content_path("Sequences/seq_sp_ink_full_c0"): (
         unreal.Vector(235.0, 0.0, 105.0),
         unreal.Vector(0.0, 0.0, 70.0),
     ),
-    "/Game/VFXGenEngine/Sequences/seq_sp_ice_full_c0": (
+    content_path("Sequences/seq_sp_ice_full_c0"): (
         unreal.Vector(235.0, 0.0, 105.0),
         unreal.Vector(0.0, 0.0, 70.0),
     ),
-    "/Game/VFXGenEngine/Sequences/seq_sp_cyber_full_c0": (
+    content_path("Sequences/seq_sp_cyber_full_c0"): (
         unreal.Vector(235.0, 0.0, 105.0),
         unreal.Vector(0.0, 0.0, 70.0),
     ),
-    "/Game/VFXGenEngine/Sequences/seq_punch_fire_review_c0": (
+    content_path("Sequences/seq_punch_fire_review_c0"): (
         unreal.Vector(0.0, 420.0, 140.0),
         unreal.Vector(0.0, 0.0, 80.0),
     ),

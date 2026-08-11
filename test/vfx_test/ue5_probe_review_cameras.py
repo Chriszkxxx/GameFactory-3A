@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import unreal
 
+from ue5_test_paths import content_path
+
 
 SEQUENCES = (
-    "/Game/VFXGenEngine/Preview/seq_NS_Fire",
-    "/Game/VFXGenEngine/Preview/seq_NS_Smoke_Plume",
-    "/Game/VFXGenEngine/Sequences/seq_sp_ink_full_c0",
-    "/Game/VFXGenEngine/Sequences/seq_sp_ice_full_c0",
-    "/Game/VFXGenEngine/Sequences/seq_sp_cyber_full_c0",
-    "/Game/VFXGenEngine/Sequences/seq_punch_fire_review_c0",
+    content_path("Preview/seq_NS_Fire"),
+    content_path("Preview/seq_NS_Smoke_Plume"),
+    content_path("Sequences/seq_sp_ink_full_c0"),
+    content_path("Sequences/seq_sp_ice_full_c0"),
+    content_path("Sequences/seq_sp_cyber_full_c0"),
+    content_path("Sequences/seq_punch_fire_review_c0"),
 )
 
 

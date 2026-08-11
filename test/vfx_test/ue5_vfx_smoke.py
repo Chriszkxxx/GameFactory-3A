@@ -6,6 +6,8 @@ from pathlib import Path
 
 import unreal
 
+from ue5_test_paths import content_path
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -21,11 +23,11 @@ from engine_adapters.ue5.vfx import (  # noqa: E402
 
 
 REVIEW_ASSETS = (
-    "/Game/VFXGenEngine/Sequences/seq_sp_ink_full_c0",
-    "/Game/VFXGenEngine/Sequences/seq_sp_ice_full_c0",
-    "/Game/VFXGenEngine/Sequences/seq_sp_cyber_full_c0",
-    "/Game/VFXGenEngine/Sequences/seq_punch_fire_review_c0",
-    "/Game/A3Game/VFXReview/MRQ_PunchFire768",
+    content_path("Sequences/seq_sp_ink_full_c0"),
+    content_path("Sequences/seq_sp_ice_full_c0"),
+    content_path("Sequences/seq_sp_cyber_full_c0"),
+    content_path("Sequences/seq_punch_fire_review_c0"),
+    content_path("Review/MRQ_PunchFire768"),
 )
 
 

@@ -11,18 +11,7 @@ from pathlib import Path
 import cv2
 
 
-CASES = {
-    "fire": {
-        "niagara": "/Game/NiagaraExamples/FX_Misc/NS_Fire",
-        "sequence": "/Game/VFXGenEngine/Preview/seq_NS_Fire",
-        "mrq_config": "/Game/VFXGenEngine/Preview/MRQ_AAAGF_Fire512",
-    },
-    "smoke": {
-        "niagara": "/Game/NiagaraExamples/FX_Smoke/NS_Smoke_Plume",
-        "sequence": "/Game/VFXGenEngine/Preview/seq_NS_Smoke_Plume",
-        "mrq_config": "/Game/VFXGenEngine/Preview/MRQ_AAAGF_Smoke512",
-    },
-}
+CASES = ("fire", "smoke")
 
 
 def find_frames(root: Path) -> list[Path]:
@@ -36,7 +25,6 @@ def find_ffmpeg(explicit: Path | None) -> str:
     candidates = [
         str(explicit) if explicit else None,
         shutil.which("ffmpeg"),
-        str(Path.home() / "AppData/Local/Microsoft/WinGet/Links/ffmpeg.exe"),
     ]
     for candidate in candidates:
         if candidate and Path(candidate).is_file():
@@ -111,7 +99,6 @@ def encode_case(
             f"encoded frame mismatch for {kind}: {encoded_frames} != {len(frames)}"
         )
     return {
-        **CASES[kind],
         "video": mp4_path.name,
         "contact_sheet": sheet_path.name,
         "fps": fps,
@@ -142,7 +129,6 @@ def main() -> None:
         "status": "pending_human_review",
         "rendered_at": datetime.now(timezone.utc).isoformat(),
         "engine": "Unreal Engine 5.7",
-        "map": "/Game/VFXGenEngine/Maps/PreviewStage",
         "effects": records,
     }
     (args.output / "manifest.json").write_text(

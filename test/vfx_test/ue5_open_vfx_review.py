@@ -3,16 +3,18 @@ from __future__ import annotations
 
 import unreal
 
+from ue5_test_paths import content_path
 
-REVIEW_MAP = "/Game/VFXGenEngine/Maps/PreviewStage"
+
+REVIEW_MAP = content_path("Maps/PreviewStage")
 REVIEW_ASSETS = (
-    ("01 natural fire", "/Game/VFXGenEngine/Preview/seq_NS_Fire"),
-    ("02 natural smoke", "/Game/VFXGenEngine/Preview/seq_NS_Smoke_Plume"),
-    ("03 natural style baseline", "/Game/VFXGenEngine/Preview/seq_NS_Fire"),
-    ("04 ink", "/Game/VFXGenEngine/Sequences/seq_sp_ink_full_c0"),
-    ("05 frost", "/Game/VFXGenEngine/Sequences/seq_sp_ice_full_c0"),
-    ("06 cyber", "/Game/VFXGenEngine/Sequences/seq_sp_cyber_full_c0"),
-    ("07 punch fire", "/Game/VFXGenEngine/Sequences/seq_punch_fire_review_c0"),
+    ("01 natural fire", content_path("Preview/seq_NS_Fire")),
+    ("02 natural smoke", content_path("Preview/seq_NS_Smoke_Plume")),
+    ("03 natural style baseline", content_path("Preview/seq_NS_Fire")),
+    ("04 ink", content_path("Sequences/seq_sp_ink_full_c0")),
+    ("05 frost", content_path("Sequences/seq_sp_ice_full_c0")),
+    ("06 cyber", content_path("Sequences/seq_sp_cyber_full_c0")),
+    ("07 punch fire", content_path("Sequences/seq_punch_fire_review_c0")),
 )
 
 

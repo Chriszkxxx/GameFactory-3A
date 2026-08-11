@@ -5,9 +5,11 @@ import os
 
 import unreal
 
+from ue5_test_paths import content_path
 
-SOURCE_CONFIG = "/Game/VFXGenEngine/Preview/MRQ_Preview768"
-DEST_CONFIG = "/Game/A3Game/VFXReview/MRQ_PunchFire768"
+
+SOURCE_CONFIG = content_path("Preview/MRQ_Preview768")
+DEST_CONFIG = content_path("Review/MRQ_PunchFire768")
 OUTPUT_DIR = os.environ.get("AAAGF_PUNCH_FIRE_OUTPUT_DIR", "")
 
 
