@@ -21,6 +21,7 @@ Thumbs.db
 .vscode/
 
 # Models / assets (leave placeholders only)
+.models/
 *.ckpt
 *.safetensors
 *.bin

@@ -51,7 +51,8 @@ VideoGenerationInput(
 )
 ```
 
-The four currently defined modes are:
+The four currently defined modes are shared task capabilities. A backend only
+implements the subset its underlying model actually supports:
 
 | Mode | Required images | Meaning |
 |---|---|---|
@@ -62,6 +63,16 @@ The four currently defined modes are:
 
 The input type validates the exact image combination for each mode. Image order
 is preserved for reference generation.
+
+| Backend | `text_to_video` | `first_frame_to_video` | `first_last_frame_to_video` | `reference_to_video` |
+|---|---:|---:|---:|---:|
+| Seedance 2.0 | yes | yes | yes | yes |
+| MiniMax H3 (`local`) | yes | yes | yes | yes |
+| MiniMax Hailuo 2.3 (`api`) | yes | yes | no | no |
+
+Selecting `--backend` chooses the model implementation; `mode` is then sent to
+that model. An unsupported pair fails explicitly and is never silently rerouted
+to a different provider.
 
 ## Input boundary
 
@@ -193,3 +204,4 @@ python test/harness/smoke.py --kind cg_video
 ## Backends
 
 - [Seedance](seedance.md) — Volcengine Ark cloud API.
+- [MiniMax H3 / Hailuo 2.3](minimax_h3.md) — one backend for the cloud API and local ComfyUI INT8 checkpoints.
