@@ -1,0 +1,16 @@
+{
+    "name": "FPSUIExample",
+    "rootNamespace": "FPSUIExample",
+    "references": [
+        "FPSExample",
+        "Unity.ugui"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

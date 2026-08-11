@@ -101,8 +101,38 @@ _ENGINE_DEFINITIONS = (
     },
     {
         "engine_id": "unity3d",
-        "enabled": False,
+        "enabled": True,
         "aliases": {"unity"},
+        "primary_api": "unity3d_api.md",
+        "mechanic_example_roots": (
+            "engine_adapters/unity3d/examples",
+        ),
+        "ui_example_roots": (
+            "engine_adapters/unity3d/examples",
+        ),
+        "browser_backend_example_roots": (
+            "engine_adapters/browser_serving/backends",
+        ),
+        "browser_backend_example_paths": (
+            "engine_adapters/browser_serving/backends/"
+            "unity3d_example.py",
+        ),
+        "browser_backend_entry_point": (
+            "engine_adapters.browser_serving.backends:"
+            "create_unity3d_example_backend"
+        ),
+        "browser_backend_capabilities": (
+            "asset_upload",
+            "asset_import",
+            "asset_inspection",
+            "world_build",
+            "world_catalog",
+            "runtime_sessions",
+            "skeletal_animation",
+            "streaming",
+            "webgl_streaming",
+            "preview_camera",
+        ),
     },
     {
         "engine_id": "blender",

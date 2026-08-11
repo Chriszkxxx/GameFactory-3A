@@ -71,6 +71,19 @@ public static class ImportGeneratedMesh
         public string error = "";
     }
 
+    [Serializable]
+    private class ImportJob
+    {
+        public string src = "";
+        public string dest = "";
+        public string name = "";
+        public string usage = "";
+        public int target_tris;
+        public string pivot = "";
+        public bool normalize_scale;
+        public string prefab_dest = "";
+    }
+
     // ── CLI ───────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -85,19 +98,24 @@ public static class ImportGeneratedMesh
 
         try
         {
-            string src = Get(args, "src", null);
+            ImportJob job = ReadJob(args);
+            string src = Value(job.src, Get(args, "src", null));
             if (string.IsNullOrEmpty(src))
                 throw new ArgumentException("--src <path to .glb/.fbx/.obj> is required");
 
             report = Import(
                 src,
-                Get(args, "dest", "Assets/Generated/Meshes"),
-                Get(args, "name", null),
-                ParseUsage(Get(args, "usage", "asset")),
-                ParseIntOrNull(Get(args, "target-tris", null)),
-                Get(args, "pivot", null),
-                args.ContainsKey("normalize-scale"),
-                Get(args, "prefab-dest", "Assets/Generated/Prefabs")
+                Value(job.dest, Get(args, "dest", "Assets/Generated/Meshes")),
+                Value(job.name, Get(args, "name", null)),
+                ParseUsage(Value(job.usage, Get(args, "usage", "asset"))),
+                job.target_tris > 0
+                    ? (int?)job.target_tris
+                    : ParseIntOrNull(Get(args, "target-tris", null)),
+                Value(job.pivot, Get(args, "pivot", null)),
+                job.normalize_scale || args.ContainsKey("normalize-scale"),
+                Value(
+                    job.prefab_dest,
+                    Get(args, "prefab-dest", "Assets/Generated/Prefabs"))
             );
         }
         catch (Exception e)
@@ -152,7 +170,7 @@ public static class ImportGeneratedMesh
         // 1. Copy into the project. Unity only imports what lives under Assets/.
         Directory.CreateDirectory(destFolder);
         string assetPath = $"{destFolder}/{assetName}{ext}";
-        File.Copy(srcPath, assetPath, overwrite: true);
+        CopyReplace(srcPath, assetPath);
         AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
         AssetDatabase.Refresh();
         report.assetPath = assetPath;
@@ -374,6 +392,31 @@ public static class ImportGeneratedMesh
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    static ImportJob ReadJob(Dictionary<string, string> args)
+    {
+        string jobPath = Get(args, "job", null);
+        if (string.IsNullOrEmpty(jobPath) || !File.Exists(jobPath))
+            return new ImportJob();
+        ImportJob job = JsonUtility.FromJson<ImportJob>(File.ReadAllText(jobPath));
+        return job ?? new ImportJob();
+    }
+
+    static string Value(string preferred, string fallback)
+    {
+        return !string.IsNullOrEmpty(preferred) ? preferred : fallback;
+    }
+
+    static void CopyReplace(string source, string destination)
+    {
+        if (File.Exists(destination))
+        {
+            File.SetAttributes(destination, FileAttributes.Normal);
+            File.Delete(destination);
+        }
+        File.Copy(source, destination, overwrite: false);
+        File.SetAttributes(destination, FileAttributes.Normal);
+    }
 
     static void WriteReport(ImportReport report, string reportPath)
     {

@@ -1,0 +1,39 @@
+{
+  "schema_version": "aaagameforge.mechanic_contract.v1",
+  "mechanic_id": "racing",
+  "display_name": "Racing Lap Counter",
+  "description": "Arcade racing with checkpoint-based lap tracking. Passing checkpoints increments progress; completing all checkpoints advances the lap.",
+  "behavioral_invariants": [
+    {
+      "id": "checkpoint_increments_progress",
+      "description": "Passing a checkpoint increments CheckpointsPassed.",
+      "precondition": "Lap counter is reset with CheckpointsPassed = 0.",
+      "action": "lapCounter.PassCheckpoint()",
+      "expected_result": "CheckpointsPassed increases by 1."
+    },
+    {
+      "id": "all_checkpoints_increment_lap",
+      "description": "Passing all checkpoints resets progress and increments CurrentLap.",
+      "precondition": "Lap counter has TotalCheckpoints checkpoints and CheckpointsPassed = TotalCheckpoints - 1.",
+      "action": "lapCounter.PassCheckpoint() (the final checkpoint)",
+      "expected_result": "CurrentLap increases by 1 and CheckpointsPassed resets to 0."
+    },
+    {
+      "id": "lap_starts_at_one",
+      "description": "The lap counter starts at lap 1.",
+      "precondition": "Lap counter is freshly configured.",
+      "action": "Read CurrentLap",
+      "expected_result": "CurrentLap equals 1."
+    },
+    {
+      "id": "vehicle_lap_delegates_to_counter",
+      "description": "The vehicle's CurrentLap reflects its assigned lap counter.",
+      "precondition": "Vehicle has an assigned RacingLapCounter.",
+      "action": "Read vehicle.CurrentLap",
+      "expected_result": "Returns the lap counter's CurrentLap."
+    }
+  ],
+  "dependencies": {
+    "assemblies": ["A3GameRuntime"]
+  }
+}

@@ -144,6 +144,12 @@ def _prepare_command(
             task_id=args.task_id,
             task_name="UI",
         )
+        if args.mechanic_artifact:
+            task["mechanic_artifact_path"] = (
+                args.mechanic_artifact
+            )
+            task.pop("mechanic_artifact", None)
+            task.pop("mechanic_task", None)
     if args.mode:
         task["mode"] = args.mode
     if args.repair_json:

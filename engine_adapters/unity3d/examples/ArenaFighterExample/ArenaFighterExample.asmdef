@@ -1,0 +1,15 @@
+{
+    "name": "ArenaFighterExample",
+    "rootNamespace": "ArenaFighterExample",
+    "references": [
+        "A3GameRuntime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

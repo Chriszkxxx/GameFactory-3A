@@ -1,0 +1,39 @@
+{
+  "schema_version": "aaagameforge.mechanic_contract.v1",
+  "mechanic_id": "arena_fighter",
+  "display_name": "Arena Fighter",
+  "description": "Melee arena combat: two fighters with health, range-based attacks, hit detection, and an AI opponent that chases and attacks.",
+  "behavioral_invariants": [
+    {
+      "id": "attack_reduces_health",
+      "description": "A successful attack reduces the target's health by the attacker's AttackDamage.",
+      "precondition": "Attacker and target are alive and within AttackRange.",
+      "action": "attacker.Attack(target)",
+      "expected_result": "target.Health decreases by attacker.AttackDamage."
+    },
+    {
+      "id": "zero_health_triggers_death",
+      "description": "When a fighter's health reaches zero it is marked dead.",
+      "precondition": "Fighter is alive with health greater than zero.",
+      "action": "fighter.TakeDamage(amount) until health <= 0",
+      "expected_result": "fighter.IsDead becomes true and Health is clamped to 0."
+    },
+    {
+      "id": "out_of_range_attack_misses",
+      "description": "An attack against a target outside AttackRange does not connect and deals no damage.",
+      "precondition": "Target is farther than AttackRange from the attacker.",
+      "action": "attacker.Attack(target)",
+      "expected_result": "Attack returns false and target.Health is unchanged."
+    },
+    {
+      "id": "dead_fighter_cannot_act",
+      "description": "A dead fighter cannot attack and cannot be damaged further.",
+      "precondition": "fighter.IsDead is true.",
+      "action": "fighter.Attack(target) or fighter.TakeDamage(amount)",
+      "expected_result": "No damage is applied and Attack returns false."
+    }
+  ],
+  "dependencies": {
+    "assemblies": ["A3GameRuntime"]
+  }
+}

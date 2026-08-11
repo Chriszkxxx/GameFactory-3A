@@ -187,6 +187,27 @@ def viewport_list(
     return result
 
 
+def screen_names(value: Any) -> list[str]:
+    if isinstance(value, (str, bytes)) or not isinstance(
+        value,
+        Sequence,
+    ):
+        raise TypeError("screens must be a sequence")
+    names: list[str] = []
+    for index, item in enumerate(value):
+        if isinstance(item, Mapping):
+            name = str(item.get("name") or "").strip()
+        else:
+            name = str(item or "").strip()
+        if not name:
+            raise ValueError(
+                f"screens[{index}] must declare a non-empty name"
+            )
+        if name not in names:
+            names.append(name)
+    return names
+
+
 def resolve_mechanic_artifact(
     task: Mapping[str, Any],
     *,
@@ -540,10 +561,7 @@ def prepare(
     design_document_path, design_document = (
         _design_document(task, game_id)
     )
-    screens = string_list(
-        task.get("screens", []),
-        "screens",
-    )
+    screens = screen_names(task.get("screens", []))
     if not screens:
         raise ValueError(
             "UI task must declare non-empty screens"
