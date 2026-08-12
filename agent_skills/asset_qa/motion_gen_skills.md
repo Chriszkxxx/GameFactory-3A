@@ -168,8 +168,7 @@ Task fields for an external clip::
 ## 3. Retargeting And Bone Mapping
 
 **Host driver:** `operators/gen_motion/funcs/retarget_motion.py`.
-**Blender package:** `operators/gen_motion/funcs/retarget_utils/`
-(was historically named `puppeteer_retarget`).
+**Blender package:** `operators/gen_motion/funcs/retarget_utils/`.
 
 | Module | Runs in | Role |
 |---|---|---|
@@ -184,14 +183,13 @@ Task fields for an external clip::
 
 Puppeteer names joints `joint0…jointN` in **prediction order**. Those names
 carry no anatomy: `joint23` is hips on one character and a finger on the next.
-A checked-in bone map is therefore only valid for the single rig it was pinned
-to — so this repo does **not** ship Mixamo/MoMask → Puppeteer preset JSONs.
+A bone map is therefore only valid for the single rig it was written for — this
+repo does **not** ship Mixamo/MoMask → Puppeteer preset JSONs.
 
 What *is* reusable is the **source** half (Mixamo always uses
 `mixamorig:Hips`). That lives in `SOURCE_SKELETONS` inside
-`mapping_presets.py`. There is no `presets/` drop-in folder: omit mapping and
-let `mapping_auto` derive a map, or pass an explicit `mapping_path` /
-`--mapping` for a one-off.
+`mapping_presets.py`. Omit mapping and let `mapping_auto` derive a map, or pass
+an explicit `mapping_path` / `--mapping` for a one-off.
 
 Default path when the task names no mapping: auto-generate → write
 `mapping.json` next to the FBX → run world-delta twice (full + anim-only).

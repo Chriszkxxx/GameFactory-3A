@@ -374,7 +374,10 @@ def main() -> None:
     parser.add_argument(
         "--list-mappings",
         action="store_true",
-        help="Print the retarget mapping registry as JSON and exit.",
+        help=(
+            "Print known source-skeleton profiles (Mixamo, CMU, …) as JSON "
+            "and exit. Full bone maps are derived per character."
+        ),
     )
     parser.add_argument(
         "--list-motion-sources",

@@ -286,9 +286,10 @@ Practical points when building an armature from joints and skin weights:
   than an error.
 - Bake to keyframes before exporting; constraint-driven poses do not survive FBX.
 
-`engine_adapters/blender/rig_io.py` and `world_delta.py` implement this;
-`mappings/generate_mapping_auto.py` derives a bone map from topology when no
-preset fits a new source skeleton.
+`operators/gen_motion/funcs/retarget_utils/` (via `retarget_motion.py`)
+implements Puppeteer rig import, auto bone mapping, and world-delta retarget.
+Validate the resulting FBX with
+`engine_adapters/blender/import_generated/import_motion.py` (`--kind motion`).
 
 ---
 
