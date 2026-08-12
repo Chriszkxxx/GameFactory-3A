@@ -11,6 +11,49 @@ from ...._internal.transport.unity_editor import UnityEditorTransport
 from ....config import UnityClientConfig, UNITY_ASSET_TYPE_DEFAULT_DESTS
 
 
+def discover_unitypackage_root(source: Path) -> str:
+    """Return the common ``Assets/...`` root declared by a unitypackage.
+
+    Unity packages are tar records rather than ordinary folders.  Reading the
+    pathname records here lets the public client pass the actual package root
+    to the Editor importer instead of assuming a vendor-specific directory.
+    """
+    if not source.is_file() or source.suffix.lower() != ".unitypackage":
+        return ""
+    paths: list[str] = []
+    try:
+        with tarfile.open(source, "r:gz") as archive:
+            for member in archive.getmembers():
+                if not member.isfile() or not member.name.endswith("/pathname"):
+                    continue
+                stream = archive.extractfile(member)
+                if stream is None:
+                    continue
+                raw = stream.read().decode("utf-8", "replace").replace("\x00", "")
+                normalized = "\n".join(raw.splitlines()).strip()
+                while normalized.endswith("\n00"):
+                    normalized = normalized[:-3].rstrip()
+                if normalized.startswith("Assets/"):
+                    paths.append(normalized.replace("\\", "/"))
+    except (OSError, tarfile.TarError, UnicodeError):
+        return ""
+    if not paths:
+        return ""
+    parts = [Path(item).parts for item in paths]
+    common: list[str] = []
+    for values in zip(*parts):
+        if len({value for value in values}) != 1:
+            break
+        common.append(values[0])
+    if common and Path(common[-1]).suffix:
+        common.pop()
+    # A package can contain files directly below Assets.  In that case the
+    # package root is Assets itself, which is still a valid import scope.
+    if not common:
+        return "Assets"
+    return "/".join(common)
+
+
 class UnityImportDispatcher:
     """Selects and runs the correct C# import script for each asset type."""
 
@@ -102,6 +145,10 @@ class UnityImportDispatcher:
         }
         if package_pre_extracted:
             args["pre_extracted"] = True
+        if src_path_obj.suffix.lower() == ".unitypackage":
+            package_root = discover_unitypackage_root(src_path_obj)
+            if package_root:
+                args["package_root"] = package_root
         for key, value in options.items():
             if value is not None and value != "":
                 args[key] = value
@@ -145,10 +192,32 @@ class UnityImportDispatcher:
             report.setdefault("imported_paths", [])
             if report["prefabPath"] not in report.get("imported_paths", []):
                 report["imported_paths"].append(report["prefabPath"])
+        if report.get("ok") and report.get("avatarPath"):
+            report.setdefault("imported_paths", [])
+            if report["avatarPath"] not in report["imported_paths"]:
+                report["imported_paths"].append(report["avatarPath"])
+            metadata = report.setdefault("metadata", {})
+            if isinstance(metadata, dict):
+                metadata.setdefault("skeleton_path", report["avatarPath"])
+        if report.get("ok") and report.get("runtimePrefabPath"):
+            report.setdefault("imported_paths", [])
+            if report["runtimePrefabPath"] not in report["imported_paths"]:
+                report["imported_paths"].append(report["runtimePrefabPath"])
         if report.get("ok") and report.get("animationClipPath"):
             report.setdefault("imported_paths", [])
             if report["animationClipPath"] not in report["imported_paths"]:
                 report["imported_paths"].append(report["animationClipPath"])
+        if report.get("ok") and report.get("runtimeAnimationClipPath"):
+            report.setdefault("imported_paths", [])
+            if report["runtimeAnimationClipPath"] not in report["imported_paths"]:
+                report["imported_paths"].append(report["runtimeAnimationClipPath"])
+            if report.get("sourceAvatarPath"):
+                metadata = report.setdefault("metadata", {})
+                if isinstance(metadata, dict):
+                    metadata.setdefault(
+                        "source_avatar_path",
+                        report["sourceAvatarPath"],
+                    )
         if report.get("ok") and report.get("materialPath"):
             report.setdefault("imported_paths", [])
             if report["materialPath"] not in report["imported_paths"]:

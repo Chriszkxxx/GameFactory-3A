@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .._internal.transport.unity_editor import UnityEditorTransport
 from ..config import DEFAULT_IMPORT_ROOT, UnityClientConfig
 from ..contracts import UnityOperationResult
-from ._internal.artifacts import ArtifactRegistry
+from ._internal.artifacts import ArtifactRegistry, build_artifact_records
 from ._internal.artifacts.models import normalize_artifact_type, normalize_backend_path
 from ._internal.service import AssetService
 from ._internal.source_resolver import (
@@ -71,6 +71,219 @@ class UnityAssetsClient:
         )
         result["payload"]["source"] = resolved.descriptor()
         return result
+
+    def import_batch(
+        self,
+        sources: Sequence[Mapping[str, Any]],
+        *,
+        options: Mapping[str, Any] | None = None,
+        timeout: int | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Import a dependency-ordered asset set in one Unity Editor job.
+
+        Each source is still a canonical generated-output descriptor.  The
+        Editor receives absolute materialized paths only after this client has
+        resolved and validated every descriptor, so this operation cannot
+        silently import files directly from ``test_samples`` or ``asset``.
+        """
+        if isinstance(sources, (str, bytes)) or not sources:
+            return UnityOperationResult.failure(
+                "assets.import_batch",
+                "sources must be a non-empty sequence of descriptors",
+            ).to_dict()
+        entries: list[dict[str, Any]] = []
+        resolved_sources: list[ResolvedAssetSource] = []
+        common_options = dict(options or {})
+        try:
+            for source in sources:
+                if not isinstance(source, Mapping):
+                    raise TypeError("each batch source must be a descriptor object")
+                descriptor = dict(source)
+                asset_type = str(
+                    descriptor.get("asset_type")
+                    or descriptor.get("type")
+                    or ""
+                ).strip().lower()
+                if asset_type == "environment":
+                    resolve_type = "scene"
+                else:
+                    resolve_type = asset_type
+                if not resolve_type:
+                    raise ValueError("batch source is missing asset_type")
+                resolved = self._resolve_source(
+                    descriptor,
+                    resolve_type,
+                    allow_directory=resolve_type == "scene",
+                )
+                validation = self._service.validate_asset(
+                    str(resolved.path),
+                    resolve_type,
+                    **common_options,
+                )
+                # Unity packages are valid scene inputs even when the generic
+                # validation path only sees a directory after pre-extraction.
+                if not validation.get("ok"):
+                    raise ValueError(
+                        "; ".join(str(item) for item in validation.get("errors") or [])
+                    )
+                src_path = resolved.path
+                package_root = ""
+                pre_extracted = False
+                package_warnings: list[str] = []
+                if src_path.suffix.lower() == ".unitypackage":
+                    (
+                        prepared,
+                        package_warnings,
+                        pre_extracted,
+                    ) = self._service.dispatcher._prepare_unitypackage(src_path)
+                    src_path = prepared
+                    from ._internal.unity.dispatcher import discover_unitypackage_root
+                    package_root = discover_unitypackage_root(resolved.path)
+                name = str(
+                    descriptor.get("name")
+                    or descriptor.get("task_id")
+                    or resolved.path.stem
+                ).strip()
+                destination = str(
+                    descriptor.get("destination")
+                    or common_options.get("destination")
+                    or self._service.default_destination(resolve_type)
+                )
+                entry = {
+                    "asset_type": "scene" if asset_type == "environment" else asset_type,
+                    "src": str(src_path),
+                    "dest": destination,
+                    "name": name,
+                    "skeleton_asset_path": str(
+                        descriptor.get("skeleton")
+                        or descriptor.get("skeleton_asset_path")
+                        or common_options.get("skeleton")
+                        or ""
+                    ),
+                    "package_root": package_root,
+                    "pre_extracted": pre_extracted,
+                    "world_id": str(descriptor.get("world_id") or common_options.get("world_id") or ""),
+                    "project_id": str(descriptor.get("project_id") or common_options.get("project_id") or ""),
+                    "publish": str(bool(descriptor.get("publish", common_options.get("publish", False)))).lower(),
+                    "replace_existing": str(bool(descriptor.get("replace_existing", common_options.get("replace_existing", True)))).lower(),
+                    "usage": str(descriptor.get("usage") or common_options.get("usage") or "Asset"),
+                    "category": str(descriptor.get("category") or common_options.get("category") or ""),
+                }
+                entries.append(entry)
+                resolved_sources.append(resolved)
+                if package_warnings:
+                    entry["client_warnings"] = package_warnings
+        except Exception as exc:
+            return UnityOperationResult.failure(
+                "assets.import_batch",
+                f"{type(exc).__name__}: {exc}",
+            ).to_dict()
+
+        # Keep the dependency contract deterministic even if callers pass an
+        # arbitrary order: avatars/meshes first, then motions, then scenes.
+        order = {"avatar": 0, "weapon": 0, "prop": 0, "static_mesh": 0,
+                 "motion": 1, "scene": 2, "environment": 2}
+        paired = sorted(
+            zip(entries, resolved_sources),
+            key=lambda item: order.get(item[0]["asset_type"], 0),
+        )
+        entries = [item[0] for item in paired]
+        resolved_sources = [item[1] for item in paired]
+        avatar_prefab = next(
+            (
+                f"Assets/Generated/Prefabs/{entry['name']}.prefab"
+                for entry in entries
+                if entry["asset_type"] == "avatar"
+            ),
+            "",
+        )
+        if avatar_prefab:
+            for entry in entries:
+                if entry["asset_type"] == "motion" and not entry.get("skeleton_asset_path"):
+                    entry["skeleton_asset_path"] = avatar_prefab
+        report = self._service.dispatcher._transport.execute_method(
+            "ImportBatch.RunFromCLI",
+            args={"entries": entries},
+            timeout=timeout or self._config.editor_batchmode_timeout,
+            dry_run=dry_run,
+        )
+        if dry_run:
+            return UnityOperationResult.success(
+                "assets.import_batch",
+                artifacts=[
+                    {"type": "unity_asset_batch", "path": "ImportBatch.RunFromCLI", "state": "planned"}
+                ],
+                payload={"entries": entries, "source_count": len(entries)},
+            ).to_dict()
+        if not isinstance(report, dict):
+            return UnityOperationResult.failure(
+                "assets.import_batch",
+                "Unity batch import returned an invalid report",
+            ).to_dict()
+        raw_items = report.get("items") or []
+        artifacts: list[dict[str, Any]] = []
+        item_results: list[dict[str, Any]] = []
+        errors = [str(item) for item in report.get("errors") or []]
+        warnings = [str(item) for item in report.get("warnings") or []]
+        for index, (entry, resolved) in enumerate(zip(entries, resolved_sources)):
+            item = dict(raw_items[index]) if index < len(raw_items) and isinstance(raw_items[index], dict) else {"ok": False, "error": "Unity omitted batch item report"}
+            if entry.get("client_warnings"):
+                warnings.extend(str(value) for value in entry["client_warnings"])
+            imported_paths = [str(value) for value in item.get("importedPaths") or [] if str(value)]
+            result_payload = {
+                "ok": bool(item.get("ok")),
+                "src_path": str(resolved.path),
+                "asset_type": str(entry["asset_type"]),
+                "asset_id": str(resolved.task_id),
+                "dest_path": str(entry["dest"]),
+                "imported_paths": imported_paths,
+                "metadata": {
+                    "batch": True,
+                    "task_id": resolved.task_id,
+                    "task_kind": resolved.task_kind,
+                    "report": item,
+                },
+            }
+            if item.get("runtimePrefabPath"):
+                result_payload["runtimePrefabPath"] = item["runtimePrefabPath"]
+            if item.get("runtimeAnimationClipPath"):
+                result_payload["runtimeAnimationClipPath"] = item["runtimeAnimationClipPath"]
+            records = build_artifact_records(
+                result_payload,
+                backend="unity",
+                category=str(entry.get("category") or ""),
+            ) if item.get("ok") else []
+            if records:
+                self._service.artifacts.upsert_many(records)
+                artifacts.extend(record.to_dict() for record in records)
+            if not item.get("ok"):
+                errors.append(
+                    f"{resolved.task_id}: {item.get('error') or 'batch import failed'}"
+                )
+            item_results.append({
+                "task_id": resolved.task_id,
+                "task_kind": resolved.task_kind,
+                "asset_type": entry["asset_type"],
+                "ok": bool(item.get("ok")),
+                "report": item,
+                "artifacts": [record.to_dict() for record in records],
+            })
+        ok = bool(report.get("ok")) and not errors
+        return UnityOperationResult(
+            operation="assets.import_batch",
+            ok=ok,
+            artifacts=tuple(artifacts),
+            warnings=tuple(dict.fromkeys(warnings)),
+            errors=tuple(dict.fromkeys(errors)),
+            payload={
+                "source_count": len(entries),
+                "succeeded": int(report.get("succeeded") or 0),
+                "failed": int(report.get("failed") or 0),
+                "items": item_results,
+                "entries": entries,
+            },
+        ).to_dict()
 
     def import_avatar(
         self,

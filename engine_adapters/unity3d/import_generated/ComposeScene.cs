@@ -97,7 +97,7 @@ public static class ComposeScene
     }
 
     [Serializable]
-    private class SceneReport
+    public class SceneReport
     {
         public bool ok;
         public string scenePath = "";
@@ -121,11 +121,7 @@ public static class ComposeScene
         try
         {
             string jobPath = Get(args, "job", "");
-            if (string.IsNullOrEmpty(jobPath) || !File.Exists(jobPath))
-                throw new FileNotFoundException("Scene composition job was not found", jobPath);
-            SceneJob job = JsonUtility.FromJson<SceneJob>(File.ReadAllText(jobPath));
-            if (job == null) throw new InvalidDataException("Scene composition job is invalid");
-            report = Compose(job);
+            report = ComposeJobFile(jobPath);
         }
         catch (Exception exception)
         {
@@ -136,6 +132,15 @@ public static class ComposeScene
         WriteReport(report, reportPath);
         if (Application.isBatchMode)
             EditorApplication.Exit(report.ok ? 0 : 1);
+    }
+
+    public static SceneReport ComposeJobFile(string jobPath)
+    {
+        if (string.IsNullOrEmpty(jobPath) || !File.Exists(jobPath))
+            throw new FileNotFoundException("Scene composition job was not found", jobPath);
+        SceneJob job = JsonUtility.FromJson<SceneJob>(File.ReadAllText(jobPath));
+        if (job == null) throw new InvalidDataException("Scene composition job is invalid");
+        return Compose(job);
     }
 
     private static SceneReport Compose(SceneJob job)
@@ -217,7 +222,8 @@ public static class ComposeScene
                 GameObject cameraObject = new GameObject("Main Camera");
                 Camera camera = cameraObject.AddComponent<Camera>();
                 camera.tag = "MainCamera";
-                cameraObject.AddComponent<AudioListener>();
+                if (UnityEngine.Object.FindObjectOfType<AudioListener>(true) == null)
+                    cameraObject.AddComponent<AudioListener>();
                 cameraObject.transform.position = new Vector3(0f, 1.7f, -6f);
             }
             SaveScene(job, scene, report);
@@ -276,8 +282,33 @@ public static class ComposeScene
             initialize?.Invoke(runtime, new object[] { job.world_id });
         }
 
+        EnsureGameplayCamera(
+            job.player_spawn != null ? job.player_spawn.Value : Vector3.zero,
+            job.player_rotation != null ? job.player_rotation.Value : baseCameraRotation);
+
         SaveScene(job, scene, report);
         return report;
+    }
+
+    private static void EnsureGameplayCamera(Vector3 playerSpawn, Vector3 rotation)
+    {
+        Camera camera = UnityEngine.Object.FindObjectOfType<Camera>(true);
+        GameObject cameraObject = camera != null
+            ? camera.gameObject
+            : new GameObject("Main Camera");
+        cameraObject.name = "Main Camera";
+        cameraObject.tag = "MainCamera";
+        camera = cameraObject.GetComponent<Camera>();
+        if (camera == null) camera = cameraObject.AddComponent<Camera>();
+        camera.enabled = true;
+        camera.targetDisplay = 0;
+        camera.clearFlags = CameraClearFlags.Skybox;
+        camera.nearClipPlane = 0.03f;
+        camera.farClipPlane = 2000f;
+        cameraObject.transform.position = playerSpawn + Vector3.up * 1.7f;
+        cameraObject.transform.rotation = Quaternion.Euler(rotation);
+        if (cameraObject.GetComponent<AudioListener>() == null)
+            cameraObject.AddComponent<AudioListener>();
     }
 
     private static int ComposeObjects(ObjectSpec[] specs, SceneReport report)
@@ -429,7 +460,11 @@ public static class ComposeScene
         if (!string.IsNullOrEmpty(sceneDirectory)) Directory.CreateDirectory(sceneDirectory);
         if (!EditorSceneManager.SaveScene(scene, job.output_scene))
             throw new IOException("Unity could not save scene: " + job.output_scene);
-        EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(job.output_scene, true) };
+        var buildScenes = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
+        bool alreadyIncluded = buildScenes.Any(item => item.path == job.output_scene);
+        if (!alreadyIncluded)
+            buildScenes.Add(new EditorBuildSettingsScene(job.output_scene, true));
+        EditorBuildSettings.scenes = buildScenes.ToArray();
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
 
@@ -624,7 +659,9 @@ public static class ComposeScene
 
     private static string Get(Dictionary<string, string> args, string key, string fallback)
     {
-        return args.TryGetValue(key, out string value) && !string.IsNullOrEmpty(value) ? value : fallback;
+        if (args.TryGetValue(key, out string value) && !string.IsNullOrEmpty(value))
+            return value;
+        return A3GameForgeEditorBridge.GetArgument(key, fallback);
     }
 
     private static void WriteReport(object value, string path)

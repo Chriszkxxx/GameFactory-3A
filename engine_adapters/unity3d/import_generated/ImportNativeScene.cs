@@ -144,13 +144,18 @@ public static class ImportNativeScene
             ".fbx", ".obj", ".glb", ".gltf", ".wav", ".mp3", ".ogg",
             ".controller", ".anim", ".overrideController", ".asmdef",
             ".cs", ".shader", ".cginc", ".hlsl", ".renderTexture",
-            ".physicMaterial", ".mesh", ".asset", ".lighting"
+            ".physicMaterial", ".mesh", ".asset", ".lighting", ".exr", ".json",
+            ".bytes", ".txt", ".shadergraph", ".vfx"
         };
 
         foreach (string sourceFile in EnumerateFilesSafe(sourceRoot))
         {
             string ext = Path.GetExtension(sourceFile);
-            if (!assetExtensions.Contains(ext))
+            // Keep every .meta file, including folder metadata.  Unity GUIDs
+            // inside scenes/materials/textures depend on these files and
+            // regenerating them breaks references after import.
+            bool isMeta = sourceFile.EndsWith(".meta", StringComparison.OrdinalIgnoreCase);
+            if (!isMeta && !assetExtensions.Contains(ext))
                 continue;
 
             string relative = Path.GetRelativePath(sourceRoot, sourceFile);
@@ -200,8 +205,15 @@ public static class ImportNativeScene
         var scene = EditorSceneManager.OpenScene(
             selectedScenePath, OpenSceneMode.Single);
 
-        // Camera info
-        var cam = scene.GetMainCamera();
+        // Camera info. Scene has no GetMainCamera helper in Unity 2022.3;
+        // inspect the loaded scene roots so this remains valid in batchmode
+        // and does not depend on whichever editor scene was active before.
+        Camera cam = null;
+        foreach (GameObject root in scene.GetRootGameObjects())
+        {
+            cam = root.GetComponentInChildren<Camera>(true);
+            if (cam != null) break;
+        }
         if (cam != null)
         {
             var pos = cam.transform.position;
@@ -356,9 +368,6 @@ public static class ImportNativeScene
             }
             foreach (string file in Directory.GetFiles(current))
             {
-                // Skip .meta files — Unity generates them
-                if (file.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
-                    continue;
                 yield return file;
             }
         }
@@ -380,7 +389,8 @@ public static class ImportNativeScene
 
     static string Get(Dictionary<string, string> args, string key, string fallback)
     {
-        return args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v) ? v : fallback;
+        if (args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v)) return v;
+        return A3GameForgeEditorBridge.GetArgument(key, fallback);
     }
 
     static string GetJobValue(Dictionary<string, string> args, string key, string fallback = "")

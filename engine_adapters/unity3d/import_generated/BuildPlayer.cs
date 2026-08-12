@@ -24,7 +24,7 @@ public static class BuildPlayer
     }
 
     [Serializable]
-    private class BuildPlayerReport
+    public class BuildPlayerReport
     {
         public bool ok;
         public string result = "";
@@ -42,11 +42,32 @@ public static class BuildPlayer
     {
         var args = ParseArgs(Environment.GetCommandLineArgs());
         string reportPath = Get(args, "report", "");
-        var result = new BuildPlayerReport();
-
+        BuildPlayerReport result;
         try
         {
-            var job = ReadJob(Get(args, "job", ""));
+            result = BuildJobFile(Get(args, "job", ""));
+        }
+        catch (Exception exception)
+        {
+            result = new BuildPlayerReport
+            {
+                ok = false,
+                error = exception.ToString(),
+            };
+            Debug.LogError("[BuildPlayer] " + exception);
+        }
+
+        WriteReport(result, reportPath);
+        if (Application.isBatchMode)
+            EditorApplication.Exit(result.ok ? 0 : 1);
+    }
+
+    public static BuildPlayerReport BuildJobFile(string path)
+    {
+        var job = ReadJob(path);
+        var result = new BuildPlayerReport();
+        try
+        {
             if (!Enum.TryParse(job.target, true, out BuildTarget target))
                 throw new ArgumentException("Unsupported Unity BuildTarget: " + job.target);
             if (string.IsNullOrWhiteSpace(job.output_path))
@@ -106,10 +127,7 @@ public static class BuildPlayer
             result.error = exception.ToString();
             Debug.LogError("[BuildPlayer] " + exception);
         }
-
-        WriteReport(result, reportPath);
-        if (Application.isBatchMode)
-            EditorApplication.Exit(result.ok ? 0 : 1);
+        return result;
     }
 
     private static string CreateBootstrapScene()
@@ -177,9 +195,9 @@ public static class BuildPlayer
 
     private static string Get(Dictionary<string, string> args, string key, string fallback)
     {
-        return args.TryGetValue(key, out string value) && !string.IsNullOrEmpty(value)
-            ? value
-            : fallback;
+        if (args.TryGetValue(key, out string value) && !string.IsNullOrEmpty(value))
+            return value;
+        return A3GameForgeEditorBridge.GetArgument(key, fallback);
     }
 
     private static void WriteReport(object report, string path)

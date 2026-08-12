@@ -10,6 +10,8 @@ from uuid import uuid4
 
 from .._internal.transport.unity_editor import UnityEditorTransport
 from ..assets import UnityAssetsClient
+from ..assets._internal.artifacts.models import build_artifact_records
+from ..assets._internal.unity.dispatcher import discover_unitypackage_root
 from ..config import UnityClientConfig
 from ..contracts import UnityOperationResult
 
@@ -340,7 +342,10 @@ class UnityWorldClient:
         }
         ignored = sorted(set(resolved_options) - known)
 
-        # Detect native Unity scene: .unity file or directory containing .unity files
+        # Unity packages are imported by AssetDatabase.ImportPackage (or the
+        # deterministic pre-extraction path), not by the generated-scene JSON
+        # importer.  A native .unity scene uses the native copier.
+        is_unitypackage = resolved.path.suffix.lower() == ".unitypackage"
         is_native_scene = _is_native_unity_scene(resolved.path)
         native_scene_name = str(
             resolved_options.get("native_scene")
@@ -348,7 +353,35 @@ class UnityWorldClient:
             or ""
         ).strip()
 
-        if is_native_scene:
+        if is_unitypackage:
+            transport_source = str(resolved.path)
+            package_warnings: list[str] = []
+            package_pre_extracted = False
+            try:
+                (
+                    prepared_source,
+                    package_warnings,
+                    package_pre_extracted,
+                ) = self._assets._service.dispatcher._prepare_unitypackage(
+                    resolved.path
+                )
+                transport_source = str(prepared_source)
+            except Exception as exc:
+                return UnityOperationResult.failure(
+                    "world.build",
+                    f"{type(exc).__name__}: {exc}",
+                    payload={"source": resolved.descriptor()},
+                ).to_dict()
+            method = "ImportUnityPackage.RunFromCLI"
+            args = {
+                "src": transport_source,
+                "package_root": discover_unitypackage_root(resolved.path),
+                "pre_extracted": package_pre_extracted,
+                "world_id": str(resolved_options.get("world_id") or ""),
+                "project_id": str(resolved_options.get("project_id") or ""),
+                "publish": bool(resolved_options.get("publish", True)),
+            }
+        elif is_native_scene:
             method = "ImportNativeScene.RunFromCLI"
             args = {
                 "src": str(resolved.path),
@@ -387,15 +420,99 @@ class UnityWorldClient:
             str(item)
             for item in report.get("warnings") or []
         ]
+        if is_unitypackage:
+            warnings.extend(str(item) for item in package_warnings)
         if ignored:
             warnings.append(
                 "Ignored world options: "
                 + ", ".join(ignored)
             )
+        source_path = Path(str(resolved.path)).resolve(strict=False)
+        world_id = str(
+            resolved_options.get("world_id") or source_path.stem or "world"
+        ).strip()
+        project_id = str(resolved_options.get("project_id") or "").strip()
+        scene_path = str(
+            report.get("scenePath") or report.get("assetPath") or ""
+        ).strip()
+        imported_paths = [scene_path] if scene_path else []
+        world_artifacts: list[dict[str, Any]] = []
+        draft_payload: dict[str, Any] = {}
+        validation_payload: dict[str, Any] = {}
+        package_payload: dict[str, Any] = {}
+        lifecycle_errors: list[str] = []
+        if report.get("ok"):
+            # World import is an asset-producing operation too.  Register the
+            # selected native scene under the same artifact registry used by
+            # assets.import_* so later composition/session calls can refer to
+            # one stable artifact identity.
+            records = build_artifact_records(
+                {
+                    "ok": True,
+                    "src_path": str(source_path),
+                    "asset_type": "environment",
+                    "asset_id": world_id,
+                    "dest_path": str(Path(scene_path).parent) if scene_path else "Assets/Imported/Scenes",
+                    "imported_paths": imported_paths,
+                    "metadata": {
+                        "world_id": world_id,
+                        "project_id": project_id,
+                        "source_representation": (
+                            "unitypackage"
+                            if is_unitypackage
+                            else "native_unity_scene"
+                            if is_native_scene
+                            else "generated_unity_scene"
+                        ),
+                    },
+                },
+                backend="unity",
+                category="environment",
+            )
+            if records:
+                self._assets._service.artifacts.upsert_many(records)
+                world_artifacts = [record.to_dict() for record in records]
+
+            # Mirror UE's world lifecycle: create and validate a draft for
+            # every successful world import, then publish only when requested.
+            world_spec = WorldSpec(
+                world_id=world_id,
+                project_id=project_id,
+                spawn_points=self._spawn_points_from_report(report),
+                metadata={
+                    "source_path": str(source_path),
+                    "scene_path": scene_path,
+                    "artifact_ids": [
+                        item.get("artifact_id") for item in world_artifacts
+                    ],
+                    "import_report": {
+                        key: value
+                        for key, value in report.items()
+                        if key not in {"error"}
+                    },
+                },
+            )
+            try:
+                draft = self._service.create_draft(
+                    world_spec,
+                    project_id=project_id,
+                    metadata={"source_path": str(source_path), "import_mode": "scene"},
+                )
+                validation = self._service.validate_draft(draft.draft_id)
+                draft_payload = draft.to_dict()
+                validation_payload = dict(validation)
+                if validation.get("ok") and bool(resolved_options.get("publish", True)):
+                    package = self._service.publish_draft(draft.draft_id)
+                    package_payload = package.to_dict()
+            except Exception as exc:
+                lifecycle_errors.append(
+                    "Unity world package lifecycle failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
         return UnityOperationResult(
             operation="world.build",
-            ok=bool(report.get("ok", False)),
-            artifacts=[
+            ok=bool(report.get("ok", False)) and not lifecycle_errors,
+            artifacts=world_artifacts + [
                 dict(item)
                 for item in report.get("artifacts") or []
                 if isinstance(item, dict)
@@ -412,7 +529,11 @@ class UnityWorldClient:
             warnings=tuple(warnings),
             errors=tuple(
                 str(item)
-                for item in [report.get("error", "")] + list(report.get("errors") or [])
+                for item in (
+                    [report.get("error", "")]
+                    + list(report.get("errors") or [])
+                    + lifecycle_errors
+                )
                 if str(item)
             ),
             payload={
@@ -422,8 +543,20 @@ class UnityWorldClient:
                     if key not in {"ok", "artifacts", "warnings", "errors", "error"}
                 },
                 "source": resolved.descriptor(),
+                "world_id": world_id,
+                "project_id": project_id,
+                "draft": draft_payload,
+                "validation": validation_payload,
+                "package": package_payload,
             },
         ).to_dict()
+
+    @staticmethod
+    def _spawn_points_from_report(report: Mapping[str, Any]) -> list[dict[str, Any]]:
+        raw = str(report.get("spawnPoint") or "").strip()
+        if not raw:
+            return []
+        return [{"source": "unity_scene_report", "value": raw}]
 
     def create_draft(
         self,

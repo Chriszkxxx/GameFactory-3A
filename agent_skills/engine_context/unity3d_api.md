@@ -60,26 +60,39 @@ stable top-level fields:
 - `unity.get_environment_info` - Reports configured project, Engine, transport,
   and runtime environment information.
 
-## Generated Game Operation Sequence
+## One-Client Generated Game Lifecycle
 
-The Agent uses the same operation stages as the UE5 adapter. There is no
-Unity-only full-pipeline runner:
+Unity has its own native implementation behind the same Agent-facing shape as
+UE5. The supported workflow is one long-lived `UnityClient` instance; do not
+mix direct Unity CLI calls with client calls or construct a second asset/session
+registry. For a complete generated game, `UnityClient.generate_game()` is the
+normal one-call path:
 
 1. Generate and finalize mechanic and UI task artifacts through the existing
    code-generation skills.
 2. Construct one `UnityClient` for the generated project and call
-   `unity.project.create`.
-3. Import each canonical asset task descriptor through `unity.assets.*` or
-   `unity.world.build`; retain the returned Unity asset paths.
-4. Install the finalized mechanic descriptor, then the finalized UI descriptor,
-   through `unity.plugin.install`.
-5. Call `unity.world.compose_scene` with generated component types and imported
-   asset paths to create the playable scene.
-6. Execution/evaluation code calls `unity.testing.run_automation_tests` and
-   requires a fresh passing NUnit report.
-7. Call `unity.build.project`, then launch its concrete native artifact with
+   `unity.generate_game(...)`. The client resolves the canonical descriptors,
+   writes `Library/A3GameForge/jobs/generate_game.json`, and submits one
+   `GenerateGame.RunFromCLI` job to Unity. Inside that one Editor lifecycle,
+   Unity copies the finalized mechanic/UI assemblies, imports the avatars,
+   weapons, motions, scenes/packages through `AssetDatabase`, composes the
+   supplied scene specification, refreshes and compiles scripts, invokes
+   `BuildPipeline`, and optionally enters Play Mode. An already-open GUI Editor
+   is reused; otherwise the transport starts one batchmode Editor.
+3. For incremental work, the same client exposes `unity.assets.*`,
+   `unity.world.build`, `unity.plugin.install`, and
+   `unity.world.compose_scene`; these use the same Unity-native Editor methods.
+4. Execution/evaluation code calls `unity.testing.run_automation_tests` and
+   requires a fresh passing NUnit report. A zero Editor exit code without a
+   report is failure.
+5. Call `unity.build.project`, then launch its concrete native artifact with
    `unity.runtime.launch_player`; stop it with the same client's
    `unity.runtime.stop_player`.
+6. For an interactive run, use that same client's
+   `unity.runtime.sessions.join`, `apply_input`, `snapshot`, `leave`, and
+   `clear_entity`. The client sends UDP commands to the generated project's
+   `A3GameRuntimeInputReceiver`; a queued UDP datagram is not proof that Unity
+   processed it. Confirm processing through `snapshot`/runtime evidence.
 
 The task descriptors in steps 3 and 4 preserve the canonical
 `game_id/run_id/task_kind/task_id` trace. Examples under the adapter are
@@ -147,9 +160,56 @@ must exist inside the canonical task output directory.
 `scripts/unity/import_asset.sh` and `scripts/unity/import_asset.cmd` are thin
 CLI wrappers around the same public `UnityClient`; they are not a second asset
 API. `--dry-run` resolves and validates the canonical source without importing
-it. A non-dry-run import invokes an independent Unity batchmode subprocess
-through the editor transport. The current wrapper does not maintain or reuse a
-live Editor session and does not perform separate Editor readiness orchestration.
+it. A non-dry-run import invokes the client-owned Editor transport. The
+transport installs the required Editor method in the generated project and
+runs it with the project root as cwd, so every `Assets/...` path is resolved by
+Unity itself. The client owns only processes it launched; use the same client
+instance for `stop_editor`/`stop_player`.
+
+For a complete generated asset set, use `unity.assets.import_batch([...])`.
+The descriptors are resolved from canonical output paths first, then ordered
+as avatars/meshes, motions, and scenes. Motions automatically use the batch's
+first avatar prefab when no `skeleton` is supplied. The client invokes
+`ImportBatch.RunFromCLI` once, so Unity imports and refreshes all assets in one
+Editor process. The individual import methods remain available for incremental
+updates.
+
+### FBX/GLB material contract
+
+`ImportGeneratedAvatar` and `ImportGeneratedMesh` run the same generic
+post-import material pass for skeletal and static assets. When the source
+contains embedded texture bytes or material descriptions, the Editor:
+
+1. copies the source into `Assets/Imported/...`;
+2. extracts embedded textures to `Assets/Generated/Textures/<asset_name>/`;
+3. creates project-local URP/Lit (or Standard) materials under
+   `Assets/Generated/Materials/<asset_name>/`;
+4. binds base-color/diffuse, normal, metallic/roughness, and occlusion maps
+   when present; and
+5. remaps the FBX material slots to those project-local materials before saving
+   the generated prefab.
+
+Avatar and mesh reports include `extractedTextures`, `generatedMaterials`,
+`remappedMaterials`, `boundTextures`, `materialDetails`, and `warnings`.
+Successful file copy with zero extracted or bound textures is reported as an
+untextured import; it is not silently considered a complete visual import.
+Sources that contain no embedded texture payload can still be valid, but the
+warning remains available to the Agent for traceability.
+
+The environment importer preserves the `.unitypackage` asset paths and GUID
+references. It discovers the package root from pathname records, imports the
+scene, prefabs, materials, textures, shader graphs, and package-local collider
+data in one AssetDatabase operation, and audits the selected scene in its
+report. It does not replace a package scene with a generated primitive floor.
+
+Material repair is part of the reusable adapter Editor scripts installed by
+`UnityClient`; a project-specific `RepairFPSArenaMaterials.cs` is not a
+dependency. A project generated before this contract existed can have
+`materialImportMode: 2` in its `.fbx.meta` while still lacking generated
+textures/materials. Re-run `UnityClient.generate_game()` (or
+`unity.assets.import_batch`) with `replace_existing=True` so the current
+importer extracts and remaps the materials in that project. Do not reference
+`test_samples/` or `asset/` directly at runtime as a substitute.
 
 ## Animation
 
@@ -169,8 +229,10 @@ live Editor session and does not perform separate Editor readiness orchestration
 
 - `unity.world.compose_scene` - Composes and saves a Unity scene from a
   structured specification of imported prefab/component references.
-- `unity.world.build` - Builds or imports a World from a registered Scene
-  artifact.
+- `unity.world.build` - Imports a registered Scene artifact through the Unity
+  Editor, registers the resulting environment artifact, creates and validates
+  a World draft, and publishes a World package by default. Set
+  `options={"publish": False}` to keep only the validated draft.
 - `unity.world.create_draft` - Creates a persistent editable World draft.
 - `unity.world.validate_draft` - Validates a World draft and its referenced
   artifacts.
@@ -179,7 +241,12 @@ live Editor session and does not perform separate Editor readiness orchestration
 - `unity.world.list_packages` - Lists registered World packages.
 
 World operations preserve native Unity scenes when a task supplies a native
-scene asset.
+scene asset and record the selected scene in the shared artifact registry.
+`.unitypackage` files are dispatched to the package importer,
+their package root is discovered from pathname records, and the selected scene
+path is returned in the result. A `.unity` file or native scene directory is
+copied with its `.meta` files so scene/material/texture GUID references survive
+the import.
 
 `unity.world.compose_scene` accepts the legacy FPS example fields and a generic
 `objects` form. The generic form is the normal generated-game contract:
@@ -267,6 +334,20 @@ they do not provide a later CLI stop operation.
 
 ## Runtime Sessions
 
+The browser-serving Unity path is separate from native Editor/Player runtime
+sessions. A Unity WebGL build is itself the browser runtime: `stream_url` points
+to an HTTP-served `index.html`, not to an Unreal Pixel Streaming/WebRTC page.
+The WebGL session must report `runtime_kind="unity_webgl"` and
+`input_transport="browser_canvas"`. The iframe receives keyboard and pointer
+events directly in Unity's canvas; the browser API may acknowledge and record
+input, but must not claim that a native UDP receiver processed it. Native
+Editor/Player sessions continue to use the UDP contract below.
+
+The browser backend must first verify `Builds/WebGL/index.html` and a successful
+HTTP GET before returning a ready stream. If `build.project(target="WebGL")`
+is blocked by Unity LicensingClient before compilation, browser validation is
+`BLOCKED`; a desktop GUI Play Mode run does not prove WebGL rendering.
+
 - `unity.runtime.sessions.join` - Creates or updates a generic participant,
   controller, entity, and control-binding session.
 - `unity.runtime.sessions.leave` - Marks a participant/controller offline
@@ -296,8 +377,16 @@ Normalized input state fields are identical to UE5:
 - `seq` - monotonic sequence number per session
 
 Input is delivered via UDP to the `A3GameRuntimeInputReceiver` C# component
-(port 30030). The receiver applies only inputs with `seq` greater than the
-last applied; duplicate or out-of-order packets are silently dropped.
+(port 30030 by default). The receiver applies only inputs with `seq` greater
+than the last applied; duplicate or out-of-order packets are silently dropped.
+The bridge keeps avatar, idle-motion, and movement-motion `Assets/...` paths at
+the top level of `sync_session` so Unity-side factories can instantiate the
+imported prefab and bind its clips. It also accepts the legacy shape where
+those fields exist only in `parameters`. Imported avatar and motion records
+carry a separate `runtime.path` under `Assets/Resources/...`; session joins
+prefer that Player-loadable path while retaining the editor-facing
+`backend_path`. The opaque `parameters` object remains available for
+game-specific configuration.
 
 ## Reflection
 
@@ -374,7 +463,11 @@ references and are not dependencies or success criteria.
 ## Transport
 
 Unity does not have Unreal's Python Remote Execution or HTTP Remote Control.
-The `UnityClient` uses a subprocess transport:
+The `UnityClient` uses a subprocess transport. Every Editor invocation sets
+the subprocess working directory to the generated Unity project root. This is
+required because Unity Editor scripts use project-relative paths such as
+`Assets/Imported/Weapons`; without that cwd contract, a relative file operation
+could write outside the project and AssetDatabase would not see the import:
 
 1. Copies the required bundled C# Editor script into the project's
    `Assets/Editor/` folder when needed
@@ -383,6 +476,30 @@ The `UnityClient` uses a subprocess transport:
    <Class.Method> --job <job.json> --report <report.json>`
 4. The C# script writes a JSON report to a temporary file
 5. The Python transport reads the JSON report and returns it
+
+### Unity licensing prerequisite
+
+Unity licensing is an external host prerequisite, not an AAAGameForge
+operation. Before invoking a mutating client method, the selected Editor must
+be installed and activated through the matching Unity Hub/Tuanjie Hub account,
+or an already-open licensed Editor must be available. `UnityClient` does not
+discover credentials, activate seats, or replace the Hub licensing daemon.
+
+The direct batch transport deliberately does not force `-licensingIpc`: Unity
+and its Hub choose the correct local LicensingClient channel. If the host has
+conflicting Hub daemons or no activation, Unity can exit before loading the
+project (commonly exit code 199). The transport returns
+`blocked=true`, `blocked_stage="licensing"`, `license_status`, and the log
+tail in that case, so callers fail fast with the external prerequisite rather
+than claiming that import, compilation, or build succeeded.
+
+The files under `scripts/unity/` are compatibility launchers only. They do not
+implement import, material repair, scene loading, compilation, or runtime
+behavior. `scripts/unity/import_asset.sh import-batch ...` and the Windows
+equivalent dispatch the top-level `import-batch` public client command. Use
+`generate-game` for the complete pipeline so one Editor session owns plugin
+installation, asset import, material remapping, scene composition, compile,
+build, and optional Play Mode.
 
 ### Runtime Input Transport
 

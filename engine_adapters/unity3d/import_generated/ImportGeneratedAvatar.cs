@@ -16,6 +16,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -27,8 +28,13 @@ public static class ImportGeneratedAvatar
         public bool ok;
         public string assetPath = "";
         public string prefabPath = "";
+        public string runtimePrefabPath = "";
         public string avatarPath = "";
         public bool hasHumanoidAvatar;
+        public int extractedTextures;
+        public int generatedMaterials;
+        public int remappedMaterials;
+        public int boundTextures;
         public List<string> warnings = new List<string>();
         public string error = "";
     }
@@ -108,6 +114,18 @@ public static class ImportGeneratedAvatar
         importer.SaveAndReimport();
         AssetDatabase.Refresh();
 
+        // FBX files from Mixamo and similar generators often embed PNG bytes
+        // while retaining an absolute path from the generation host. Repair
+        // them before the prefab is saved so Player and WebGL builds carry
+        // project-local textures and material remaps.
+        var materialRepair = RepairImportedModelMaterials.Repair(assetPath, assetName);
+        report.extractedTextures = materialRepair.extractedTextures;
+        report.generatedMaterials = materialRepair.generatedMaterials;
+        report.remappedMaterials = materialRepair.remappedMaterials;
+        report.boundTextures = materialRepair.boundTextures;
+        report.warnings.AddRange(materialRepair.warnings);
+        AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+
         // 3. Locate the generated Avatar sub-asset. Unity creates it as a
         //    sub-asset of the model during Humanoid import.
         Avatar avatar = null;
@@ -121,7 +139,36 @@ public static class ImportGeneratedAvatar
         {
             report.hasHumanoidAvatar = avatar.isHuman;
             report.avatarPath = assetPath; // avatar is a sub-asset at the same path
-            if (!avatar.isHuman)
+            if (avatar.isHuman)
+            {
+                // Unity can create a valid in-memory Humanoid Avatar while
+                // leaving ModelImporter.humanDescription empty in a fresh
+                // project. Persist the generated mapping so later motion
+                // imports can use CopyFromOtherModel reliably.
+                HumanDescription description = avatar.humanDescription;
+                if (description.human == null || description.human.Length == 0)
+                {
+                    report.hasHumanoidAvatar = false;
+                    report.warnings.Add(
+                        "Unity created a Humanoid Avatar without a persisted " +
+                        "HumanBone mapping; retargeting cannot be guaranteed");
+                }
+                else
+                {
+                    importer.humanDescription = description;
+                    importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+                    importer.SaveAndReimport();
+                    AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+                    var persisted = AssetDatabase.LoadAllAssetsAtPath(assetPath)
+                        .OfType<Avatar>()
+                        .FirstOrDefault();
+                    report.hasHumanoidAvatar = persisted != null && persisted.isHuman;
+                    if (!report.hasHumanoidAvatar)
+                        report.warnings.Add(
+                            "Persisted Humanoid Avatar mapping did not validate after reimport");
+                }
+            }
+            else
                 report.warnings.Add(
                     "avatar imported but isHuman is false; the skeleton may not " +
                     "match the Unity Humanoid bone mapping");
@@ -154,6 +201,15 @@ public static class ImportGeneratedAvatar
             PrefabUtility.SaveAsPrefabAsset(instance, prefabPath);
             report.prefabPath = prefabPath;
 
+            // Keep a runtime-loadable copy for generic A3Game sessions. Unity
+            // Player builds cannot call AssetDatabase.LoadAssetAtPath; the
+            // Resources copy is resolved by A3GameRuntimeSubsystem at runtime.
+            string runtimeFolder = "Assets/Resources/A3Game/Prefabs";
+            Directory.CreateDirectory(runtimeFolder);
+            string runtimePath = $"{runtimeFolder}/{assetName}.prefab";
+            PrefabUtility.SaveAsPrefabAsset(instance, runtimePath);
+            report.runtimePrefabPath = runtimePath;
+
             UnityEngine.Object.DestroyImmediate(instance);
         }
         catch
@@ -165,7 +221,9 @@ public static class ImportGeneratedAvatar
         AssetDatabase.SaveAssets();
         report.ok = true;
         Debug.Log($"[ImportGeneratedAvatar] {report.prefabPath}  " +
-                  $"hasHumanoid={report.hasHumanoidAvatar}  warnings={report.warnings.Count}");
+                  $"hasHumanoid={report.hasHumanoidAvatar} textures={report.extractedTextures} " +
+                  $"materials={report.generatedMaterials} remaps={report.remappedMaterials} " +
+                  $"boundTextures={report.boundTextures} warnings={report.warnings.Count}");
         return report;
     }
 
@@ -198,7 +256,8 @@ public static class ImportGeneratedAvatar
 
     static string Get(Dictionary<string, string> args, string key, string fallback)
     {
-        return args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v) ? v : fallback;
+        if (args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v)) return v;
+        return A3GameForgeEditorBridge.GetArgument(key, fallback);
     }
 
     static string GetJobValue(Dictionary<string, string> args, string key, string fallback = "")

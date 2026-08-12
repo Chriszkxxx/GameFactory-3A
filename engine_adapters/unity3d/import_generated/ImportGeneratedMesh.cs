@@ -61,6 +61,9 @@ public static class ImportGeneratedMesh
         public int vertices;
         public int meshes;
         public int materials;
+        public int extractedTextures;
+        public int generatedMaterials;
+        public int remappedMaterials;
         /// One line per material: shader plus every texture slot that is bound.
         /// A material count alone cannot tell "textured" from "imported white".
         public List<string> materialDetails = new List<string>();
@@ -175,6 +178,14 @@ public static class ImportGeneratedMesh
         AssetDatabase.Refresh();
         report.assetPath = assetPath;
 
+        var materialRepair = RepairImportedModelMaterials.Repair(assetPath, assetName);
+        report.extractedTextures = materialRepair.extractedTextures;
+        report.generatedMaterials = materialRepair.generatedMaterials;
+        report.remappedMaterials = materialRepair.remappedMaterials;
+        report.boundTextures = materialRepair.boundTextures;
+        report.warnings.AddRange(materialRepair.warnings);
+        AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+
         // 2. The importer output. For .glb this is glTFast's ScriptedImporter —
         //    a null here almost always means the package is missing.
         var imported = AssetDatabase.LoadMainAssetAtPath(assetPath) as GameObject;
@@ -227,7 +238,9 @@ public static class ImportGeneratedMesh
         AssetDatabase.SaveAssets();
         report.ok = true;
         Debug.Log($"[ImportGeneratedMesh] {report.prefabPath}  tris={report.triangles}  " +
-                  $"materials={report.materials}  warnings={report.warnings.Count}");
+                  $"materials={report.materials} textures={report.extractedTextures} " +
+                  $"remaps={report.remappedMaterials} boundTextures={report.boundTextures} " +
+                  $"warnings={report.warnings.Count}");
         return report;
     }
 
@@ -443,7 +456,8 @@ public static class ImportGeneratedMesh
 
     static string Get(Dictionary<string, string> args, string key, string fallback)
     {
-        return args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v) ? v : fallback;
+        if (args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v)) return v;
+        return A3GameForgeEditorBridge.GetArgument(key, fallback);
     }
 
     static int? ParseIntOrNull(string s)

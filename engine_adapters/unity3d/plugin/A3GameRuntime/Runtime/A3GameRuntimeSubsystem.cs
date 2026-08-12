@@ -231,6 +231,19 @@ namespace A3GameRuntime
             // Fallback: create a basic GameObject.
             if (obj == null)
             {
+                obj = LoadRuntimePrefab(request.avatar_asset_path);
+                if (obj != null)
+                    obj.name = string.IsNullOrEmpty(request.actor_label)
+                        ? obj.name
+                        : request.actor_label;
+            }
+
+            // Last resort: keep the generic session alive even when no
+            // runtime prefab was provided. Generated gameplay normally
+            // registers a typed factory, while this fallback makes the
+            // failure explicit in the snapshot instead of crashing the run.
+            if (obj == null)
+            {
                 string name = string.IsNullOrEmpty(request.actor_label)
                     ? "A3Game_Entity_" + request.entity_id
                     : request.actor_label;
@@ -265,6 +278,22 @@ namespace A3GameRuntime
 
             _entities[request.entity_id] = obj;
             return obj;
+        }
+
+        private static GameObject LoadRuntimePrefab(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath)) return null;
+            string normalized = assetPath.Replace('\\', '/');
+            const string prefix = "Assets/Resources/";
+            if (normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                normalized = normalized.Substring(prefix.Length);
+            else
+                return null;
+            int extension = normalized.LastIndexOf('.');
+            if (extension > 0)
+                normalized = normalized.Substring(0, extension);
+            var prefab = Resources.Load<GameObject>(normalized);
+            return prefab != null ? Instantiate(prefab) : null;
         }
 
         /// <summary>

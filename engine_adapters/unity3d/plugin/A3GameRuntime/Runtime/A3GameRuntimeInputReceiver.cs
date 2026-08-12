@@ -202,6 +202,20 @@ namespace A3GameRuntime
             int unityInputPort = SimpleJson.GetInt(fields, "unity_input_port", 0);
             string parameters = SimpleJson.GetRaw(fields, "parameters");
 
+            // Generic session clients historically placed asset identity in
+            // the opaque parameters object.  Prefer explicit top-level
+            // fields, but fall back to that object so both wire contracts
+            // create the same runtime entity.
+            var parameterFields = SimpleJson.Parse(parameters);
+            avatarAssetPath = GetStringWithFallback(
+                fields, parameterFields, "avatar_asset_path");
+            idleAnimationPath = GetStringWithFallback(
+                fields, parameterFields, "idle_animation_path");
+            moveAnimationPath = GetStringWithFallback(
+                fields, parameterFields, "move_animation_path");
+            actorLabel = GetStringWithFallback(
+                fields, parameterFields, "actor_label");
+
             var transform = ParseTransform(fields);
 
             var result = session.Join(
@@ -226,6 +240,16 @@ namespace A3GameRuntime
                       " controller=" + controllerId +
                       " result=" + (ok ? "ok" : "failed"));
             return ok;
+        }
+
+        private static string GetStringWithFallback(
+            Dictionary<string, string> primary,
+            Dictionary<string, string> fallback,
+            string key)
+        {
+            string value = SimpleJson.GetString(primary, key);
+            if (!string.IsNullOrEmpty(value)) return value;
+            return SimpleJson.GetString(fallback, key);
         }
 
         private bool HandleInputState(Dictionary<string, string> fields)

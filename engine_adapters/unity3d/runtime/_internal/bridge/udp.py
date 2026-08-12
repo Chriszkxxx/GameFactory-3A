@@ -27,9 +27,17 @@ class RuntimeUDPBridge:
             "move_animation_path",
             "actor_label",
         ):
-            value = payload.pop(key, "")
+            # New callers send these as explicit fields.  Keep accepting the
+            # older generic-session shape where the game metadata lived only
+            # inside the opaque parameters object.
+            value = payload.pop(key, "") or parameters.get(key, "")
             if value and key not in parameters:
                 parameters[key] = value
+            # Keep asset identity at the message top level as well.  Unity's
+            # session receiver consumes these fields before handing the
+            # opaque parameters object to a game-owned factory.
+            if value:
+                payload[key] = value
         payload.pop("spawn_index", None)
         payload["parameters"] = parameters
         return self._send(

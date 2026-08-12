@@ -213,7 +213,12 @@ class UnityRuntimeSessionsClient:
             raise ValueError(
                 f"Artifact {artifact_id} is not a resolved Unity asset"
             )
-        return record.backend_path
+        runtime_path = str(
+            (record.runtime or {}).get("path")
+            or (record.metadata or {}).get("runtime_path")
+            or ""
+        ).strip()
+        return runtime_path or record.backend_path
 
     @staticmethod
     def _call(

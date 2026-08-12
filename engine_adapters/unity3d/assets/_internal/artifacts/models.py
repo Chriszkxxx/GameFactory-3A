@@ -274,6 +274,27 @@ def build_artifact_records(
             "package_path": package_path,
             "dependencies": [],
         }
+        import_metadata = import_result.get("metadata")
+        if isinstance(import_metadata, dict):
+            # Preserve importer-derived identity (Humanoid skeleton, source
+            # avatar, material bindings, and other backend facts) in the
+            # registry so later client calls never need to inspect raw logs.
+            metadata.update(import_metadata)
+        if import_result.get("sourceAvatarPath"):
+            metadata.setdefault(
+                "source_avatar_path",
+                str(import_result["sourceAvatarPath"]),
+            )
+        runtime_path = ""
+        if asset_type == "avatar":
+            runtime_path = str(import_result.get("runtimePrefabPath") or "").strip()
+        elif asset_type == "motion":
+            runtime_path = str(import_result.get("runtimeAnimationClipPath") or "").strip()
+        if runtime_path:
+            # backend_path remains the editor-facing canonical asset.  The
+            # runtime path is separate because Player builds can only resolve
+            # assets under Resources (or an equivalent registered factory).
+            metadata.setdefault("runtime_path", runtime_path)
         if len(primary_assets) > 1:
             metadata.update(
                 {
@@ -308,7 +329,11 @@ def build_artifact_records(
                 spawnable=spawnable,
                 state="ready",
                 editor_backend={"backend": backend, "path": backend_path, "package_path": package_path},
-                runtime={"spawnable": spawnable, "class": backend_class},
+                runtime={
+                    "spawnable": spawnable,
+                    "class": backend_class,
+                    **({"path": runtime_path} if runtime_path else {}),
+                },
                 metadata=metadata,
             )
         )

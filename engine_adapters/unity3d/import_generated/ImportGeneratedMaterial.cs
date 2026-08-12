@@ -39,6 +39,8 @@ public static class ImportGeneratedMaterial
         public bool ok;
         public string materialPath = "";
         public int boundTextures;
+        public int boundMeshAssetCount;
+        public List<string> modifiedMeshAssets = new List<string>();
         public List<string> warnings = new List<string>();
         public string error = "";
     }
@@ -148,6 +150,12 @@ public static class ImportGeneratedMaterial
 
         var material = new Material(shader) { name = matName };
         string shaderName = shader.name;
+
+        // Treat a source file as the directory containing the texture task.
+        // This keeps relative texture descriptors valid when the public
+        // client resolves a single generated image artifact.
+        if (!string.IsNullOrEmpty(srcDir) && File.Exists(srcDir))
+            srcDir = Path.GetDirectoryName(srcDir);
 
         // 3. Bind textures to their shader property slots.
         if (texturePaths != null)
@@ -271,7 +279,12 @@ public static class ImportGeneratedMaterial
                     r.sharedMaterials = mats;
                 }
                 EditorUtility.SetDirty(meshAsset);
+                report.boundMeshAssetCount++;
+                report.modifiedMeshAssets.Add(meshPath);
             }
+            if (meshPaths.Length > 0 && report.boundMeshAssetCount == 0)
+                throw new FileNotFoundException(
+                    "No requested mesh asset could be loaded or modified");
         }
 
         AssetDatabase.SaveAssets();
@@ -299,7 +312,8 @@ public static class ImportGeneratedMaterial
 
     static string Get(Dictionary<string, string> args, string key, string fallback)
     {
-        return args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v) ? v : fallback;
+        if (args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v)) return v;
+        return A3GameForgeEditorBridge.GetArgument(key, fallback);
     }
 
     static string GetJobValue(Dictionary<string, string> args, string key, string fallback = "")

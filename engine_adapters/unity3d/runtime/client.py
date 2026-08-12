@@ -62,10 +62,15 @@ class UnityRuntimeClient:
             ).to_dict()
 
         resolved_extra_args = [str(arg) for arg in extra_args]
+        project_log = (
+            project_path / "Library" / "A3GameForge" / "Editor.log"
+        )
         command = [
             str(unity),
             "-projectPath",
             str(project_path),
+            "-logFile",
+            str(project_log),
         ]
         if str(scene_path or "").strip():
             command.append(str(scene_path).strip())
@@ -97,6 +102,28 @@ class UnityRuntimeClient:
                 "runtime.launch_editor",
                 f"{type(exc).__name__}: {exc}",
                 payload=payload,
+            ).to_dict()
+
+        # A Unity licensing/bootstrap failure can terminate the child before
+        # the asynchronous launcher returns control to the caller. Report
+        # that as a failed launch instead of claiming a running Editor.
+        returncode = process.poll()
+        if returncode is not None:
+            log_tail = ""
+            if project_log.is_file():
+                log_tail = project_log.read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )[-4000:]
+            return UnityOperationResult.failure(
+                "runtime.launch_editor",
+                f"Unity Editor exited during startup (code {returncode})",
+                payload={
+                    **payload,
+                    "returncode": returncode,
+                    "log_path": str(project_log),
+                    "log_tail": log_tail,
+                },
             ).to_dict()
 
         payload["process_id"] = process.pid

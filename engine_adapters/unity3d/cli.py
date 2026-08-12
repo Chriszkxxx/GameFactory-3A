@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 from typing import Any, Sequence
 
 from engine_adapters.unity3d import UnityClient
@@ -168,6 +169,51 @@ def _import_asset(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+def _import_batch(args: argparse.Namespace) -> dict[str, Any]:
+    client = _client(args)
+    batch_path = Path(args.batch_file).expanduser().resolve(strict=False)
+    if not batch_path.is_file():
+        return {
+            "ok": False,
+            "operation": "scripts.import_batch",
+            "artifacts": [],
+            "diagnostics": [],
+            "warnings": [],
+            "errors": [f"batch file does not exist: {batch_path}"],
+            "payload": {"batch_file": str(batch_path)},
+        }
+    try:
+        payload = json.loads(batch_path.read_text(encoding="utf-8"))
+        sources = payload.get("sources") if isinstance(payload, dict) else payload
+        if not isinstance(sources, list):
+            raise ValueError("batch file must contain a JSON array or {\"sources\": [...]}")
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "operation": "scripts.import_batch",
+            "artifacts": [],
+            "diagnostics": [],
+            "warnings": [],
+            "errors": [f"{type(exc).__name__}: {exc}"],
+            "payload": {"batch_file": str(batch_path)},
+        }
+    result = client.assets.import_batch(
+        sources,
+        options={
+            "category": args.category,
+            "world_id": args.world_id,
+            "project_id": args.project_id,
+            "publish": not args.no_publish,
+            "replace_existing": args.replace_existing,
+        },
+        timeout=args.editor_timeout,
+        dry_run=args.dry_run,
+    )
+    result.setdefault("payload", {})["batch_file"] = str(batch_path)
+    result["operation"] = "scripts.import_batch"
+    return result
+
+
 def _run_editor(args: argparse.Namespace) -> dict[str, Any]:
     client = _client(args)
     return client.runtime.launch_editor(
@@ -175,6 +221,52 @@ def _run_editor(args: argparse.Namespace) -> dict[str, Any]:
         extra_args=args.extra_arg,
         dry_run=args.dry_run,
     )
+
+
+def _generate_game(args: argparse.Namespace) -> dict[str, Any]:
+    client = _client(args)
+    job_path = Path(args.job_file).expanduser().resolve(strict=False)
+    if not job_path.is_file():
+        return {
+            "ok": False,
+            "operation": "scripts.generate_game",
+            "artifacts": [],
+            "diagnostics": [],
+            "warnings": [],
+            "errors": [f"job file does not exist: {job_path}"],
+            "payload": {"job_file": str(job_path)},
+        }
+    try:
+        job = json.loads(job_path.read_text(encoding="utf-8"))
+        if not isinstance(job, dict):
+            raise ValueError("job file must contain a JSON object")
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "operation": "scripts.generate_game",
+            "artifacts": [],
+            "diagnostics": [],
+            "warnings": [],
+            "errors": [f"{type(exc).__name__}: {exc}"],
+            "payload": {"job_file": str(job_path)},
+        }
+    result = client.generate_game(
+        asset_sources=job.get("asset_sources") or [],
+        mechanic_source=job.get("mechanic_source"),
+        ui_source=job.get("ui_source"),
+        scene_spec=job.get("scene_spec"),
+        build_target=str(job.get("build_target") or ""),
+        build_output=str(job.get("build_output") or ""),
+        build=bool(job.get("build", True)),
+        launch_editor=bool(job.get("launch_editor", True)),
+        enter_play=bool(job.get("enter_play", False)),
+        replace_existing=bool(job.get("replace_existing", True)),
+        include_tests=bool(job.get("include_tests", True)),
+        dry_run=args.dry_run,
+    )
+    result.setdefault("payload", {})["job_file"] = str(job_path)
+    result["operation"] = "scripts.generate_game"
+    return result
 
 
 def _add_client_arguments(
@@ -257,6 +349,16 @@ def build_parser() -> argparse.ArgumentParser:
     asset.add_argument("--native-scene", default="")
     asset.add_argument("--dry-run", action="store_true")
 
+    batch = commands.add_parser("import-batch")
+    _add_client_arguments(batch)
+    batch.add_argument("--batch-file", required=True)
+    batch.add_argument("--category", default="")
+    batch.add_argument("--world-id", default="")
+    batch.add_argument("--project-id", default="")
+    batch.add_argument("--no-publish", action="store_true")
+    batch.add_argument("--replace-existing", action="store_true", default=True)
+    batch.add_argument("--dry-run", action="store_true")
+
     run = commands.add_parser("run")
     _add_client_arguments(run)
     run.add_argument("--scene", default="")
@@ -266,6 +368,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
     )
     run.add_argument("--dry-run", action="store_true")
+
+    generate = commands.add_parser("generate-game")
+    _add_client_arguments(generate)
+    generate.add_argument("--job-file", required=True)
+    generate.add_argument("--dry-run", action="store_true")
     return parser
 
 
@@ -276,8 +383,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _emit(_create_project(args))
         if args.command == "import-asset":
             return _emit(_import_asset(args))
+        if args.command == "import-batch":
+            return _emit(_import_batch(args))
         if args.command == "run":
             return _emit(_run_editor(args))
+        if args.command == "generate-game":
+            return _emit(_generate_game(args))
         raise AssertionError(args.command)
     except (
         FileExistsError,

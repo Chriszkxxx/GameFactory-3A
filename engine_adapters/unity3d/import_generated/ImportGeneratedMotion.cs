@@ -28,6 +28,7 @@ public static class ImportGeneratedMotion
         public bool ok;
         public string assetPath = "";
         public string animationClipPath = "";
+        public string runtimeAnimationClipPath = "";
         public int clipCount;
         public int defaultClipCount;
         public string sourceAvatarPath = "";
@@ -203,6 +204,22 @@ public static class ImportGeneratedMotion
             AnimationUtility.SetAnimationClipSettings(outputClip, settings);
             EditorUtility.SetDirty(outputClip);
             report.animationClipPath = clipPath;
+            string runtimeFolder = "Assets/Resources/A3Game/Animations";
+            Directory.CreateDirectory(runtimeFolder);
+            string runtimePath = $"{runtimeFolder}/{assetName}.anim";
+            var runtimeExisting = AssetDatabase.LoadAssetAtPath<AnimationClip>(runtimePath);
+            if (runtimeExisting != null)
+            {
+                EditorUtility.CopySerialized(outputClip, runtimeExisting);
+                EditorUtility.SetDirty(runtimeExisting);
+            }
+            else
+            {
+                var runtimeClip = new AnimationClip { name = assetName };
+                EditorUtility.CopySerialized(outputClip, runtimeClip);
+                AssetDatabase.CreateAsset(runtimeClip, runtimePath);
+            }
+            report.runtimeAnimationClipPath = runtimePath;
         }
 
         AssetDatabase.SaveAssets();
@@ -285,7 +302,8 @@ public static class ImportGeneratedMotion
 
     static string Get(Dictionary<string, string> args, string key, string fallback)
     {
-        return args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v) ? v : fallback;
+        if (args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v)) return v;
+        return A3GameForgeEditorBridge.GetArgument(key, fallback);
     }
 
     static string GetJobValue(Dictionary<string, string> args, string key, string fallback = "")

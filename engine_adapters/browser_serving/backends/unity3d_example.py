@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import socket
 import subprocess
+import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from threading import RLock
 from time import time
 from typing import Any, Callable, Mapping
@@ -161,6 +165,12 @@ class Unity3DBrowserSession:
     error: str = ""
     last_command: str = ""
     recovered_external: bool = False
+    # Unity WebGL is a browser-native player. It has no UDP socket and no
+    # native framebuffer stream, so browser input is delivered to the iframe
+    # canvas rather than to the Editor UDP bridge.
+    runtime_kind: str = "unity_webgl"
+    input_transport: str = "browser_canvas"
+    last_input: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -173,7 +183,10 @@ class Unity3DBrowserSession:
             "unity_input_port": self.input_port,
             "webgl_port": self.webgl_port,
             "stream_url": self.stream_url,
-            "pixel_streaming_url": self.stream_url,
+            # Kept as an empty compatibility field. Unity WebGL is not UE
+            # Pixel Streaming and does not expose a WebRTC pixel endpoint.
+            "pixel_streaming_url": "",
+            "streaming_transport": "unity_webgl_http",
             "preview_scene": self.preview_scene,
             "character": dict(self.character),
             "controller_id": self.controller_id,
@@ -189,6 +202,9 @@ class Unity3DBrowserSession:
             "error": self.error,
             "last_command": self.last_command,
             "recovered_external": self.recovered_external,
+            "runtime_kind": self.runtime_kind,
+            "input_transport": self.input_transport,
+            "last_input": dict(self.last_input),
         }
 
 
@@ -218,6 +234,8 @@ class Unity3DExampleBackend:
                 runtime_sessions=True,
                 skeletal_animation=True,
                 streaming=True,
+                # Unity's supported browser path is a WebGL player served by
+                # HTTP. It is not UE Pixel Streaming/WebRTC.
                 pixel_streaming=False,
                 preview_camera=True,
             ),
@@ -389,7 +407,7 @@ class Unity3DExampleBackend:
             or f"participant_{user_id or session_id}"
         )
         stream_url = (
-            f"http://{self.config.pixel_host}:{webgl_port}"
+            f"http://{self.config.pixel_host}:{webgl_port}/index.html"
         )
         client = self._new_client(
             runtime_port=input_port,
@@ -410,18 +428,23 @@ class Unity3DExampleBackend:
         with self._lock:
             self._sessions[session_id] = session
         try:
-            session.state = "BOOTING_CLIENT"
+            session.state = "BOOTING_WEBGL"
             if not self.config.dry_run:
-                launch = self._launch_runtime(session, session.preview_scene)
-                if not launch.get("ok"):
+                build = self._ensure_webgl_build(client)
+                if not build.get("ok"):
                     raise RuntimeError(
-                        "; ".join(_errors(launch))
-                        or "Unity runtime launch failed"
+                        "; ".join(_errors(build))
+                        or "Unity WebGL build failed"
                     )
-                session.unity_client_pid = int(
-                    _payload(launch).get("process_id") or 0
+                webgl_root = Path(str(_payload(build).get("output_path") or ""))
+                session.webgl_process = self._start_webgl_server(
+                    webgl_root,
+                    session.webgl_port,
                 )
-            session.state = "PREVIEW_READY"
+                session.webgl_pid = session.webgl_process.pid
+            # The WebGL player is the runtime. There is intentionally no
+            # second Editor/Player process to launch for this browser session.
+            session.state = "IN_WORLD"
             if session.character:
                 self.configure_session(
                     session.session_id,
@@ -436,6 +459,43 @@ class Unity3DExampleBackend:
             "sessions.create",
             engine="unity3d",
             payload={"slot": slot, **session.to_dict()},
+        )
+
+    def _ensure_webgl_build(self, client: Any) -> dict[str, Any]:
+        output = self.config.unity_webgl_build or (
+            self.config.unity_project / "Builds" / "WebGL"
+            if self.config.unity_project is not None
+            else None
+        )
+        if output is None:
+            return {"ok": False, "errors": [
+                "A3GAME_UNITY_WEBGL_BUILD or A3GAME_UNITY_PROJECT is required"
+            ]}
+        output = output.expanduser().resolve(strict=False)
+        if (output / "index.html").is_file():
+            return {"ok": True, "payload": {"output_path": str(output), "reused": True}}
+        return client.build.project(
+            target="WebGL",
+            output_path=str(output),
+            clean=False,
+        )
+
+    def _start_webgl_server(self, root: Path, port: int) -> subprocess.Popen[Any]:
+        if not root.is_dir() or not (root / "index.html").is_file():
+            raise FileNotFoundError(
+                f"Unity WebGL build directory is missing index.html: {root}"
+            )
+        if not _is_tcp_port_free(self.config.pixel_host, port):
+            raise OSError(
+                f"Unity WebGL port is already in use: {self.config.pixel_host}:{port}"
+            )
+        return subprocess.Popen(
+            [sys.executable, "-m", "http.server", str(port), "--bind", self.config.pixel_host],
+            cwd=str(root),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
 
     def list_sessions(self) -> dict[str, Any]:
@@ -573,31 +633,25 @@ class Unity3DExampleBackend:
         )
         if not avatar_id:
             raise ValueError("character.avatar_id is required")
-        result = session.client.runtime.sessions.join(
-            world_id=session.world_id,
-            participant_id=session.participant_id,
-            user_id=session.user_id,
-            avatar_artifact_id=avatar_id,
-            idle_motion_artifact_id=idle_id,
-            move_motion_artifact_id=move_id,
-            parameters={
-                key: value
-                for key, value in resolved.items()
-                if key not in {
-                    "avatar_id",
-                    "avatar_asset_path",
-                    "idle_animation",
-                    "idle_animation_path",
-                    "move_animation",
-                    "move_animation_path",
-                }
+        # A WebGL build cannot receive the adapter's native UDP datagrams.
+        # The generated game owns its local Unity Input API and receives
+        # keyboard/mouse events directly from the iframe canvas. Keep the
+        # session metadata here without creating a misleading UDP binding.
+        result = {
+            "ok": True,
+            "operation": "runtime.sessions.join",
+            "payload": {
+                "world_id": session.world_id,
+                "participant_id": session.participant_id,
+                "controller_id": f"webgl_ctrl_{session.session_id}",
+                "entity_id": f"webgl_entity_{session.session_id}",
+                "view_mode": "browser_canvas",
+                "unity_bridge": {
+                    "enabled": False,
+                    "status": "browser_canvas",
+                },
             },
-        )
-        if not result.get("ok"):
-            return self._translate_unity_result(
-                "sessions.configure",
-                result,
-            )
+        }
         result_payload = _payload(result)
         session.character = {
             **resolved,
@@ -730,7 +784,7 @@ class Unity3DExampleBackend:
     def leave_world(self, session_id: str) -> dict[str, Any]:
         session = self._require_session(session_id)
         runtime = {}
-        if session.controller_id:
+        if session.controller_id and session.runtime_kind != "unity_webgl":
             runtime = session.client.runtime.sessions.leave(
                 participant_id=session.participant_id,
                 controller_id=session.controller_id,
@@ -750,6 +804,22 @@ class Unity3DExampleBackend:
         input_state: Mapping[str, Any],
     ) -> dict[str, Any]:
         session = self._require_session(session_id)
+        if session.runtime_kind == "unity_webgl":
+            session.last_input = dict(input_state)
+            session.last_command = "apply_input"
+            session.updated_at = time()
+            return serving_result(
+                "sessions.apply_input",
+                engine="unity3d",
+                payload={
+                    "accepted": True,
+                    "recorded": True,
+                    "applied": False,
+                    "delivery": "native iframe input is handled by the Unity canvas",
+                    "input_transport": session.input_transport,
+                    **session.to_dict(),
+                },
+            )
         if not session.controller_id:
             return serving_result(
                 "sessions.apply_input",
@@ -830,7 +900,7 @@ class Unity3DExampleBackend:
     def stop_session(self, session_id: str) -> dict[str, Any]:
         session = self._require_session(session_id)
         snapshot = session.to_dict()
-        if session.controller_id:
+        if session.controller_id and session.runtime_kind != "unity_webgl":
             session.client.runtime.sessions.clear_entity(
                 participant_id=session.participant_id,
                 controller_id=session.controller_id,
@@ -882,13 +952,14 @@ class Unity3DExampleBackend:
                     "rotation_step": 15.0,
                     "viewer_host": self.config.gateway_host,
                     "viewer_port": self.config.gateway_port,
-                    "runtime_unity_host": self.config.runtime_host,
                     "runtime_unity_port": (
                         session.input_port
                         if session is not None
                         else self.config.base_runtime_port
                     ),
+                    "runtime_unity_host": self.config.runtime_host,
                     "runtime_udp_mode": "unityclient",
+                    "streaming_transport": "unity_webgl_http",
                 },
             )
         if normalized == "pixel_status":
@@ -897,18 +968,24 @@ class Unity3DExampleBackend:
                 if session is not None
                 else ""
             )
+            reachable = False
+            if url:
+                try:
+                    with urllib.request.urlopen(url, timeout=2.0) as response:
+                        reachable = int(response.status) < 500
+                except (urllib.error.URLError, TimeoutError, OSError):
+                    reachable = False
             return serving_result(
                 "debug.pixel_status",
                 engine="unity3d",
                 payload={
-                    "reachable": bool(url),
-                    "stream_ready": bool(url),
+                    "reachable": reachable,
+                    "stream_ready": reachable,
                     "url": url,
                     "message": (
-                        "reachable"
-                        if url
-                        else "no active Unity3D browser session"
+                        "reachable" if reachable else "no active Unity3D WebGL page"
                     ),
+                    "transport": "unity_webgl_http",
                 },
             )
         if normalized == "runtime_world_state":

@@ -39,14 +39,26 @@ class UnityBindingsClient:
                 payload={"source": dict(source)},
             ).to_dict()
         try:
+            resolved_options = dict(options or {})
+            # The Editor job accepts a texture directory as ``src``.  Keep
+            # the source artifact path in the trace while making relative
+            # texture names resolve beside a single generated image file.
             report = self._transport.execute_method(
                 "ImportGeneratedMaterial.RunFromCLI",
                 args={
                     "src": str(resolved.path),
                     "dest": destination,
                     "asset_id": asset_id,
-                    "mesh_assets": list(mesh_assets),
-                    **dict(options or {}),
+                    # ImportGeneratedMaterial is intentionally a small
+                    # Editor-side CLI script; pass its scalar field as a
+                    # delimiter-separated string rather than relying on its
+                    # JSON parser to coerce an array.
+                    "mesh_assets": ",".join(
+                        str(path).strip()
+                        for path in mesh_assets
+                        if str(path).strip()
+                    ),
+                    **resolved_options,
                 },
             )
         except Exception as exc:

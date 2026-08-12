@@ -133,9 +133,9 @@ public static class ImportGeneratedTexture
 
     private static string Get(Dictionary<string, string> args, string key, string fallback)
     {
-        return args.TryGetValue(key, out string value) && !string.IsNullOrEmpty(value)
-            ? value
-            : fallback;
+        if (args.TryGetValue(key, out string value) && !string.IsNullOrEmpty(value))
+            return value;
+        return A3GameForgeEditorBridge.GetArgument(key, fallback);
     }
 
     private static void WriteReport(TextureReport report, string path)

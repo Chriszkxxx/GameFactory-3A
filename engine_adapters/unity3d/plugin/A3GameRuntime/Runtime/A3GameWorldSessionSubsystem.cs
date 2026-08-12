@@ -126,7 +126,6 @@ namespace A3GameRuntime
 
             // Find or create participant.
             A3GameParticipantInfo participant;
-            bool isNewParticipant = false;
 
             if (!string.IsNullOrEmpty(participantId) && _participants.TryGetValue(participantId, out participant))
             {
@@ -162,7 +161,6 @@ namespace A3GameRuntime
             else
             {
                 // New participant.
-                isNewParticipant = true;
                 participantId = string.IsNullOrEmpty(participantId)
                     ? A3GameRuntimeSubsystem.NewId("p")
                     : participantId;

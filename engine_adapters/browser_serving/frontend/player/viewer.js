@@ -187,8 +187,8 @@ function applyEngineCapabilities() {
   const capabilities = state.engine.capabilities || {};
   $("playerSessionCreateBtn").disabled = !capabilities.runtime_sessions;
   $("refreshAssetsBtn").disabled = !capabilities.asset_inspection;
-  if (!capabilities.pixel_streaming) {
-    $("pixelMessage").textContent = "当前引擎不提供流式画面能力。";
+  if (!capabilities.streaming && !capabilities.pixel_streaming) {
+    $("pixelMessage").textContent = "当前引擎不提供浏览器画面能力。";
   }
 }
 
@@ -395,13 +395,17 @@ async function loadConfig() {
   }
   const runtimeHostInput = $("runtimeUeHostInput");
   const runtimePortInput = $("runtimeUePortInput");
-  if (runtimeHostInput && state.config.runtime_ue_host) {
-    runtimeHostInput.value = state.config.runtime_ue_host;
+  const configuredRuntimeHost = state.config.runtime_unity_host
+    || state.config.runtime_ue_host;
+  const configuredRuntimePort = state.config.runtime_unity_port
+    || state.config.runtime_ue_port;
+  if (runtimeHostInput && configuredRuntimeHost) {
+    runtimeHostInput.value = configuredRuntimeHost;
   }
-  if (runtimePortInput && state.config.runtime_ue_port) {
-    runtimePortInput.value = String(state.config.runtime_ue_port);
+  if (runtimePortInput && configuredRuntimePort) {
+    runtimePortInput.value = String(configuredRuntimePort);
   }
-  const pixel = state.engine.capabilities.pixel_streaming
+  const pixel = (state.engine.capabilities.streaming || state.engine.capabilities.pixel_streaming)
     ? (
       VIEWER_PIXEL_URL
         ? await api(
@@ -422,14 +426,17 @@ async function loadConfig() {
   const fallback = $("pixelFallback");
   const directLink = $("pixelDirectLink");
   $("pixelMessage").textContent = pixel.message || "";
-  if (directLink && state.config.pixel_streaming_url) {
-    directLink.href = state.config.pixel_streaming_url;
+  const configuredStreamUrl = state.config.stream_url
+    || state.config.pixel_streaming_url
+    || "";
+  if (directLink && configuredStreamUrl) {
+    directLink.href = configuredStreamUrl;
     directLink.hidden = false;
   }
 
   if (VIEWER_EDITOR_MODE) {
-    if (state.config.pixel_streaming_url && pixel.stream_ready) {
-      frame.src = pixelPlaybackUrl(state.config.pixel_streaming_url);
+    if (configuredStreamUrl && pixel.stream_ready) {
+      frame.src = pixelPlaybackUrl(configuredStreamUrl);
       frame.hidden = false;
       fallback.hidden = true;
       setPill($("pixelStatus"), true, "Editor stream: ready");
@@ -447,7 +454,7 @@ async function loadConfig() {
   }
 
   if (pixel.configured && pixel.stream_ready) {
-    frame.src = state.config.pixel_streaming_url;
+      frame.src = pixelPlaybackUrl(configuredStreamUrl);
     frame.hidden = false;
     fallback.hidden = true;
     setPill($("pixelStatus"), true, "Client stream: reachable");
@@ -455,7 +462,7 @@ async function loadConfig() {
     frame.removeAttribute("src");
     frame.hidden = true;
     fallback.hidden = false;
-    setPill($("pixelStatus"), true, pixel.configured ? "Client stream: waiting" : "Client stream: start client");
+    setPill($("pixelStatus"), true, pixel.configured ? "Browser page: waiting" : "Browser page: start client");
   }
 }
 
@@ -556,7 +563,11 @@ function setPixelFrameUrl(url) {
 function pixelPlaybackUrl(url, embedded = true) {
   try {
     const playbackUrl = new URL(url, window.location.href);
-    const useNativeInput = VIEWER_EDITOR_MODE || !embedded;
+    // Unity WebGL receives browser events in its canvas. UE5 keeps its
+    // Pixel Streaming transport, so only Unity needs native iframe input.
+    const useNativeInput = VIEWER_EDITOR_MODE
+      || !embedded
+      || selectedEngineId() === "unity3d";
     playbackUrl.searchParams.set("AutoConnect", "true");
     playbackUrl.searchParams.set("AutoPlayVideo", "true");
     playbackUrl.searchParams.set("StartVideoMuted", "true");
@@ -594,7 +605,9 @@ function clearPixelFrame() {
 
 function focusPixelFrameSoon(delay = 250) {
   window.setTimeout(
-    VIEWER_EDITOR_MODE ? focusPixelFrame : focusControlSurface,
+    (VIEWER_EDITOR_MODE || selectedEngineId() === "unity3d")
+      ? focusPixelFrame
+      : focusControlSurface,
     delay
   );
 }
@@ -635,7 +648,10 @@ function waitForPixelPage(url, frameUrl = url) {
   }
   let attempts = 0;
   setPill($("pixelStatus"), true, "Client stream: starting");
-  $("pixelMessage").textContent = `正在启动 Pixel Streaming 画面服务。首次启动会检查 Node/前端文件，通常需要几十秒: ${url}`;
+  const streamLabel = selectedEngineId() === "unity3d"
+    ? "Unity WebGL 页面"
+    : "Pixel Streaming 画面服务";
+  $("pixelMessage").textContent = `正在启动${streamLabel}: ${url}`;
   pixelReadyTimer = window.setInterval(async () => {
     attempts += 1;
     if (await pixelPageReachable(url)) {
@@ -649,13 +665,13 @@ function waitForPixelPage(url, frameUrl = url) {
       fallback.hidden = true;
       updateViewportInputOverlay();
       frame.addEventListener("load", () => {
-        if (VIEWER_EDITOR_MODE) {
+        if (VIEWER_EDITOR_MODE || selectedEngineId() === "unity3d") {
           focusPixelFrame();
         } else {
           focusControlSurface();
         }
       }, { once: true });
-      if (VIEWER_EDITOR_MODE) {
+      if (VIEWER_EDITOR_MODE || selectedEngineId() === "unity3d") {
         focusPixelFrame();
       } else {
         focusControlSurface();
@@ -668,7 +684,9 @@ function waitForPixelPage(url, frameUrl = url) {
       window.clearInterval(pixelReadyTimer);
       pixelReadyTimer = null;
       setPill($("pixelStatus"), false, "Client stream: unreachable");
-      $("pixelMessage").textContent = `画面服务仍不可达，请确认 Pixel Streaming 窗口是否启动: ${url}`;
+      $("pixelMessage").textContent = selectedEngineId() === "unity3d"
+        ? `Unity WebGL 页面仍不可达，请确认构建和 HTTP 服务: ${url}`
+        : `画面服务仍不可达，请确认 Pixel Streaming 窗口是否启动: ${url}`;
     }
   }, 1000);
 }
@@ -1023,11 +1041,20 @@ function applyPlayerSessionResult(result) {
   state.playerSession.sessionId = result.session_id || state.playerSession.sessionId || "";
   state.playerSession.participantId = result.participant_id || state.playerSession.participantId || "";
   state.playerSession.state = result.state || result.status || state.playerSession.state || "";
-  state.playerSession.pixelStreamingUrl = result.pixel_streaming_url || state.playerSession.pixelStreamingUrl || "";
+  state.playerSession.pixelStreamingUrl = result.stream_url
+    || result.pixel_streaming_url
+    || state.playerSession.pixelStreamingUrl
+    || "";
+  state.playerSession.streamingTransport = result.streaming_transport
+    || state.playerSession.streamingTransport
+    || "";
   state.playerSession.pixelHttpPort = Number(result.pixel_http_port || state.playerSession.pixelHttpPort || 0);
   state.playerSession.pixelStreamerPort = Number(result.pixel_streamer_port || state.playerSession.pixelStreamerPort || 0);
   state.playerSession.pixelSfuPort = Number(result.pixel_sfu_port || state.playerSession.pixelSfuPort || 0);
-  state.playerSession.inputHost = result.ue_input_host || state.playerSession.inputHost || "";
+  state.playerSession.inputHost = result.unity_input_host
+    || result.ue_input_host
+    || state.playerSession.inputHost
+    || "";
   state.playerSession.inputPort = Number(result.ue_input_port || result.input_port || state.playerSession.inputPort || 0);
   state.playerSession.serverUrl = result.server_url || state.playerSession.serverUrl || "";
   state.playerSession.previewMap = result.preview_map || state.playerSession.previewMap || "";
@@ -1039,14 +1066,16 @@ function applyPlayerSessionResult(result) {
   state.playerSession.character = result.character || state.playerSession.character || null;
   refreshPlayerSessionText();
   updateViewportInputOverlay();
-  if (result.pixel_streaming_url) {
-    setPixelFrameUrl(result.pixel_streaming_url);
+  if (result.stream_url || result.pixel_streaming_url) {
+    setPixelFrameUrl(result.stream_url || result.pixel_streaming_url);
   }
-  if (result.ue_input_host && $("runtimeUeHostInput")) {
-    $("runtimeUeHostInput").value = result.ue_input_host;
+  const runtimeInputHost = result.unity_input_host || result.ue_input_host;
+  const runtimeInputPort = result.unity_input_port || result.ue_input_port;
+  if (runtimeInputHost && $("runtimeUeHostInput")) {
+    $("runtimeUeHostInput").value = runtimeInputHost;
   }
-  if (result.ue_input_port && $("runtimeUePortInput")) {
-    $("runtimeUePortInput").value = String(result.ue_input_port);
+  if (runtimeInputPort && $("runtimeUePortInput")) {
+    $("runtimeUePortInput").value = String(runtimeInputPort);
   }
   savePlayerSession();
 }
@@ -1217,6 +1246,16 @@ function updateViewportInputOverlay() {
     }
     return;
   }
+  // Unity WebGL owns keyboard and pointer events inside its canvas. Keeping
+  // the generic overlay above the iframe would swallow those events.
+  if (selectedEngineId() === "unity3d" && isPlayerInWorld()) {
+    overlay.hidden = true;
+    const frame = $("pixelFrame");
+    if (frame) frame.style.pointerEvents = "auto";
+    return;
+  }
+  const frame = $("pixelFrame");
+  if (frame) frame.style.pointerEvents = "";
   overlay.hidden = !canControlViewport();
   const hint = overlay.querySelector("span");
   if (isPlayerInWorld()) {
@@ -1728,7 +1767,12 @@ async function createPlayerSession() {
   });
   applyPlayerSessionResult(result);
   focusPixelFrameSoon(500);
-  log("玩家客户端已启动，UE Client 正在打开预览场景", result);
+  log(
+    selectedEngineId() === "unity3d"
+      ? "Unity WebGL 玩家已启动"
+      : "玩家客户端已启动，UE Client 正在打开预览场景",
+    result
+  );
 }
 
 async function ensurePlayerSession() {
