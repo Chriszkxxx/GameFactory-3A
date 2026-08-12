@@ -1,8 +1,8 @@
 """
-test/test_hunyuan_worldplay.py
+test/test_3D_scene_gen.py
 
-Tests for Hunyuan WorldPlay scene asset generation: a reference image and a
-camera trajectory in, a scene mesh out.
+Tests for the `3d_scene` asset kind: a reference image and a camera trajectory
+in, a scene mesh out. The current backend is Hunyuan WorldPlay → WorldMirror.
 
 The work these tests drive lives in the pipeline, not here, so it can also be run
 by hand against a real output:
@@ -16,8 +16,8 @@ to run anywhere: contract (needs only the HY-WorldPlay checkout), wiring (needs
 nothing, stubs stand in for the weights), generation (needs weights and a GPU).
 
 Run from repo root:
-    python test/test_hunyuan_worldplay.py
-    AAAGF_RUN_GPU_TESTS=1 python test/test_hunyuan_worldplay.py
+    python test/test_3D_scene_gen.py
+    AAAGF_RUN_GPU_TESTS=1 python test/test_3D_scene_gen.py
 """
 from __future__ import annotations
 

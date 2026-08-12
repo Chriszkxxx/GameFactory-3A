@@ -10,6 +10,7 @@ prompt. Everything here is **prose for an agent to read**, not code to import �
 |------|----------|---------|
 | `setting_overview.md` | any agent | This file — what `agent_skills/` is and how to navigate it |
 | `develop_harness/` | a coding agent extending this repo | Contracts for the `models/` → `operators/` → `pipeline/` asset-generation chain |
+| `asset_qa/` | an agent choosing how to generate / QA assets | Per-asset-kind strategy notes (e.g. when to reconstruct a scene vs assemble it) |
 | `engine_context/` | the `gen_mechanic` / `gen_ui` code agents | Per-engine API notes (UE5 / Unity3D / Blender / three.js) used when generating engine code |
 
 ```
@@ -20,6 +21,8 @@ agent_skills/
 │   ├── model_require.md           ← contract for models/     (one wrapper per model)
 │   ├── operatar_require.md        ← contract for operators/  (task dict → artifacts)
 │   └── pipeline_require.md        ← contract for pipeline/   (CLI, batching, scoring)
+├── asset_qa/
+│   └── generate_3D_scene_skills.md ← closed vs open 3D scene strategy
 └── engine_context/
     ├── ue5_api.md · unity3d_api.md · blender_api.md · three_js_api.md
 ```
