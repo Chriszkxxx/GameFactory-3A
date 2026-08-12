@@ -386,6 +386,14 @@ def _convert_to_obj(source: Path, output: Path) -> None:
     mesh.export(str(output), file_type="obj")
 
 
+#: How far a fresh file's mtime may sit behind the moment the stage started.
+#: `time.time()` and the filesystem's timestamps do not come from the same
+#: clock, and a couple of milliseconds of disagreement is normal — measured at
+#: ~2 ms here. The check exists to catch output left by a *previous* run, which
+#: is seconds to hours old, so a second of slack costs it nothing.
+_MTIME_TOLERANCE_SEC = 1.0
+
+
 def _require_fresh_output(
     path: Path,
     label: str,
@@ -394,7 +402,7 @@ def _require_fresh_output(
 ) -> None:
     if not path.is_file() or path.stat().st_size == 0:
         raise RuntimeError(f"{label} produced no usable output: {path}")
-    if path.stat().st_mtime + 1e-3 < newer_than:
+    if path.stat().st_mtime + _MTIME_TOLERANCE_SEC < newer_than:
         raise RuntimeError(
             f"{label} output is stale and predates this run: {path}"
         )

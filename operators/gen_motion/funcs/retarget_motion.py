@@ -1,8 +1,8 @@
-"""File-oriented Puppeteer motion retargeting for ``gen_motion``.
+"""
+Host-side retarget driver: validate paths, then run bpy modules as subprocesses.
 
-This module is a deterministic Blender function, not a learned model wrapper.
-The caller owns every input and output path; this function only validates the
-runtime and invokes the Blender backend.
+Success is judged by output files (existence, size, mtime), not exit code —
+bpy can crash on shutdown after a valid FBX is already written.
 """
 from __future__ import annotations
 
@@ -13,22 +13,21 @@ import time
 from functools import lru_cache
 from pathlib import Path
 
-from .puppeteer_retarget.validate_mapping import load_and_validate_mapping
-
-
-_RETARGET_MODULE = (
-    "operators.gen_motion.funcs.puppeteer_retarget.world_delta"
+from .retarget_utils.formats import (
+    SUPPORTED_MESH_SUFFIXES,
+    SUPPORTED_MOTION_SUFFIXES,
 )
-_MAPPING_MODULE = (
-    "operators.gen_motion.funcs.puppeteer_retarget.mapping_auto"
-)
+from .retarget_utils.validate_mapping import load_and_validate_mapping
+
+_RETARGET_MODULE = "operators.gen_motion.funcs.retarget_utils.world_delta"
+_MAPPING_MODULE = "operators.gen_motion.funcs.retarget_utils.mapping_auto"
 
 
 def retarget_motion(
     *,
     bpy_python: str,
     source_motion_path: str,
-    target_glb_path: str,
+    target_mesh_path: str,
     target_rig_path: str,
     output_path: str,
     anim_only_output_path: str | None,
@@ -45,10 +44,10 @@ def retarget_motion(
     device: str = "cpu",
     verbose: bool = False,
 ) -> dict[str, str | None]:
-    """Retarget one BVH/FBX clip and write artifacts to caller-owned paths."""
+    """Retarget one BVH/FBX onto a rigged mesh; write FBX + mapping artifacts."""
     ensure_retarget_runtime(bpy_python, device=device)
     source = Path(source_motion_path).resolve()
-    target_glb = Path(target_glb_path).resolve()
+    target_mesh = Path(target_mesh_path).resolve()
     target_rig = Path(target_rig_path).resolve()
     output = Path(output_path).resolve()
     mapping_output = Path(mapping_output_path).resolve()
@@ -59,7 +58,7 @@ def retarget_motion(
         else None
     )
 
-    _validate_inputs(source, target_glb, target_rig)
+    _validate_inputs(source, target_mesh, target_rig)
     for path in (output, mapping_output, info_output, anim_output):
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,16 +73,11 @@ def retarget_motion(
             bpy_python,
             _MAPPING_MODULE,
             [
-                "--glb",
-                str(target_glb),
-                "--rig",
-                str(target_rig),
-                "--source-anim",
-                str(source),
-                "--global-scale",
-                str(float(global_scale)),
-                "--output",
-                str(mapping_output),
+                "--mesh", str(target_mesh),
+                "--rig", str(target_rig),
+                "--source-anim", str(source),
+                "--global-scale", str(float(global_scale)),
+                "--output", str(mapping_output),
             ],
             expected=[mapping_output],
             device=device,
@@ -93,20 +87,13 @@ def retarget_motion(
     mapping_snapshot = mapping_output.read_bytes()
 
     common_args = [
-        "--glb",
-        str(target_glb),
-        "--rig",
-        str(target_rig),
-        "--source-anim",
-        str(source),
-        "--mapping",
-        str(mapping_output),
-        "--fps",
-        str(int(fps)),
-        "--global-scale",
-        str(float(global_scale)),
-        "--max-delta-deg",
-        str(float(max_delta_deg)),
+        "--mesh", str(target_mesh),
+        "--rig", str(target_rig),
+        "--source-anim", str(source),
+        "--mapping", str(mapping_output),
+        "--fps", str(int(fps)),
+        "--global-scale", str(float(global_scale)),
+        "--max-delta-deg", str(float(max_delta_deg)),
     ]
     if root_scale is not None:
         common_args += ["--root-scale", str(float(root_scale))]
@@ -118,13 +105,7 @@ def retarget_motion(
     _run_module(
         bpy_python,
         _RETARGET_MODULE,
-        [
-            *common_args,
-            "--output",
-            str(output),
-            "--info-output",
-            str(info_output),
-        ],
+        [*common_args, "--output", str(output), "--info-output", str(info_output)],
         expected=[output, info_output],
         device=device,
         verbose=verbose,
@@ -135,23 +116,16 @@ def retarget_motion(
             raise ValueError(
                 "anim_only_output_path is required when export_anim_only=True"
             )
-        if mapping_output.read_bytes() != mapping_snapshot:
-            mapping_output.write_bytes(mapping_snapshot)
+        _restore_mapping(mapping_output, mapping_snapshot)
         _run_module(
             bpy_python,
             _RETARGET_MODULE,
-            [
-                *common_args,
-                "--output",
-                str(anim_output),
-                "--anim-only",
-            ],
+            [*common_args, "--output", str(anim_output), "--anim-only"],
             expected=[anim_output],
             device=device,
             verbose=verbose,
         )
-    if mapping_output.read_bytes() != mapping_snapshot:
-        mapping_output.write_bytes(mapping_snapshot)
+    _restore_mapping(mapping_output, mapping_snapshot)
 
     return {
         "retargeted_fbx_path": str(output),
@@ -163,19 +137,19 @@ def retarget_motion(
     }
 
 
+def _restore_mapping(path: Path, snapshot: bytes) -> None:
+    if path.read_bytes() != snapshot:
+        path.write_bytes(snapshot)
+
+
 @lru_cache(maxsize=8)
-def ensure_retarget_runtime(
-    bpy_python: str,
-    *,
-    device: str = "cpu",
-) -> str:
-    """Validate a Python executable containing bpy and return its path."""
+def ensure_retarget_runtime(bpy_python: str, *, device: str = "cpu") -> str:
+    """Validate a Python that can import bpy / numpy / trimesh."""
     executable = Path(bpy_python)
     if not executable.is_file():
         raise RuntimeError(
-            "Retarget bpy Python executable does not exist: "
-            f"{bpy_python}. Set AAAGF_RETARGET_BPY_PYTHON or pass "
-            "--bpy-python."
+            f"Retarget bpy Python does not exist: {bpy_python}. "
+            "Set AAAGF_RETARGET_BPY_PYTHON or pass --bpy-python."
         )
     proc = subprocess.run(
         [
@@ -190,40 +164,45 @@ def ensure_retarget_runtime(
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip()
         raise RuntimeError(
-            f"{bpy_python} cannot import the retarget runtime "
-            "(bpy, mathutils, numpy, trimesh). Create the Python 3.11 "
-            f"retarget environment first. Detail: {detail[-1200:]}"
+            f"{bpy_python} cannot import bpy/mathutils/numpy/trimesh. "
+            f"Detail: {detail[-1200:]}"
         )
     return str(executable.resolve())
 
 
 def normalise_source_ext(value: str) -> str:
-    """Return a validated lower-case ``.bvh`` or ``.fbx`` extension."""
-    ext = value.lower()
-    if not ext.startswith("."):
-        ext = f".{ext}"
-    if ext not in {".bvh", ".fbx"}:
+    """Validate and return ``.bvh`` or ``.fbx``."""
+    ext = value.lower() if value.startswith(".") else f".{value.lower()}"
+    if ext not in SUPPORTED_MOTION_SUFFIXES:
         raise ValueError(
-            f"source_ext must be '.bvh' or '.fbx', got {value!r}"
+            "source_ext must be "
+            f"{' or '.join(repr(s) for s in SUPPORTED_MOTION_SUFFIXES)}, "
+            f"got {value!r}"
         )
     return ext
 
 
-def _validate_inputs(
-    source: Path,
-    target_glb: Path,
-    target_rig: Path,
-) -> None:
+def normalise_mesh_ext(value: str) -> str:
+    """Validate and return a supported mesh extension."""
+    ext = value.lower() if value.startswith(".") else f".{value.lower()}"
+    if ext not in SUPPORTED_MESH_SUFFIXES:
+        raise ValueError(
+            "target mesh must be one of "
+            f"{', '.join(SUPPORTED_MESH_SUFFIXES)}, got {value!r}"
+        )
+    return ext
+
+
+def _validate_inputs(source: Path, target_mesh: Path, target_rig: Path) -> None:
     normalise_source_ext(source.suffix)
+    normalise_mesh_ext(target_mesh.suffix)
     for label, path in (
         ("source motion", source),
-        ("target GLB", target_glb),
+        ("target mesh", target_mesh),
         ("target rig", target_rig),
     ):
         if not path.is_file() or path.stat().st_size == 0:
             raise FileNotFoundError(f"{label} is missing or empty: {path}")
-    if target_glb.suffix.lower() != ".glb":
-        raise ValueError(f"target_glb_path must end in .glb: {target_glb}")
 
 
 def _run_module(
@@ -250,16 +229,13 @@ def _run_module(
         and path.stat().st_mtime >= started - 1.0
         for path in expected
     )
-    if proc.returncode == 0 and valid:
+    if valid:
         if verbose and proc.stdout:
             print(proc.stdout, end="")
-        return
-    # bpy can fault during interpreter shutdown after flushing a valid FBX.
-    if proc.returncode != 0 and valid:
-        if verbose:
+        if proc.returncode != 0 and verbose:
             print(
                 f"[retarget] bpy exited {proc.returncode} after writing "
-                "all requested artifacts; accepting the completed output."
+                "artifacts; accepting completed output."
             )
         return
 
@@ -268,15 +244,13 @@ def _run_module(
         for path in expected
         if not path.exists() or path.stat().st_size == 0
     ]
-    stdout = (proc.stdout or "")[-2000:]
-    stderr = (proc.stderr or "")[-2000:]
     raise RuntimeError(
         "Retarget bpy subprocess failed.\n"
         f"Command: {subprocess.list2cmdline(command)}\n"
         f"Return code: {proc.returncode}\n"
         f"Missing/empty outputs: {missing}\n"
-        f"stdout tail:\n{stdout}\n"
-        f"stderr tail:\n{stderr}"
+        f"stdout tail:\n{(proc.stdout or '')[-2000:]}\n"
+        f"stderr tail:\n{(proc.stderr or '')[-2000:]}"
     )
 
 
@@ -305,7 +279,10 @@ def _repo_root() -> Path:
 
 
 __all__ = [
+    "SUPPORTED_MESH_SUFFIXES",
+    "SUPPORTED_MOTION_SUFFIXES",
     "ensure_retarget_runtime",
+    "normalise_mesh_ext",
     "normalise_source_ext",
     "retarget_motion",
 ]

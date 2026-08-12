@@ -361,7 +361,7 @@ def write_mapping(
 
 
 def generate_from_motion(
-    glb: str,
+    mesh: str,
     rig: str,
     source_animation: str,
     output: str,
@@ -369,12 +369,20 @@ def generate_from_motion(
     global_scale: float = 1.0,
     left_sign: Optional[int] = None,
 ) -> None:
-    """Build both armatures exactly as retargeting does, then infer mapping."""
+    """
+    Build both armatures exactly as retargeting does, then infer the mapping.
+
+    "Exactly as" is the whole point. A mapping inferred from a differently
+    imported skeleton is a mapping for a skeleton that will not exist at
+    retarget time — so this calls the same two builders rather than a cheaper
+    parse, and pays a second Blender import to guarantee the bone names and
+    world poses it reasons about are the ones ``world_delta`` will see.
+    """
     from .rig_io import clear_bpy_data
     from .world_delta import build_puppeteer_rig, import_source_animation
 
     clear_bpy_data()
-    _, target = build_puppeteer_rig(glb, rig)
+    _, target = build_puppeteer_rig(mesh, rig)
     target.name = "Puppeteer"
     source, _ = import_source_animation(
         source_animation,
@@ -403,7 +411,13 @@ def generate_from_motion(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--glb", required=True)
+    parser.add_argument(
+        "--mesh",
+        "--glb",
+        dest="mesh",
+        required=True,
+        help="Character mesh: .glb, .gltf, .obj, .ply, .stl or .fbx.",
+    )
     parser.add_argument("--rig", required=True)
     parser.add_argument("--source-anim", required=True)
     parser.add_argument("--global-scale", type=float, default=1.0)
@@ -415,7 +429,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     generate_from_motion(
-        args.glb,
+        args.mesh,
         args.rig,
         args.source_anim,
         args.output,

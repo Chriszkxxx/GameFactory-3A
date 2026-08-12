@@ -96,16 +96,57 @@ class GenMotionOperator:
         return game_id, root, outputs
 
     @staticmethod
-    def _required_path(inp: dict, key: str) -> Path:
-        value = inp.get(key)
+    def _required_path(inp: dict, key: str, *aliases: str) -> Path:
+        keys = (key, *aliases)
+        value = next((inp[name] for name in keys if inp.get(name)), None)
         if not value:
-            raise ValueError(f"Motion task requires {key!r}.")
+            raise ValueError(
+                f"Motion task requires {key!r}."
+                + (f" (or {', '.join(map(repr, aliases))})" if aliases else "")
+            )
         from pipeline.common import paths
 
         path = paths.resolve_input_path(value)
         if not path.is_file() or path.stat().st_size == 0:
             raise FileNotFoundError(f"{key} is missing or empty: {path}")
         return path
+
+    def _target_mesh(self, inp: dict) -> Path:
+        """
+        The character mesh, whatever the task called it.
+
+        ``target_glb_path`` predates OBJ support and is still what most task
+        files say, so both names resolve here and the extension check is what
+        actually decides whether the file is usable.
+        """
+        from .funcs.retarget_motion import normalise_mesh_ext
+
+        mesh = self._required_path(inp, "target_mesh_path", "target_glb_path")
+        normalise_mesh_ext(mesh.suffix)
+        return mesh
+
+    def _source_motion(self, inp: dict, outputs: dict[str, Path]) -> Path:
+        """
+        The clip to retarget, from disk or from an external library.
+
+        A task either points at a file it already has (``source_motion_path``)
+        or names a library to take one from (``motion_source`` with a path,
+        URL or archive member). The second form exists because generated
+        motion runs out of range long before a game does — see
+        ``funcs.fetch_motion``.
+        """
+        if inp.get("motion_source"):
+            from .funcs.fetch_motion import fetch_motion
+
+            fetched = fetch_motion(
+                source=str(inp["motion_source"]),
+                path=inp.get("source_motion_path"),
+                url=inp.get("source_motion_url"),
+                member=inp.get("source_motion_member"),
+                dest_dir=str(outputs["retargeted_fbx_path"].parent),
+            )
+            return Path(fetched["motion_path"])
+        return self._required_path(inp, "source_motion_path")
 
     @staticmethod
     def _required_prompt(inp: dict) -> str:
@@ -116,7 +157,7 @@ class GenMotionOperator:
 
     def _rig(
         self,
-        target_glb: Path,
+        target_mesh: Path,
         outputs: dict[str, Path],
         inp: dict,
         seed: int,
@@ -129,9 +170,9 @@ class GenMotionOperator:
         from .funcs.rig_character import rig_character
 
         artifacts = rig_character(
-            target_glb.read_bytes(),
+            target_mesh.read_bytes(),
             self.puppeteer_model,
-            mesh_format=target_glb.suffix,
+            mesh_format=target_mesh.suffix,
             seed=seed,
             post_filter=bool(inp.get("post_filter", True)),
         )
@@ -204,34 +245,40 @@ class GenMotionOperator:
             np.save(outputs["joints_npy_path"], joints, allow_pickle=False)
         return artifacts
 
+    @staticmethod
+    def _resolve_mapping(inp: dict) -> Path | None:
+        """Return an explicit ``mapping_path``, or ``None`` to auto-derive."""
+        mapping_value = inp.get("mapping_path")
+        if not mapping_value:
+            return None
+        from pipeline.common import paths
+        from .funcs.retarget_utils.validate_mapping import (
+            load_and_validate_mapping,
+        )
+
+        mapping_path = paths.resolve_input_path(mapping_value)
+        load_and_validate_mapping(mapping_path)
+        return mapping_path
+
     def _retarget(
         self,
         source_motion: Path,
-        target_glb: Path,
+        target_mesh: Path,
         target_rig: Path,
         outputs: dict[str, Path],
         inp: dict,
         *,
         fps: int,
     ) -> dict[str, Any]:
-        if source_motion.suffix.lower() not in {".bvh", ".fbx"}:
-            raise ValueError(
-                "source_motion_path must end in .bvh or .fbx: "
-                f"{source_motion}"
-            )
-        if target_glb.suffix.lower() != ".glb":
-            raise ValueError(f"target_glb_path must end in .glb: {target_glb}")
+        from .funcs.retarget_motion import (
+            normalise_mesh_ext,
+            normalise_source_ext,
+        )
 
-        mapping_path: Path | None = None
-        mapping_value = inp.get("mapping_path")
-        if mapping_value:
-            from pipeline.common import paths
-            from .funcs.puppeteer_retarget.validate_mapping import (
-                load_and_validate_mapping,
-            )
+        normalise_source_ext(source_motion.suffix)
+        normalise_mesh_ext(target_mesh.suffix)
 
-            mapping_path = paths.resolve_input_path(mapping_value)
-            load_and_validate_mapping(mapping_path)
+        mapping_path = self._resolve_mapping(inp)
 
         if fps <= 0:
             raise ValueError(f"fps must be positive, got {fps}")
@@ -264,7 +311,7 @@ class GenMotionOperator:
         return retarget_fn(
             bpy_python=self.bpy_python or "",
             source_motion_path=str(source_motion),
-            target_glb_path=str(target_glb),
+            target_mesh_path=str(target_mesh),
             target_rig_path=str(target_rig),
             output_path=str(outputs["retargeted_fbx_path"]),
             anim_only_output_path=str(outputs["anim_only_fbx_path"]),
@@ -296,7 +343,7 @@ class GenMotionOperator:
         task_id = str(inp.get("task_id", f"task_{int(time.time())}"))
         seed = int(inp.get("seed", 42))
         game_id, task_dir, outputs = self._resolve_outputs(inp, task_id)
-        target_glb: Path | None = None
+        target_mesh: Path | None = None
         source_motion: Path | None = None
         target_rig: Path | None = None
         rig_artifacts: dict[str, Any] | None = None
@@ -305,12 +352,8 @@ class GenMotionOperator:
 
         t0 = time.time()
         if task_type in {"rig", "humanoid"}:
-            target_glb = self._required_path(inp, "target_glb_path")
-            if target_glb.suffix.lower() != ".glb":
-                raise ValueError(
-                    f"target_glb_path must end in .glb: {target_glb}"
-                )
-            rig_artifacts = self._rig(target_glb, outputs, inp, seed)
+            target_mesh = self._target_mesh(inp)
+            rig_artifacts = self._rig(target_mesh, outputs, inp, seed)
 
         if task_type in {"text_to_motion", "humanoid"}:
             motion_artifacts = self._generate_motion(
@@ -321,23 +364,26 @@ class GenMotionOperator:
             )
 
         if task_type == "retarget":
-            source_motion = self._required_path(inp, "source_motion_path")
-            target_glb = self._required_path(inp, "target_glb_path")
+            target_mesh = self._target_mesh(inp)
             target_rig = self._required_path(inp, "target_rig_path")
+            source_motion = self._source_motion(inp, outputs)
             retarget_artifacts = self._retarget(
                 source_motion,
-                target_glb,
+                target_mesh,
                 target_rig,
                 outputs,
                 inp,
                 fps=int(inp.get("fps", 30)),
             )
         elif task_type == "humanoid":
+            # The generated clip and the rig just written, not anything the
+            # task named: a humanoid task's whole point is that the three
+            # stages agree, and reading them back off disk is what proves it.
             source_motion = outputs["motion_bvh_path"]
             target_rig = outputs["rig_path"]
             retarget_artifacts = self._retarget(
                 source_motion,
-                target_glb,
+                target_mesh,
                 target_rig,
                 outputs,
                 inp,
@@ -395,8 +441,8 @@ class GenMotionOperator:
                     "source_motion_path": (
                         str(source_motion) if source_motion else None
                     ),
-                    "target_glb_path": (
-                        str(target_glb) if target_glb else None
+                    "target_mesh_path": (
+                        str(target_mesh) if target_mesh else None
                     ),
                     "target_rig_path": (
                         str(target_rig) if target_rig else None

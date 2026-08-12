@@ -1,7 +1,7 @@
 # engine_adapters/blender
 
-Blender (`bpy`) reference code — asset import, rig / retarget, headless preview,
-and a playable session.
+Blender (`bpy`) reference code — asset import, headless preview, and a
+playable session.
 
 > Blender is not a fourth target engine. It is the neutral step between a
 > generator and one: the only adapter here that reads `.ply` and `.usd`, that can
@@ -14,14 +14,15 @@ and a playable session.
 | Path | Runs where | Purpose |
 |------|-----------|---------|
 | `import_generated/import_mesh.py` | a `bpy` interpreter | import → condition → measure → re-export → report |
+| `import_generated/import_motion.py` | a `bpy` interpreter | import a retargeted FBX and check pose animation |
 | `render_preview.py` | a `bpy` interpreter | turntable / still render of an asset, headless |
 | `game/` | a `bpy` interpreter | the gameplay kit a generated mechanic is written against |
 | `runtime/` | a `bpy` interpreter | a live session driven by JSON over UDP — spawn, move, effects, snapshot |
-| `rig_io.py` | a `bpy` interpreter | Puppeteer rig `.txt` + GLB → armature with skin weights |
-| `world_delta.py` | a `bpy` interpreter | world-delta motion retarget → animated FBX for UE |
-| `mappings/` | a `bpy` interpreter | bone-map generation, skeleton dumps, known-good presets |
 | `../../scripts/import_generated_asset.py` | host Python | finds Blender, launches the importer, reads the report |
 | `../../scripts/prepare_world_asset.py` | host Python | world export → one continuous `.glb` (needs no Blender) |
+
+Motion rig / retarget is **not** here — use
+`operators/gen_motion/funcs/retarget_utils/` via the gen_motion pipeline.
 
 Everything except `runtime/` is batch: a file in, a file out, the process exits.
 `runtime/` is the other mode — one long-lived process holding a scene that
@@ -82,38 +83,17 @@ Z-up world export gets rotated, once, before anything else sees it.
 
 ## Rig and retarget
 
-Reference implementation of the Puppeteer chain: a rig `.txt` (joints, hierarchy,
-skin weights) plus its textured GLB become a Blender armature, and a source
-animation is retargeted onto it by world-space rotation delta:
+Character rigging and motion retarget live under
+`operators/gen_motion/funcs/retarget_utils/` (host driver:
+`operators/gen_motion/funcs/retarget_motion.py`). See
+`agent_skills/asset_qa/motion_gen_skills.md`.
 
-```
-delta_ws  = src_pose_ws @ src_rest_ws⁻¹
-target_ws = delta_ws @ dst_rest_ws
-```
-
-Transferring world rotations rather than local ones makes the result independent
-of the destination bone's roll, which is what removes the arm drift and backward
-knees that local-frame retargeting produces. It also means the source can be a
-Mixamo FBX or a MoMask BVH interchangeably — the importer is picked by extension
-and the root bones come from the mapping JSON.
+After a retargeted FBX is written, import/validate it with:
 
 ```bash
-python -m engine_adapters.blender.world_delta \
-    --glb char.glb --rig char.txt --source-anim motion.bvh \
-    --mapping engine_adapters/blender/mappings/presets/momask_bvh_to_puppeteer_mapping.json \
-    --output out.fbx --fps 20
-```
-
-Run these as **package modules** (`python -m engine_adapters.blender...`); they
-import each other relatively.
-
-No mapping for a new source skeleton? Generate one from topology instead of
-writing bone names by hand:
-
-```bash
-python -m engine_adapters.blender.mappings.generate_mapping_auto \
-    --glb char.glb --rig char.txt --source-anim motion.bvh \
-    --output mappings/my_mapping.json
+python scripts/import_generated_asset.py \
+  --src retargeted.fbx --engine blender --kind motion \
+  --blender $AAAGF_RETARGET_BPY_PYTHON
 ```
 
 ## The gameplay kit (`game/`)
@@ -260,10 +240,9 @@ on disk.
 
 | Module | Needs |
 |--------|-------|
-| `import_generated/import_mesh.py`, `render_preview.py` | `bpy` only |
+| `import_generated/import_mesh.py`, `import_motion.py`, `render_preview.py` | `bpy` only |
 | `game/` | `bpy` only — plus a bundled FFMPEG writer for MP4 |
 | `runtime/` | `bpy` only — and `runtime/send_command.py` needs nothing at all |
-| `rig_io.py`, `world_delta.py`, `mappings/` | `bpy`, `numpy`, `trimesh` |
 
 Every `bpy` import is deferred in the two importer modules, so the host-side
 launcher and `test/` can read their constants with no Blender installed.
@@ -289,6 +268,3 @@ ticks replaying into a byte-identical run. Not executed: a live window, because
 that needs a graphics driver — this host has the CUDA compute stack and no
 OpenGL, so Cycles renders fine and no window can open. `--play` therefore refuses
 with an explanation rather than starting a session nobody can see.
-
-Not executed here: `rig_io.py`, `world_delta.py` and `mappings/`, which need a
-rigged character and a source animation rather than a synthetic fixture.

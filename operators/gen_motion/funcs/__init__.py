@@ -1,13 +1,26 @@
-"""Functions used by the shared motion task."""
+"""Motion-task step functions. Imports are lazy so bpy subprocesses stay light."""
 
-from .generate_motion import generate_motion
-from .retarget_motion import retarget_motion
-from .rig_character import rig_character
+from importlib import import_module
+from typing import Any
 
-__all__ = ["generate_motion", "retarget_motion", "rig_character"]
-"""Reusable functions for motion generation, rigging and retargeting."""
+_EXPORTS = {
+    "fetch_motion": "fetch_motion",
+    "list_motion_sources": "fetch_motion",
+    "suggest_global_scale": "fetch_motion",
+    "generate_motion": "generate_motion",
+    "retarget_motion": "retarget_motion",
+    "rig_character": "rig_character",
+}
 
-from .generate_motion import generate_motion
-from .rig_character import rig_character
+__all__ = sorted(_EXPORTS)
 
-__all__ = ["generate_motion", "rig_character"]
+
+def __getattr__(name: str) -> Any:
+    module = _EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(import_module(f".{module}", __name__), name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_EXPORTS))

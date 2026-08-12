@@ -1,5 +1,5 @@
-"""Blender (`bpy`) adapters: asset import, rig / retarget, headless preview.
+"""Blender (`bpy`) adapters: asset import, headless preview, gameplay, runtime.
 
-A package rather than a folder of scripts because `mappings/` reaches back into
-`world_delta` and `rig_io` with relative imports.
+Motion retarget lives in ``operators.gen_motion.funcs.retarget_utils``
+(driven by ``retarget_motion.py``), not in this package.
 """
