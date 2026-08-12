@@ -289,7 +289,6 @@ def _demo_task(args: argparse.Namespace, parser: argparse.ArgumentParser) -> dic
         "target_mesh_path": args.target_mesh,
         "target_rig_path": args.target_rig,
         "mapping_path": args.mapping,
-        "mapping_preset": args.mapping_preset,
         "prompt": args.prompt,
         "seed": args.seed,
         "fps": args.fps,
@@ -415,14 +414,6 @@ def main() -> None:
         "--mapping",
         default=None,
         help="Bone-map JSON to use verbatim. Omit to derive one.",
-    )
-    parser.add_argument(
-        "--mapping-preset",
-        default=None,
-        help=(
-            "Optional named JSON under retarget_utils/presets/ (same-rig "
-            "reuse only). Prefer omit + mapping_auto, or --mapping."
-        ),
     )
     parser.add_argument("--prompt", default=None)
     parser.add_argument("--task-id", default="demo")

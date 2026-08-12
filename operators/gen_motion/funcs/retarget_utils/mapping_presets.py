@@ -1,13 +1,11 @@
 """
-Bone-mapping registry for retargeting.
+Source-skeleton registry for retargeting.
 
-- ``SOURCE_SKELETONS``: reusable clip-side names (Mixamo, CMU, …) by anatomical slot.
-- ``presets/*.json`` (optional): full maps pinned to one Puppeteer rig — only
-  when re-animating that exact rig; check with ``pinned_mapping_fits_rig``.
-- Default: ``mapping_auto`` (topology/geometry). Puppeteer joint names are
-  per-mesh and not portable.
+``SOURCE_SKELETONS`` describes reusable clip-side bone names (Mixamo, CMU, …)
+by anatomical slot. Full bone maps are not checked in: Puppeteer joints are
+per-mesh, so pass ``mapping_path`` or let ``mapping_auto`` derive one.
 
-CLI: ``--list`` / ``--identify motion.bvh`` / ``--check PRESET --rig rig.txt``
+CLI: ``--list`` / ``--identify motion.bvh``
 """
 from __future__ import annotations
 
@@ -17,10 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from .validate_mapping import load_and_validate_mapping
-
-
-PRESET_DIR = Path(__file__).resolve().parent / "presets"
 
 # Anatomical slots in humanoid walk order; profiles may omit some (e.g. no toes).
 SLOTS: tuple[str, ...] = (
@@ -340,70 +334,6 @@ def identify_motion_file(path: str | Path) -> dict:
     }
 
 
-@dataclass(frozen=True)
-class PinnedMapping:
-    """Full bone map pinned to one target rig."""
-
-    name: str
-    path: Path
-    source_skeleton: str
-    target_skeleton: str
-    description: str
-    bone_count: int
-    chains: tuple[str, ...]
-    target_joints: tuple[str, ...]
-
-    def as_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "path": str(self.path),
-            "source_skeleton": self.source_skeleton,
-            "target_skeleton": self.target_skeleton,
-            "description": self.description,
-            "bone_count": self.bone_count,
-            "chains": list(self.chains),
-            "reusable": False,
-        }
-
-
-def list_pinned_mappings() -> list[PinnedMapping]:
-    """Load every ``presets/*.json``, sorted by stem."""
-    presets = []
-    for path in sorted(PRESET_DIR.glob("*.json")):
-        try:
-            data = normalise_mapping(
-                json.loads(path.read_text(encoding="utf-8-sig"))
-            )
-        except (OSError, ValueError):
-            continue
-        bone_map = data.get("bone_map", {})
-        presets.append(
-            PinnedMapping(
-                name=path.stem,
-                path=path,
-                source_skeleton=str(data.get("source_skeleton", "unknown")),
-                target_skeleton=str(data.get("target_skeleton", "unknown")),
-                description=str(data.get("description", "")),
-                bone_count=len(bone_map),
-                chains=tuple(sorted(data.get("retarget_chains", {}))),
-                target_joints=tuple(sorted(set(bone_map.values()))),
-            )
-        )
-    return presets
-
-
-def find_pinned_mapping(name: str) -> PinnedMapping:
-    """Look up a preset by stem; raise with available names on miss."""
-    presets = list_pinned_mappings()
-    for preset in presets:
-        if preset.name == name:
-            return preset
-    available = ", ".join(preset.name for preset in presets) or "<none>"
-    raise KeyError(
-        f"Unknown retarget mapping preset {name!r}. Available: {available}"
-    )
-
-
 def normalise_mapping(data: dict) -> dict:
     """Rename legacy keys (``mixamo``/``src`` → ``source``) on load."""
     result = dict(data)
@@ -432,12 +362,6 @@ def normalise_mapping(data: dict) -> dict:
     return result
 
 
-def load_pinned_mapping(name: str) -> dict:
-    """Load, normalise, and validate one preset."""
-    preset = find_pinned_mapping(name)
-    return normalise_mapping(load_and_validate_mapping(preset.path))
-
-
 def read_rig_joint_names(rig_path: str | Path) -> list[str]:
     """Joint names from a Puppeteer ``.txt`` rig, without Blender."""
     names = []
@@ -449,53 +373,15 @@ def read_rig_joint_names(rig_path: str | Path) -> list[str]:
     return names
 
 
-def pinned_mapping_fits_rig(name: str, rig_path: str | Path) -> dict:
-    """True only if every target joint in the preset exists in the rig."""
-    preset = find_pinned_mapping(name)
-    available = set(read_rig_joint_names(rig_path))
-    missing = sorted(set(preset.target_joints) - available)
-    return {
-        "preset": name,
-        "rig": str(rig_path),
-        "fits": not missing,
-        "missing_target_joints": missing[:12],
-        "missing_count": len(missing),
-    }
-
-
-def resolve_mapping(
-    *,
-    preset: str | None,
-    target_rig_path: str | Path,
-) -> str | None:
-    """Return preset path, or ``None`` to auto-derive. Misfit raises."""
-    if not preset:
-        return None
-    fit = pinned_mapping_fits_rig(preset, target_rig_path)
-    if not fit["fits"]:
-        raise ValueError(
-            f"Mapping preset {preset!r} does not fit this rig: "
-            f"{fit['missing_count']} of its target joints are absent "
-            f"(e.g. {fit['missing_target_joints']}). Presets are pinned to "
-            "one Puppeteer rig; omit mapping_preset to derive a mapping for "
-            "this character instead."
-        )
-    return str(find_pinned_mapping(preset).path)
-
-
 def registry() -> dict:
-    """Full registry as plain data (agent / report)."""
+    """Source-skeleton registry as plain data (agent / report)."""
     return {
         "source_skeletons": [
             profile.as_dict() for profile in SOURCE_SKELETONS.values()
         ],
-        "pinned_mappings": [
-            preset.as_dict() for preset in list_pinned_mappings()
-        ],
         "default_strategy": (
-            "Derive with mapping_auto. Pinned mappings only apply to the rig "
-            "they were generated against; source skeleton profiles describe "
-            "the clip side only."
+            "Derive with mapping_auto, or pass mapping_path for a one-off. "
+            "Source skeleton profiles describe the clip side only."
         ),
     }
 
@@ -512,23 +398,9 @@ def main() -> None:
         default=None,
         help="Name the source skeleton of a BVH clip.",
     )
-    parser.add_argument(
-        "--check",
-        default=None,
-        help="Preset name to test against --rig.",
-    )
-    parser.add_argument(
-        "--rig",
-        default=None,
-        help="Puppeteer rig .txt that --check tests against.",
-    )
     args = parser.parse_args()
 
-    if args.check:
-        if not args.rig:
-            parser.error("--check also needs --rig")
-        payload = pinned_mapping_fits_rig(args.check, args.rig)
-    elif args.identify:
+    if args.identify:
         payload = identify_motion_file(args.identify)
     else:
         payload = registry()
@@ -540,19 +412,13 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "PinnedMapping",
     "SLOTS",
     "SOURCE_SKELETONS",
     "SourceSkeleton",
-    "find_pinned_mapping",
     "identify_motion_file",
     "identify_source_skeleton",
-    "list_pinned_mappings",
-    "load_pinned_mapping",
     "normalise_mapping",
-    "pinned_mapping_fits_rig",
     "read_bvh_bone_names",
     "read_rig_joint_names",
     "registry",
-    "resolve_mapping",
 ]

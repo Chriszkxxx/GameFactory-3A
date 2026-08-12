@@ -32,12 +32,10 @@ from operators.gen_motion.funcs.fetch_motion import (  # noqa: E402
     measure_bvh_extent,
     suggest_global_scale,
 )
-from operators.gen_motion.funcs.retarget_utils import mapping_presets as _mapping_presets  # noqa: E402
 from operators.gen_motion.funcs.retarget_utils.mapping_presets import (  # noqa: E402
     identify_motion_file,
     identify_source_skeleton,
     normalise_mapping,
-    pinned_mapping_fits_rig,
     registry,
 )
 from operators.gen_motion.funcs.retarget_utils.validate_mapping import (  # noqa: E402
@@ -169,34 +167,6 @@ class TestGenMotionOperator(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "target mesh must be one of"):
             self.operator.run(task)
         self.retarget_fn.assert_not_called()
-
-    def test_mapping_preset_is_rejected_when_it_does_not_fit_the_rig(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            preset_dir = Path(tmp)
-            (preset_dir / "temp_preset.json").write_text(
-                json.dumps(
-                    {
-                        "root_bones": {
-                            "source": "mixamorig:Hips",
-                            "puppeteer": "joint99",
-                        },
-                        "bone_map": {"mixamorig:Hips": "joint99"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            task = self.fixture.task(mapping=False)
-            task["mapping_preset"] = "temp_preset"
-            with mock.patch.object(_mapping_presets, "PRESET_DIR", preset_dir):
-                with self.assertRaisesRegex(ValueError, "does not fit this rig"):
-                    self.operator.run(task)
-        self.retarget_fn.assert_not_called()
-
-    def test_unknown_mapping_preset_names_the_alternatives(self):
-        task = self.fixture.task(mapping=False)
-        task["mapping_preset"] = "not_a_preset"
-        with self.assertRaisesRegex(KeyError, "Available"):
-            self.operator.run(task)
 
     def test_unknown_task_type_is_explicitly_unimplemented(self):
         task = self.fixture.task()
@@ -619,13 +589,7 @@ class TestMappingRegistry(unittest.TestCase):
         names = {entry["name"] for entry in payload["source_skeletons"]}
         self.assertIn("mixamo", names)
         self.assertIn("momask_bvh", names)
-        # Optional drop-ins only; no checked-in Puppeteer-pinned maps.
-        self.assertIsInstance(payload["pinned_mappings"], list)
-        for entry in payload["pinned_mappings"]:
-            self.assertFalse(
-                entry["reusable"],
-                "a pinned mapping must never advertise itself as reusable",
-            )
+        self.assertIn("mapping_auto", payload["default_strategy"])
 
     def test_normalise_mapping_renames_legacy_keys(self):
         data = normalise_mapping(
@@ -689,28 +653,6 @@ class TestMappingRegistry(unittest.TestCase):
             report = identify_motion_file(clip)
         self.assertEqual(report["format"], "bvh")
         self.assertEqual(report["bone_count"], 3)
-
-    def test_preset_fit_reports_the_joints_a_rig_is_missing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            preset_dir = Path(tmp)
-            (preset_dir / "temp_preset.json").write_text(
-                json.dumps(
-                    {
-                        "root_bones": {
-                            "source": "mixamorig:Hips",
-                            "puppeteer": "joint99",
-                        },
-                        "bone_map": {"mixamorig:Hips": "joint99"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            rig = Path(tmp) / "rig.txt"
-            rig.write_text("joints joint0 0 0 0\nroot joint0\n", "utf-8")
-            with mock.patch.object(_mapping_presets, "PRESET_DIR", preset_dir):
-                fit = pinned_mapping_fits_rig("temp_preset", rig)
-        self.assertFalse(fit["fits"])
-        self.assertGreater(fit["missing_count"], 0)
 
 
 #: A three-bone Mixamo-named BVH. Short on purpose: identification reads the

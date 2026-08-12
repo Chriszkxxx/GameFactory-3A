@@ -174,7 +174,7 @@ Task fields for an external clip::
 | Module | Runs in | Role |
 |---|---|---|
 | `validate_mapping` | any Python | reject a bad mapping early |
-| `mapping_presets` | any Python | source-skeleton registry (+ optional pinned maps) |
+| `mapping_presets` | any Python | source-skeleton registry (clip-side names) |
 | `mapping_auto` | bpy | derive a mapping from topology |
 | `world_delta` | bpy | retarget + FBX export |
 | `rig_io` | bpy | Puppeteer `.txt` → armature |
@@ -189,11 +189,9 @@ to — so this repo does **not** ship Mixamo/MoMask → Puppeteer preset JSONs.
 
 What *is* reusable is the **source** half (Mixamo always uses
 `mixamorig:Hips`). That lives in `SOURCE_SKELETONS` inside
-`mapping_presets.py`. Optional drop-ins under `retarget_utils/presets/` are
-only for re-animating the **same** rig after
-`pinned_mapping_fits_rig(name, rig.txt)` returns `fits=True`. Otherwise omit
-`mapping_preset` / pass nothing and let `mapping_auto` derive a map (or pass
-an explicit `mapping_path` for a one-off).
+`mapping_presets.py`. There is no `presets/` drop-in folder: omit mapping and
+let `mapping_auto` derive a map, or pass an explicit `mapping_path` /
+`--mapping` for a one-off.
 
 Default path when the task names no mapping: auto-generate → write
 `mapping.json` next to the FBX → run world-delta twice (full + anim-only).

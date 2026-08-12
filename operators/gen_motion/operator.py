@@ -246,39 +246,19 @@ class GenMotionOperator:
         return artifacts
 
     @staticmethod
-    def _resolve_mapping(inp: dict, target_rig: Path) -> Path | None:
-        """
-        Decide which bone map the retarget uses, or ``None`` to derive one.
-
-        Three ways in, in descending order of specificity: an explicit
-        ``mapping_path``, a named ``mapping_preset`` from the registry, or
-        nothing — and nothing is the normal case. Puppeteer names joints by
-        prediction order, so a map written for one character means something
-        different on the next; deriving per character is correct rather than
-        merely convenient, and a named preset is checked against this rig
-        before it is allowed through.
-        """
+    def _resolve_mapping(inp: dict) -> Path | None:
+        """Return an explicit ``mapping_path``, or ``None`` to auto-derive."""
         mapping_value = inp.get("mapping_path")
-        if mapping_value:
-            from pipeline.common import paths
-            from .funcs.retarget_utils.validate_mapping import (
-                load_and_validate_mapping,
-            )
+        if not mapping_value:
+            return None
+        from pipeline.common import paths
+        from .funcs.retarget_utils.validate_mapping import (
+            load_and_validate_mapping,
+        )
 
-            mapping_path = paths.resolve_input_path(mapping_value)
-            load_and_validate_mapping(mapping_path)
-            return mapping_path
-
-        preset = inp.get("mapping_preset")
-        if preset:
-            from .funcs.retarget_utils.mapping_presets import resolve_mapping
-
-            resolved = resolve_mapping(
-                preset=str(preset),
-                target_rig_path=target_rig,
-            )
-            return Path(resolved) if resolved else None
-        return None
+        mapping_path = paths.resolve_input_path(mapping_value)
+        load_and_validate_mapping(mapping_path)
+        return mapping_path
 
     def _retarget(
         self,
@@ -298,7 +278,7 @@ class GenMotionOperator:
         normalise_source_ext(source_motion.suffix)
         normalise_mesh_ext(target_mesh.suffix)
 
-        mapping_path = self._resolve_mapping(inp, target_rig)
+        mapping_path = self._resolve_mapping(inp)
 
         if fps <= 0:
             raise ValueError(f"fps must be positive, got {fps}")
