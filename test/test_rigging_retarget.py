@@ -1,8 +1,9 @@
 """
-Synthetic humanoid for motion unit tests: mesh + Puppeteer rig + Mixamo BVH.
+Synthetic humanoid assets for motion tests: mesh + Puppeteer rig + Mixamo BVH.
 
-Same topology (``HUMANOID``) on both sides so ``mapping_auto`` can succeed.
-Authored Y-up in metres (glTF convention; rig_io rotates into Blender Z-up).
+Not the pipeline itself — only sample inputs. Same topology (``HUMANOID``) on
+both sides so ``mapping_auto`` can succeed. Authored Y-up in metres
+(glTF convention; ``rig_io`` rotates into Blender Z-up).
 """
 from __future__ import annotations
 

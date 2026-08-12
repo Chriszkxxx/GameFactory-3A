@@ -201,7 +201,7 @@ axis packs, IK feet, non-humanoid props, new mocap libraries). If
 `mapping_auto` / `world_delta` / import fails for a real asset and the gap is
 in our code — not bad input — the agent should **patch the retarget stack**
 under `operators/gen_motion/funcs/` (and tests under `test/test_gen_motion.py`
-/ `test/motion_fixtures.py`) so the next run goes through the operator.
+/ `test/test_rigging_retarget.py`) so the next run goes through the operator.
 Keep format constants in `retarget_utils/formats.py` in sync with fetch /
 rig / CLI validation.
 
@@ -329,7 +329,7 @@ Synthetic humanoid fixture (mesh + Mixamo-named BVH + matching Puppeteer
 rig), for local repro without licensed assets::
 
 ```python
-from motion_fixtures import build_all  # under test/
+from test_rigging_retarget import build_all  # under test/
 build_all("/tmp/mofix", mesh_format=".glb")
 ```
 

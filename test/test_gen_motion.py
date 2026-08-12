@@ -23,7 +23,7 @@ for _path in (_TEST_DIR, _HARNESS):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
-import motion_fixtures  # noqa: E402
+import test_rigging_retarget  # noqa: E402
 import stubs  # noqa: E402
 
 from operators.gen_motion.funcs.fetch_motion import (  # noqa: E402
@@ -1314,9 +1314,9 @@ class TestGenMotionHumanoidFixtureBpyIntegration(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(prefix="aaagf_mofix_") as tmp:
             root = Path(tmp)
-            paths = motion_fixtures.build_all(root / "fixture", mesh_format=".glb")
-            obj_mesh = motion_fixtures.build_mesh(root / "fixture" / "character.obj")
-            obj_rig = motion_fixtures.build_rig(
+            paths = test_rigging_retarget.build_all(root / "fixture", mesh_format=".glb")
+            obj_mesh = test_rigging_retarget.build_mesh(root / "fixture" / "character.obj")
+            obj_rig = test_rigging_retarget.build_rig(
                 root / "fixture" / "character_obj_rig.txt",
                 obj_mesh,
             )
