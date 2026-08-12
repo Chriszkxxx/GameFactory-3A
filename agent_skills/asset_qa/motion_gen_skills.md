@@ -3,6 +3,14 @@
 How an agent turns a character mesh into a usable animated FBX — and how to
 judge whether the result is shippable.
 
+Motion assets are a special category: many clip / mesh / engine formats,
+per-character skeletons, and unit conventions that static-mesh QA does not
+cover. Prefer the `gen_motion` operator first; when a format or retarget
+edge case is outside what the operator already handles, the agent **may
+edit the retarget code** (`operators/gen_motion/funcs/retarget_utils/` and
+related steps) rather than inventing a one-off workaround outside the
+pipeline.
+
 This skill covers the whole motion chain in AAAGameForge:
 
 ```
@@ -34,6 +42,26 @@ module docstrings under `operators/gen_motion/funcs/`.
 
 Do **not** use the static mesh importers (`import_mesh.py`) on a motion FBX —
 they join meshes and drop armatures, which destroys the animation.
+
+## Formats (why motion is special)
+
+| Stage | Common formats | Notes |
+|---|---|---|
+| Character mesh | `.glb` `.gltf` `.obj` `.ply` `.stl` (`.fbx` at retarget) | Vertex order must match the Puppeteer rig OBJ |
+| Motion clip | `.bvh` `.fbx` | Mixamo FBX often cm-scale; MoMask BVH is metre-ish @ 20 fps |
+| Mapping | JSON bone map | Derived per Puppeteer rig; not reusable across characters |
+| Engine out | `.fbx` (full + anim-only) | Blender / UE skeletal import — not static mesh |
+
+Skeleton naming also differs by library (Mixamo `mixamorig:*`, UE mannequin
+`pelvis` / `*_l`, CMU helpers, SMPL off-by-one names). Source profiles live
+in `mapping_presets.SOURCE_SKELETONS`; identification for BVH is host-side,
+FBX needs bpy / `mapping_auto`.
+
+If the operator cannot ingest a legitimate clip format, scale convention, or
+retarget quirk the task needs, extend `fetch_motion`, `formats`,
+`mapping_auto`, or `world_delta` in-repo and keep the task on the pipeline
+path — do not bypass with a hand-rolled Blender script that never lands in
+`operators/`.
 
 ## Task Types
 
@@ -146,7 +174,7 @@ Task fields for an external clip::
 | Module | Runs in | Role |
 |---|---|---|
 | `validate_mapping` | any Python | reject a bad mapping early |
-| `mapping_presets` | any Python | source-skeleton registry + pinned presets |
+| `mapping_presets` | any Python | source-skeleton registry (+ optional pinned maps) |
 | `mapping_auto` | bpy | derive a mapping from topology |
 | `world_delta` | bpy | retarget + FBX export |
 | `rig_io` | bpy | Puppeteer `.txt` → armature |
@@ -157,17 +185,29 @@ Task fields for an external clip::
 Puppeteer names joints `joint0…jointN` in **prediction order**. Those names
 carry no anatomy: `joint23` is hips on one character and a finger on the next.
 A checked-in bone map is therefore only valid for the single rig it was pinned
-to.
+to — so this repo does **not** ship Mixamo/MoMask → Puppeteer preset JSONs.
 
 What *is* reusable is the **source** half (Mixamo always uses
 `mixamorig:Hips`). That lives in `SOURCE_SKELETONS` inside
-`mapping_presets.py`. Pinned presets under
-`retarget_utils/presets/*.json` are complete maps — use only after
-`pinned_mapping_fits_rig(name, rig.txt)` returns `fits=True`, or omit
-`mapping_preset` / `mapping_path` and let `mapping_auto` derive one.
+`mapping_presets.py`. Optional drop-ins under `retarget_utils/presets/` are
+only for re-animating the **same** rig after
+`pinned_mapping_fits_rig(name, rig.txt)` returns `fits=True`. Otherwise omit
+`mapping_preset` / pass nothing and let `mapping_auto` derive a map (or pass
+an explicit `mapping_path` for a one-off).
 
 Default path when the task names no mapping: auto-generate → write
 `mapping.json` next to the FBX → run world-delta twice (full + anim-only).
+
+### When the operator cannot cover a retarget case
+
+Motion retarget has many legitimate edge cases (odd BVH hierarchies, engine
+axis packs, IK feet, non-humanoid props, new mocap libraries). If
+`mapping_auto` / `world_delta` / import fails for a real asset and the gap is
+in our code — not bad input — the agent should **patch the retarget stack**
+under `operators/gen_motion/funcs/` (and tests under `test/test_gen_motion.py`
+/ `test/motion_fixtures.py`) so the next run goes through the operator.
+Keep format constants in `retarget_utils/formats.py` in sync with fetch /
+rig / CLI validation.
 
 ### Mapping JSON shape
 
@@ -285,18 +325,15 @@ Tests::
 AAAGF_RETARGET_BPY_PYTHON=/path/to/bpy/python \
   python test/test_gen_motion.py
 
-# Real bpy retarget of a synthetic one-bone asset
-# (needs AAAGF_RETARGET_BPY_PYTHON)
-
-# Full humanoid chain (needs Puppeteer + MoMask + bpy + a GLB)
-# (needs the AAAGF_*_HUMANOID / model env vars documented in the test file)
+# Real bpy retarget of a synthetic humanoid (needs AAAGF_RETARGET_BPY_PYTHON)
+# Full humanoid chain needs Puppeteer + MoMask + bpy + a GLB
 ```
 
 Synthetic humanoid fixture (mesh + Mixamo-named BVH + matching Puppeteer
 rig), for local repro without licensed assets::
 
 ```python
-from test.harness.motion_fixtures import build_all
+from motion_fixtures import build_all  # under test/
 build_all("/tmp/mofix", mesh_format=".glb")
 ```
 
@@ -309,7 +346,10 @@ build_all("/tmp/mofix", mesh_format=".glb")
    manual, then `fetch_motion` / `motion_source` on the task.
 4. Never invent a bone map for a new Puppeteer rig — omit mapping and let
    `mapping_auto` run, or generate one with the bpy `mapping_auto` module.
-5. After FBX lands, run Blender `--kind motion` import (or `inspect_fbx`) and
+5. If retarget/import fails for a real format or skeleton the operator should
+   support → patch `retarget_utils` (and tests), then re-run through the
+   operator.
+6. After FBX lands, run Blender `--kind motion` import (or `inspect_fbx`) and
    refuse assets with `pose_animated=false`.
-6. Import into UE only after Blender validation passes; use `--kind motion`.
-7. Record licence / facing / scale notes next to the artifact.
+7. Import into UE only after Blender validation passes; use `--kind motion`.
+8. Record licence / facing / scale notes next to the artifact.

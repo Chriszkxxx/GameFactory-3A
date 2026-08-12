@@ -2,9 +2,9 @@
 Bone-mapping registry for retargeting.
 
 - ``SOURCE_SKELETONS``: reusable clip-side names (Mixamo, CMU, …) by anatomical slot.
-- ``presets/*.json``: full maps pinned to one Puppeteer rig — check with
-  ``pinned_mapping_fits_rig`` before reuse.
-- Default: ``mapping_auto`` (topology/geometry); Puppeteer joint names are
+- ``presets/*.json`` (optional): full maps pinned to one Puppeteer rig — only
+  when re-animating that exact rig; check with ``pinned_mapping_fits_rig``.
+- Default: ``mapping_auto`` (topology/geometry). Puppeteer joint names are
   per-mesh and not portable.
 
 CLI: ``--list`` / ``--identify motion.bvh`` / ``--check PRESET --rig rig.txt``

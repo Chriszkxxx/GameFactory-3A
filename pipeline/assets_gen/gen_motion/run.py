@@ -420,8 +420,8 @@ def main() -> None:
         "--mapping-preset",
         default=None,
         help=(
-            "Named preset from the registry. Only valid for the rig it was "
-            "pinned to; --list-mappings shows them."
+            "Optional named JSON under retarget_utils/presets/ (same-rig "
+            "reuse only). Prefer omit + mapping_auto, or --mapping."
         ),
     )
     parser.add_argument("--prompt", default=None)

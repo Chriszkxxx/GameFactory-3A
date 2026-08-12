@@ -17,10 +17,13 @@ from unittest import mock
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
-_HARNESS = _REPO_ROOT / "test" / "harness"
-if str(_HARNESS) not in sys.path:
-    sys.path.insert(0, str(_HARNESS))
+_TEST_DIR = _REPO_ROOT / "test"
+_HARNESS = _TEST_DIR / "harness"
+for _path in (_TEST_DIR, _HARNESS):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
+import motion_fixtures  # noqa: E402
 import stubs  # noqa: E402
 
 from operators.gen_motion.funcs.fetch_motion import (  # noqa: E402
@@ -29,10 +32,11 @@ from operators.gen_motion.funcs.fetch_motion import (  # noqa: E402
     measure_bvh_extent,
     suggest_global_scale,
 )
+from operators.gen_motion.funcs.retarget_utils import mapping_presets as _mapping_presets  # noqa: E402
 from operators.gen_motion.funcs.retarget_utils.mapping_presets import (  # noqa: E402
     identify_motion_file,
     identify_source_skeleton,
-    list_pinned_mappings,
+    normalise_mapping,
     pinned_mapping_fits_rig,
     registry,
 )
@@ -167,10 +171,25 @@ class TestGenMotionOperator(unittest.TestCase):
         self.retarget_fn.assert_not_called()
 
     def test_mapping_preset_is_rejected_when_it_does_not_fit_the_rig(self):
-        task = self.fixture.task(mapping=False)
-        task["mapping_preset"] = "mixamo_to_puppeteer"
-        with self.assertRaisesRegex(ValueError, "does not fit this rig"):
-            self.operator.run(task)
+        with tempfile.TemporaryDirectory() as tmp:
+            preset_dir = Path(tmp)
+            (preset_dir / "temp_preset.json").write_text(
+                json.dumps(
+                    {
+                        "root_bones": {
+                            "source": "mixamorig:Hips",
+                            "puppeteer": "joint99",
+                        },
+                        "bone_map": {"mixamorig:Hips": "joint99"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            task = self.fixture.task(mapping=False)
+            task["mapping_preset"] = "temp_preset"
+            with mock.patch.object(_mapping_presets, "PRESET_DIR", preset_dir):
+                with self.assertRaisesRegex(ValueError, "does not fit this rig"):
+                    self.operator.run(task)
         self.retarget_fn.assert_not_called()
 
     def test_unknown_mapping_preset_names_the_alternatives(self):
@@ -595,23 +614,38 @@ class TestMotionModelContracts(unittest.TestCase):
 class TestMappingRegistry(unittest.TestCase):
     """The registry an agent reads before deciding how to map bones."""
 
-    def test_registry_lists_source_skeletons_and_pinned_mappings(self):
+    def test_registry_lists_source_skeletons(self):
         payload = registry()
         names = {entry["name"] for entry in payload["source_skeletons"]}
         self.assertIn("mixamo", names)
         self.assertIn("momask_bvh", names)
-        self.assertTrue(payload["pinned_mappings"])
+        # Optional drop-ins only; no checked-in Puppeteer-pinned maps.
+        self.assertIsInstance(payload["pinned_mappings"], list)
         for entry in payload["pinned_mappings"]:
             self.assertFalse(
                 entry["reusable"],
                 "a pinned mapping must never advertise itself as reusable",
             )
 
-    def test_pinned_mappings_load_and_normalise_legacy_keys(self):
-        for preset in list_pinned_mappings():
-            data = json.loads(preset.path.read_text(encoding="utf-8-sig"))
-            self.assertTrue(data["bone_map"])
-            self.assertGreater(preset.bone_count, 0)
+    def test_normalise_mapping_renames_legacy_keys(self):
+        data = normalise_mapping(
+            {
+                "root_bones": {"mixamo": "mixamorig:Hips", "target": "joint0"},
+                "bone_map": {"mixamorig:Hips": "joint0"},
+                "retarget_chains": {
+                    "spine": {
+                        "mixamo": ["mixamorig:Hips"],
+                        "puppeteer": ["joint0"],
+                    }
+                },
+            }
+        )
+        self.assertEqual(data["root_bones"]["source"], "mixamorig:Hips")
+        self.assertEqual(data["root_bones"]["puppeteer"], "joint0")
+        self.assertEqual(
+            data["retarget_chains"]["spine"]["source"],
+            ["mixamorig:Hips"],
+        )
 
     def test_mixamo_bone_names_identify_their_skeleton(self):
         name, confidence = identify_source_skeleton(
@@ -658,9 +692,23 @@ class TestMappingRegistry(unittest.TestCase):
 
     def test_preset_fit_reports_the_joints_a_rig_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
+            preset_dir = Path(tmp)
+            (preset_dir / "temp_preset.json").write_text(
+                json.dumps(
+                    {
+                        "root_bones": {
+                            "source": "mixamorig:Hips",
+                            "puppeteer": "joint99",
+                        },
+                        "bone_map": {"mixamorig:Hips": "joint99"},
+                    }
+                ),
+                encoding="utf-8",
+            )
             rig = Path(tmp) / "rig.txt"
             rig.write_text("joints joint0 0 0 0\nroot joint0\n", "utf-8")
-            fit = pinned_mapping_fits_rig("mixamo_to_puppeteer", rig)
+            with mock.patch.object(_mapping_presets, "PRESET_DIR", preset_dir):
+                fit = pinned_mapping_fits_rig("temp_preset", rig)
         self.assertFalse(fit["fits"])
         self.assertGreater(fit["missing_count"], 0)
 
@@ -1316,9 +1364,6 @@ class TestGenMotionHumanoidFixtureBpyIntegration(unittest.TestCase):
         shutil.rmtree(paths.game_output_dir(cls.game_id), ignore_errors=True)
 
     def test_fixture_retarget_and_blender_import(self):
-        sys.path.insert(0, str(_HARNESS))
-        import motion_fixtures  # noqa: E402
-
         from pipeline.assets_gen.gen_motion.run import (
             generate,
             load_retarget_runtime,

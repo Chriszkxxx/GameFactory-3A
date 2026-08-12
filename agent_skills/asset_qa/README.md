@@ -22,9 +22,11 @@ browser — so a review costs about two seconds per asset and runs anywhere
 the rest of the pipeline runs.
 
 Motion generation is a different path: see `motion_gen_skills.md` for the
-`gen_motion` pipeline, auto bone mapping, Mixamo fallback, and the Blender /
-UE5 `--kind motion` importers. Use `inspect_fbx` / Blender import reports for
-the structural half; use a short play of the clip for the rest.
+`gen_motion` pipeline, format quirks, auto bone mapping, Mixamo fallback, and
+the Blender / UE5 `--kind motion` importers. Prefer the operator; if a retarget
+capability is missing, agents may extend `operators/gen_motion/funcs/`. Use
+`inspect_fbx` / Blender import reports for the structural half; use a short
+play of the clip for the rest.
 
 ## Why these are skills and not code
 

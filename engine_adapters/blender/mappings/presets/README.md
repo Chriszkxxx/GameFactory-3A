@@ -1,9 +1,12 @@
-# Moved
+# Moved / removed
 
-Bone-map presets for the motion pipeline now live under:
+Checked-in Mixamo / MoMask → Puppeteer bone-map presets were removed: Puppeteer
+joint names are per-mesh, so those maps only fit one character and misled the
+default path.
 
-`operators/gen_motion/funcs/retarget_utils/presets/`
+Pipeline retarget uses `mapping_auto` (or an explicit `mapping_path` /
+optional drop-in under
+`operators/gen_motion/funcs/retarget_utils/presets/`).
 
-The gen_motion retarget path uses that copy. The auto-mapping script here
-(`generate_mapping_auto.py`) still works for ad-hoc Blender work, but prefer
-`operators.gen_motion.funcs.retarget_utils.mapping_auto` for pipeline tasks.
+Ad-hoc Blender mapping: `generate_mapping_auto.py` here, or
+`operators.gen_motion.funcs.retarget_utils.mapping_auto`.
