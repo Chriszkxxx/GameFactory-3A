@@ -1,0 +1,23 @@
+{
+    "name": "com.aaagameforge.fps-ui-example",
+    "version": "1.0.0",
+    "displayName": "AAAGameForge FPS UI Example",
+    "description": "Optional Unity FPS HUD example consuming the separate FPSExample mechanic assembly.",
+    "unity": "2021.3",
+    "dependencies": {
+        "com.aaagameforge.fps-example": "1.0.0",
+        "com.unity.ugui": "1.0.0"
+    },
+    "keywords": [
+        "a3game",
+        "example",
+        "fps",
+        "ui",
+        "hud",
+        "aaagameforge"
+    ],
+    "author": {
+        "name": "AAAGameForge",
+        "url": "https://github.com/aaagameforge"
+    }
+}

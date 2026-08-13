@@ -6,6 +6,10 @@ const root = path.resolve(__dirname, "..");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const script = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const launcher = fs.readFileSync(path.join(root, "launch.cmd"), "utf8");
+const unixLauncher = fs.readFileSync(
+  path.join(root, "launch.sh"),
+  "utf8",
+);
 const manifest = JSON.parse(
   fs.readFileSync(
     path.join(root, "browser_play_manifest.json"),
@@ -49,5 +53,8 @@ assert.match(script, /sessionStorage/);
 
 assert.match(launcher, /A3GAME_BROWSER_PLAY_DIR/);
 assert.match(launcher, /engine_adapters\.browser_serving gateway/);
+assert.match(unixLauncher, /A3GAME_BROWSER_PLAY_DIR/);
+assert.match(unixLauncher, /A3GAME_BROWSER_ENGINE/);
+assert.match(unixLauncher, /engine_adapters\.browser_serving gateway/);
 
 console.log("Browser Play Example checks passed");

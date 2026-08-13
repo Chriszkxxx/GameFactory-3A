@@ -35,7 +35,7 @@ from pipeline.code_gen.gen_mechanic.packet import (
 )
 from pipeline.common import paths
 from pipeline.common.artifacts import read_json
-from pipeline.common.code_gen import select_task
+from pipeline.common.code_mapping import select_task
 
 
 def _select_task(

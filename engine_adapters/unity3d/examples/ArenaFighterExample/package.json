@@ -1,0 +1,22 @@
+{
+    "name": "com.aaagameforge.arena-fighter-example",
+    "version": "1.0.0",
+    "displayName": "AAAGameForge Arena Fighter Example",
+    "description": "Reference Unity gameplay plugin demonstrating melee arena combat: health, range-based attacks, hit detection, and an AI opponent built on the A3GameRuntime framework.",
+    "unity": "2021.3",
+    "dependencies": {
+        "com.aaagameforge.a3gameruntime": "1.0.0"
+    },
+    "keywords": [
+        "a3game",
+        "example",
+        "arena",
+        "fighter",
+        "combat",
+        "aaagameforge"
+    ],
+    "author": {
+        "name": "AAAGameForge",
+        "url": "https://github.com/aaagameforge"
+    }
+}

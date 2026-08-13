@@ -34,6 +34,11 @@ class BrowserServingConfig:
     ue_root: Path | None = None
     ue_host: str = "127.0.0.1"
     ue_remote_port: int = 30010
+    unity_project: Path | None = None
+    unity_root: Path | None = None
+    unity_host: str = "127.0.0.1"
+    unity_port: int = 30010
+    unity_webgl_build: Path | None = None
     runtime_host: str = "127.0.0.1"
     base_runtime_port: int = 31020
     pixel_host: str = "127.0.0.1"
@@ -93,9 +98,24 @@ class BrowserServingConfig:
             ue_remote_port=int(
                 os.environ.get("A3GAME_UE_PORT", "30010")
             ),
-            runtime_host=os.environ.get(
-                "A3GAME_UE_RUNTIME_HOST",
+            unity_project=_path_env("A3GAME_UNITY_PROJECT"),
+            unity_root=_path_env("A3GAME_UNITY_ROOT"),
+            unity_host=os.environ.get(
+                "A3GAME_UNITY_HOST",
                 "127.0.0.1",
+            ),
+            unity_port=int(
+                os.environ.get("A3GAME_UNITY_PORT", "30010")
+            ),
+            unity_webgl_build=_path_env(
+                "A3GAME_UNITY_WEBGL_BUILD"
+            ),
+            runtime_host=os.environ.get(
+                "A3GAME_UNITY_RUNTIME_HOST",
+                os.environ.get(
+                    "A3GAME_UE_RUNTIME_HOST",
+                    "127.0.0.1",
+                ),
             ),
             base_runtime_port=int(
                 os.environ.get(

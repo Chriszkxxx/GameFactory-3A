@@ -10,7 +10,7 @@ from pipeline.common.artifacts import (
     path_digest,
     read_json,
 )
-from pipeline.common.code_gen import string_list
+from pipeline.common.code_mapping import string_list
 
 
 MECHANIC_CONTRACT_SCHEMA = (

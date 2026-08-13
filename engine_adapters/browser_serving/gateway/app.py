@@ -197,9 +197,18 @@ def create_app(
     resolved_config = config or BrowserServingConfig.from_environment()
     if service is None:
         if backends is None:
-            from ..backends import create_ue5_example_backend
+            from ..backends import (
+                create_ue5_example_backend,
+                create_unity3d_example_backend,
+            )
 
-            backends = [create_ue5_example_backend(resolved_config)]
+            backends = []
+            if resolved_config.ue_project or resolved_config.ue_root:
+                backends.append(create_ue5_example_backend(resolved_config))
+            if resolved_config.unity_project or resolved_config.unity_root:
+                backends.append(create_unity3d_example_backend(resolved_config))
+            if not backends:
+                backends = [create_ue5_example_backend(resolved_config)]
         service = BrowserServingService(
             EngineRegistry(backends),
             resolved_config,

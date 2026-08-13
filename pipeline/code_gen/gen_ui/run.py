@@ -45,7 +45,7 @@ from pipeline.code_gen.gen_ui.packet import (
 )
 from pipeline.common import paths
 from pipeline.common.artifacts import read_json
-from pipeline.common.code_gen import select_task
+from pipeline.common.code_mapping import select_task
 
 
 def _direct_task(
@@ -144,6 +144,12 @@ def _prepare_command(
             task_id=args.task_id,
             task_name="UI",
         )
+        if args.mechanic_artifact:
+            task["mechanic_artifact_path"] = (
+                args.mechanic_artifact
+            )
+            task.pop("mechanic_artifact", None)
+            task.pop("mechanic_task", None)
     if args.mode:
         task["mode"] = args.mode
     if args.repair_json:

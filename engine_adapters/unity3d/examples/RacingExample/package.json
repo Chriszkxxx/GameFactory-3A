@@ -1,0 +1,23 @@
+{
+    "name": "com.aaagameforge.racing-example",
+    "version": "1.0.0",
+    "displayName": "AAAGameForge Racing Example",
+    "description": "Reference Unity gameplay plugin demonstrating arcade racing: vehicle movement, checkpoint-based lap counting, and race management built on the A3GameRuntime framework.",
+    "unity": "2021.3",
+    "dependencies": {
+        "com.aaagameforge.a3gameruntime": "1.0.0"
+    },
+    "keywords": [
+        "a3game",
+        "example",
+        "racing",
+        "vehicle",
+        "checkpoint",
+        "lap",
+        "aaagameforge"
+    ],
+    "author": {
+        "name": "AAAGameForge",
+        "url": "https://github.com/aaagameforge"
+    }
+}

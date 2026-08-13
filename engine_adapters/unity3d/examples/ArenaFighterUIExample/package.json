@@ -1,0 +1,24 @@
+{
+    "name": "com.aaagameforge.arena-fighter-ui-example",
+    "version": "1.0.0",
+    "displayName": "AAAGameForge Arena Fighter UI Example",
+    "description": "Optional Unity arena fighter HUD consuming the separate ArenaFighterExample mechanic assembly.",
+    "unity": "2021.3",
+    "dependencies": {
+        "com.aaagameforge.arena-fighter-example": "1.0.0",
+        "com.unity.ugui": "1.0.0"
+    },
+    "keywords": [
+        "a3game",
+        "example",
+        "arena",
+        "fighter",
+        "ui",
+        "hud",
+        "aaagameforge"
+    ],
+    "author": {
+        "name": "AAAGameForge",
+        "url": "https://github.com/aaagameforge"
+    }
+}

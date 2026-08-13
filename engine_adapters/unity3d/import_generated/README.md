@@ -15,6 +15,11 @@ Turns a file produced by `models/gen_3d_object` into a Unity **prefab**.
 
 ## Quick start
 
+The Unity Editor must already be activated in the matching Unity Hub (or
+opened as a licensed Editor) before this command is run. Licensing is owned by
+Unity Hub, not this importer; an exit code 199 or a missing LicensingClient IPC
+channel is reported as a blocked host prerequisite.
+
 ```bash
 python scripts/import_generated_asset.py \
     --src test_data/outputs/<game>/<run>/assets/3d_object/<task>/model.glb \

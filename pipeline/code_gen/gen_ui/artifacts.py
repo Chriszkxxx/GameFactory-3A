@@ -19,7 +19,7 @@ from pipeline.common.artifacts import (
     is_relative_to,
     read_json,
 )
-from pipeline.common.code_gen import (
+from pipeline.common.code_mapping import (
     resolve_browser_backend_registration,
     resolve_engine_registration,
     validate_context_used,

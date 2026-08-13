@@ -1,0 +1,28 @@
+{
+    "name": "com.aaagameforge.fps-example",
+    "version": "1.0.0",
+    "displayName": "AAAGameForge FPS Example",
+    "description": "Reference Unity FPS mechanic plugin with CharacterController movement, jump, interaction, environment collision, enemy pursuit, hitscan combat, reload, and encounter state.",
+    "unity": "2021.3",
+    "dependencies": {
+        "com.aaagameforge.a3gameruntime": "1.0.0",
+        "com.unity.modules.animation": "1.0.0",
+        "com.unity.modules.audio": "1.0.0",
+        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.modules.physics": "1.0.0",
+        "com.unity.modules.terrain": "1.0.0",
+        "com.unity.modules.terrainphysics": "1.0.0"
+    },
+    "keywords": [
+        "a3game",
+        "example",
+        "fps",
+        "shooter",
+        "weapon",
+        "aaagameforge"
+    ],
+    "author": {
+        "name": "AAAGameForge",
+        "url": "https://github.com/aaagameforge"
+    }
+}

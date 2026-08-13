@@ -448,7 +448,8 @@ def install_unity_editor_script(project: Path) -> Path:
 
 def run_engine(cmd: list[str], report_path: Path, label: str,
                timeout: int, dry_run: bool,
-               extra_env: Optional[dict] = None) -> dict:
+               extra_env: Optional[dict] = None,
+               cwd: Optional[Path] = None) -> dict:
     """Run one engine invocation and return the report it wrote."""
     printable = " ".join(_quote(c) for c in cmd)
     print(f"\n[{label}] {printable}")
@@ -463,6 +464,7 @@ def run_engine(cmd: list[str], report_path: Path, label: str,
 
     env = {**os.environ, **(extra_env or {})}
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                          cwd=str(cwd) if cwd is not None else None,
                           env=env, errors="replace")
     tail = (proc.stdout or "")[-2000:]
     if proc.returncode != 0:
@@ -604,7 +606,14 @@ def main() -> int:
             failures += 1
             continue
 
-        report_dir = Path(args.report_dir) if args.report_dir else Path(path).parent
+        # Unity is launched with the generated project as cwd so project-
+        # relative Assets paths behave like the Editor. Keep host reports
+        # absolute so that cwd does not relocate them into the project.
+        report_dir = (
+            Path(args.report_dir).expanduser().resolve(strict=False)
+            if args.report_dir
+            else Path(path).parent.resolve(strict=False)
+        )
         stem = asset_name or Path(path).stem
 
         for engine in engines:
@@ -651,15 +660,22 @@ def main() -> int:
                           "AAAGF_UNITY_PROJECT")
                     failures += 1
                     continue
-                project = Path(args.unity_project)
+                project = Path(args.unity_project).expanduser().resolve(strict=False)
                 if not args.no_install_editor_script and not args.dry_run:
                     installed = install_unity_editor_script(project)
                     print(f"[unity] editor script → {installed}")
                 report_path = report_dir / f"{stem}_unity_import.json"
                 cmd = unity_command(unity, project, path, args, asset_name, report_path)
 
-            report = run_engine(cmd, report_path, engine, args.timeout, args.dry_run,
-                                extra_env=extra_env)
+            report = run_engine(
+                cmd,
+                report_path,
+                engine,
+                args.timeout,
+                args.dry_run,
+                extra_env=extra_env,
+                cwd=project if engine == "unity" else None,
+            )
             summarize(engine, report)
             if report.get("ok") is False:
                 failures += 1

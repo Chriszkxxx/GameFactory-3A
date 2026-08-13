@@ -1,0 +1,16 @@
+{
+    "name": "RacingUIExample",
+    "rootNamespace": "RacingUIExample",
+    "references": [
+        "RacingExample",
+        "Unity.ugui"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
