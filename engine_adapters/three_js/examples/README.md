@@ -8,10 +8,18 @@ These packages are optional concrete examples built on the public
 | `arena-fighter-example` | Third-person movement, light/heavy attacks, arena rules, health HUD |
 | `fps-example` | Pointer-lock first-person movement, hitscan fire, reload, crosshair HUD |
 | `racing-example` | Arcade vehicle steering, boost, handbrake drift, lap and speed HUD |
+| `motion-vfx-example` | Getting motion onto a generated character, and batched particles, beams, and trails |
 
 They are never installed automatically. Generated games should adapt the
 relevant patterns inside their own Gameplay Package rather than depending
 on or extending an example package.
+
+`motion-vfx-example` is the odd one out: it contains no game, only the two
+patterns that every genre needs and that are easy to get wrong —
+`assets.tryInstantiate` is correct for a downloaded character and silently
+wrong for a generated one, which has no skeleton and no clips, and one
+`Sprite` per spark is one draw call per spark. Read it before writing an
+entity that swaps in imported art or an effect of any kind.
 
 Each example owns its concrete entity classes, entity factory, rules, and
 HUD. `@a3game/playable` owns only normalized input, session, binding,

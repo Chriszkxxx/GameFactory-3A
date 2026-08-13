@@ -10,6 +10,7 @@ export {
   A3GAME_RUNTIME_FORWARD_AXIS,
   A3GameForwardAxis,
   A3GameMaterialPreset,
+  alignWeaponModel,
   createContactShadow,
   createFillLight,
   createInstancedFromModel,
@@ -22,8 +23,10 @@ export {
   forwardAxisYaw,
   groundObject,
   measureObject,
+  measureWeapon,
   orientModel,
   prepareModel,
+  principalAxes,
 } from './visual-kit.js';
 export { A3GameSceneLoader } from './scene-loader.js';
 export {
@@ -32,6 +35,33 @@ export {
   DEFAULT_KEY_BINDINGS,
 } from './input-router.js';
 export { A3GameAnimationDirector } from './animation-director.js';
+export {
+  A3GAME_HUMANOID_CLIP_NAMES,
+  A3GameHumanoidBone,
+  A3GameMotionLibrary,
+  A3GameMotionState,
+  A3GameSourceBoneAliases,
+  autoRigHumanoid,
+  createAnimatedActor,
+  createHumanoidClip,
+  createHumanoidClipSet,
+  createHumanoidSkeleton,
+  findRiggedHumanoid,
+  measureHumanoid,
+  retargetClipToSkeleton,
+} from './motion-kit.js';
+export {
+  A3GameBeamEffect,
+  A3GameEmitterShape,
+  A3GameParticleAppearance,
+  A3GameParticleBlending,
+  A3GameParticleRenderMode,
+  A3GameParticleSystem,
+  A3GameTrailRibbon,
+  A3GameVfxDirector,
+  A3GameVfxPreset,
+  createVfxDirector,
+} from './vfx-kit.js';
 export {
   A3GameCollisionProbe,
   resolveEntityId,

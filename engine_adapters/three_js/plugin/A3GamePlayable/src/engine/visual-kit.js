@@ -434,6 +434,369 @@ export function orientModel(object, options = {}) {
 }
 
 /**
+ * Collect every vertex of a subtree in the subtree's own local space.
+ *
+ * Local, not world: the caller is about to derive a rotation to *write on*
+ * this object, so measuring through its own transform would fold that
+ * transform into the answer and the correction would be applied twice.
+ *
+ * @param {THREE.Object3D} object
+ * @param {number} [stride] take every n-th vertex; a 20k-vertex prop does
+ *        not need every point to yield a stable covariance
+ * @returns {THREE.Vector3[]}
+ */
+function collectLocalPoints(object, stride = 1) {
+  object.updateMatrixWorld(true);
+  const inverseRoot = object.matrixWorld.clone().invert();
+  const step = Math.max(1, Math.floor(stride));
+  /** @type {THREE.Vector3[]} */
+  const points = [];
+  const matrix = new THREE.Matrix4();
+  object.traverse((child) => {
+    if (!child.isMesh && !child.isSkinnedMesh) return;
+    const position = child.geometry?.getAttribute('position');
+    if (!position) return;
+    matrix.copy(inverseRoot).multiply(child.matrixWorld);
+    for (let index = 0; index < position.count; index += step) {
+      points.push(
+        new THREE.Vector3().fromBufferAttribute(position, index).applyMatrix4(matrix),
+      );
+    }
+  });
+  return points;
+}
+
+/**
+ * Principal axes of a point cloud, largest spread first.
+ *
+ * Jacobi rotations on the 3x3 covariance matrix, which is small enough to
+ * write out and converges in a handful of sweeps. This exists because the
+ * manifest's `forward_axis` can only ever name a cardinal direction, and a
+ * generated prop is frequently authored at an angle to all of them — for a
+ * weapon that means no quarter turn aligns the barrel, so the axis has to
+ * come from the geometry.
+ *
+ * @param {THREE.Vector3[]} points
+ * @returns {{centroid: THREE.Vector3,
+ *            axes: {vector: THREE.Vector3, deviation: number}[]}}
+ */
+export function principalAxes(points) {
+  const centroid = new THREE.Vector3();
+  if (points.length === 0) {
+    return {
+      centroid,
+      axes: [
+        { vector: new THREE.Vector3(1, 0, 0), deviation: 0 },
+        { vector: new THREE.Vector3(0, 1, 0), deviation: 0 },
+        { vector: new THREE.Vector3(0, 0, 1), deviation: 0 },
+      ],
+    };
+  }
+  for (const point of points) centroid.add(point);
+  centroid.multiplyScalar(1 / points.length);
+
+  let matrix = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ];
+  for (const point of points) {
+    const d = [point.x - centroid.x, point.y - centroid.y, point.z - centroid.z];
+    for (let i = 0; i < 3; i += 1) {
+      for (let j = 0; j < 3; j += 1) matrix[i][j] += d[i] * d[j];
+    }
+  }
+  for (let i = 0; i < 3; i += 1) {
+    for (let j = 0; j < 3; j += 1) matrix[i][j] /= points.length;
+  }
+
+  let vectors = [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ];
+  for (let sweep = 0; sweep < 32; sweep += 1) {
+    let p = 0;
+    let q = 1;
+    let largest = Math.abs(matrix[0][1]);
+    for (const [i, j] of [
+      [0, 2],
+      [1, 2],
+    ]) {
+      if (Math.abs(matrix[i][j]) > largest) {
+        largest = Math.abs(matrix[i][j]);
+        p = i;
+        q = j;
+      }
+    }
+    if (largest < 1e-12) break;
+    const theta = 0.5 * Math.atan2(2 * matrix[p][q], matrix[p][p] - matrix[q][q]);
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    const rows = matrix.map((row) => [...row]);
+    for (let k = 0; k < 3; k += 1) {
+      rows[p][k] = cos * matrix[p][k] + sin * matrix[q][k];
+      rows[q][k] = -sin * matrix[p][k] + cos * matrix[q][k];
+    }
+    const columns = rows.map((row) => [...row]);
+    for (let k = 0; k < 3; k += 1) {
+      columns[k][p] = cos * rows[k][p] + sin * rows[k][q];
+      columns[k][q] = -sin * rows[k][p] + cos * rows[k][q];
+    }
+    matrix = columns;
+    const turned = vectors.map((row) => [...row]);
+    for (let k = 0; k < 3; k += 1) {
+      turned[k][p] = cos * vectors[k][p] + sin * vectors[k][q];
+      turned[k][q] = -sin * vectors[k][p] + cos * vectors[k][q];
+    }
+    vectors = turned;
+  }
+
+  const axes = [0, 1, 2]
+    .map((i) => ({
+      deviation: Math.sqrt(Math.max(0, matrix[i][i])),
+      vector: new THREE.Vector3(
+        vectors[0][i],
+        vectors[1][i],
+        vectors[2][i],
+      ).normalize(),
+    }))
+    .sort((a, b) => b.deviation - a.deviation);
+  return { centroid, axes };
+}
+
+/**
+ * Measure a weapon mesh well enough to point it the right way.
+ *
+ * The manifest cannot answer this. Its `forward_axis` is written by the
+ * heuristic "generated from a front view, so it faces the camera", which is
+ * about a *character*; it is recorded for every artifact regardless, with
+ * `needs_vision_check: true` and a yaw of 0 or 180 as the only options. For
+ * a weapon that guess is a coin flip whose losing side points the barrel at
+ * the player's own face, and a mesh authored at an angle cannot be fixed by
+ * either value.
+ *
+ * Geometry settles it, because a gun has a shape no other prop has:
+ *
+ *  - it is **much longer than it is thick**, so the first principal axis is
+ *    the barrel line and the smallest is across the flat of the receiver;
+ *  - a stretch of **bare barrel** sticks out past everything that hangs
+ *    below it. Grip, magazine and stock are all in the lower silhouette, so
+ *    the end where the lower silhouette stops short is the muzzle.
+ *
+ * @param {THREE.Object3D} object
+ * @param {{lowerBandFraction?: number, minElongation?: number,
+ *          maxThicknessRatio?: number, minMuzzleMargin?: number,
+ *          stride?: number}} [options]
+ * @returns {{weaponlike: boolean, barrel: THREE.Vector3, up: THREE.Vector3,
+ *            side: THREE.Vector3, centroid: THREE.Vector3, length: number,
+ *            height: number, thickness: number, elongation: number,
+ *            muzzleMargin: number, confident: boolean, warnings: string[]}}
+ */
+export function measureWeapon(object, options = {}) {
+  const stride = Number(options.stride ?? 1);
+  const points = collectLocalPoints(object, stride);
+  const warnings = [];
+  const { centroid, axes } = principalAxes(points);
+
+  const barrel = axes[0].vector.clone();
+  // Up is whichever remaining axis is closest to world up. glTF fixes +Y as
+  // up and every generator here respects it, so this is a fact about the
+  // file rather than another guess. Ties go to the wider axis, because a gun
+  // is taller through the grip than it is thick across the receiver.
+  const candidates = [axes[1], axes[2]];
+  candidates.sort(
+    (a, b) => Math.abs(b.vector.y) - Math.abs(a.vector.y) || b.deviation - a.deviation,
+  );
+  const up = candidates[0].vector.clone();
+  if (up.y < 0) up.negate();
+  const side = new THREE.Vector3().crossVectors(barrel, up).normalize();
+  // Re-orthogonalise: the covariance axes are orthogonal but `up` was
+  // flipped and cross products accumulate error.
+  up.crossVectors(side, barrel).normalize();
+
+  /** Project the cloud into the current frame. */
+  const project = () =>
+    points.map((point) => {
+      const d = point.clone().sub(centroid);
+      return new THREE.Vector3(d.dot(barrel), d.dot(up), d.dot(side));
+    });
+
+  let local = project();
+  let box = new THREE.Box3().setFromPoints(
+    local.length ? local : [new THREE.Vector3()],
+  );
+
+  // Re-derive the barrel from the **upper silhouette** only.
+  //
+  // The first principal axis of the whole cloud is not the barrel line: the
+  // grip and the stock are heavy, they are all at one end, and they are all
+  // below, so they tilt the axis by several degrees. That tilt is not
+  // cosmetic. It pitches the aligned weapon nose-up in the player's hands,
+  // and it breaks the muzzle test below — in a tilted frame the far bottom
+  // corner of the receiver dips under the lower-band threshold, so the bare
+  // barrel stops looking bare. Whether it dips is decided by a few
+  // thousandths, which showed up as the same gun measuring differently at
+  // different mesh densities.
+  //
+  // The top half is just the barrel and the receiver, which is straight, so
+  // its own principal axis is the line wanted here.
+  const upperCut = box.min.y + box.getSize(new THREE.Vector3()).y * 0.5;
+  const upper = points.filter((_, index) => local[index].y > upperCut);
+  if (upper.length >= 12) {
+    const refined = principalAxes(upper).axes[0].vector.clone();
+    // Keep pointing the same way, so the flip test below stays meaningful.
+    if (refined.dot(barrel) < 0) refined.negate();
+    barrel.copy(refined);
+    side.crossVectors(barrel, up).normalize();
+    up.crossVectors(side, barrel).normalize();
+    local = project();
+    box = new THREE.Box3().setFromPoints(
+      local.length ? local : [new THREE.Vector3()],
+    );
+  }
+
+  const size = box.getSize(new THREE.Vector3());
+  const length = size.x;
+  const height = size.y;
+  const thickness = size.z;
+  const elongation =
+    axes[1].deviation > 1e-9 ? axes[0].deviation / axes[1].deviation : 0;
+
+  // Which end is the muzzle, from the one feature every gun has: a stretch
+  // of **bare barrel** that nothing hangs below. The grip, the magazine and
+  // the stock all sit in the lower part of the silhouette, so the span they
+  // occupy along the barrel is measured and compared with the full span. The
+  // end with the longer bare stretch is the muzzle.
+  //
+  // Two simpler statistics were tried and both are unsound. The *thinnest*
+  // section near each end is equal at both ends, because the receiver runs
+  // the whole length and every window contains some bin without the grip in
+  // it. The *thickest* section near each end is contaminated by the
+  // magazine, which hangs just as low as the grip and starts a tenth of the
+  // way along, so on the staged SMG it separated the ends by 4% — inside the
+  // noise. The bare-barrel span is the feature that is actually asymmetric.
+  const lowerBand = THREE.MathUtils.clamp(
+    Number(options.lowerBandFraction ?? 0.4),
+    0.15,
+    0.6,
+  );
+  const lowerLimit = box.min.y + height * lowerBand;
+  let lowerMin = Infinity;
+  let lowerMax = -Infinity;
+  for (const point of local) {
+    if (point.y > lowerLimit) continue;
+    if (point.x < lowerMin) lowerMin = point.x;
+    if (point.x > lowerMax) lowerMax = point.x;
+  }
+  const hasLower = Number.isFinite(lowerMin) && Number.isFinite(lowerMax);
+  // Normalised by length so the numbers mean the same thing at any scale.
+  const frontGap = hasLower && length > 1e-9 ? (lowerMin - box.min.x) / length : 0;
+  const rearGap = hasLower && length > 1e-9 ? (box.max.x - lowerMax) / length : 0;
+  // `barrel` points at +pc0 so far; flip it when the bare stretch is at -pc0.
+  // Flipping turns the frame 180 degrees about `up`, which flips `side` too:
+  // negating the barrel alone would leave a left-handed basis, and
+  // `setFromRotationMatrix` on a reflection returns a quaternion that is not
+  // the rotation asked for — it keeps the pitch and drops the turn, which
+  // looks like the alignment "almost" working.
+  if (frontGap > rearGap) {
+    barrel.negate();
+    side.negate();
+  }
+  const muzzleMargin = Math.abs(frontGap - rearGap);
+
+  const minElongation = Number(options.minElongation ?? 1.5);
+  const maxThicknessRatio = Number(options.maxThicknessRatio ?? 0.4);
+  const minMuzzleMargin = Number(options.minMuzzleMargin ?? 0.05);
+  const thicknessRatio = length > 1e-9 ? thickness / length : 1;
+
+  if (points.length === 0) warnings.push('mesh has no vertices');
+  if (elongation < minElongation) {
+    warnings.push(
+      `elongation ${elongation.toFixed(2)} is below ${minElongation} — ` +
+        'this reads as a blob rather than a weapon',
+    );
+  }
+  if (thicknessRatio > maxThicknessRatio) {
+    warnings.push(
+      `thickness is ${(thicknessRatio * 100).toFixed(0)}% of length — too ` +
+        'chunky to be a weapon',
+    );
+  }
+  const confident = muzzleMargin >= minMuzzleMargin;
+  if (!confident) {
+    warnings.push(
+      `both ends look alike (margin ${muzzleMargin.toFixed(3)}) — the muzzle ` +
+        'end could not be told apart from the grip end',
+    );
+  }
+
+  return {
+    weaponlike:
+      points.length > 0 &&
+      elongation >= minElongation &&
+      thicknessRatio <= maxThicknessRatio,
+    barrel,
+    up: up.clone(),
+    side: side.clone(),
+    centroid,
+    length,
+    height,
+    thickness,
+    elongation,
+    muzzleMargin,
+    confident,
+    warnings,
+  };
+}
+
+/**
+ * Point a weapon mesh down the runtime forward axis, from its geometry.
+ *
+ * The rotation is written to `object.quaternion` — a full orientation, not a
+ * yaw, because a generated mesh is usually tilted and rolled as well as
+ * turned. Pass a wrapper if gameplay code writes rotation on the same
+ * object.
+ *
+ * Returns the measurement so the caller can *refuse* the model: an
+ * unrecognisable mesh in the player's hands for an entire match is worse
+ * than a plain procedural one, and only the caller knows what its fallback
+ * looks like.
+ *
+ * @param {THREE.Object3D} object
+ * @param {{requireConfident?: boolean, tipFraction?: number,
+ *          minElongation?: number, maxThicknessRatio?: number,
+ *          minMuzzleMargin?: number, stride?: number}} [options]
+ * @returns {ReturnType<typeof measureWeapon> & {applied: boolean}}
+ */
+export function alignWeaponModel(object, options = {}) {
+  if (!object?.isObject3D) {
+    throw new TypeError('alignWeaponModel requires an Object3D');
+  }
+  const measurement = measureWeapon(object, options);
+  const usable =
+    measurement.weaponlike &&
+    (measurement.confident || options.requireConfident === false);
+  if (!usable) return { ...measurement, applied: false };
+
+  // Map the model's own frame onto the runtime's: barrel -> -Z (what the
+  // camera looks down), up -> +Y, and the flat of the receiver -> X.
+  const from = new THREE.Matrix4().makeBasis(
+    measurement.side,
+    measurement.up,
+    measurement.barrel.clone().negate(),
+  );
+  const rotation = new THREE.Quaternion().setFromRotationMatrix(from).invert();
+  // Assigned, not multiplied in. `measureWeapon` reports the barrel in the
+  // frame the object's *children* live in, which excludes this node's own
+  // transform, so the final orientation has to be exactly `rotation`.
+  // Composing with whatever was here before would reintroduce it.
+  object.quaternion.copy(rotation);
+  object.updateMatrixWorld(true);
+  return { ...measurement, applied: true };
+}
+
+/**
  * Make a freshly loaded model behave like scene content.
  *
  * A glTF mesh does not cast or receive shadows until told to: the format

@@ -303,6 +303,240 @@ supported when the runtime configures the matching decoder.
 - `three.animation.validate_compatibility` - Checks whether motion clips
   can drive a target avatar skeleton and whether retargeting is required.
 
+Staged motion lands in `public/assets/imported/motions/` and appears in
+the manifest as `type: "motion"`. A motion artifact carries clips and
+usually a skeleton but **no renderable body**, so it is not something
+`instantiate()` can return — `A3GameMotionLibrary` is what resolves it at
+runtime.
+
+Convert a retargeted FBX to glTF before staging it: `fbx` loads in the
+browser but validates with a warning, and `glb` is the runtime format. The
+generation chain that produces the clip in the first place — Puppeteer rig,
+MoMask or a licensed clip, Blender `world_delta` retarget, `inspect_fbx`
+verification — is documented in
+`agent_skills/asset_qa/motion_gen_skills.md`.
+
+### Motion On A Generated Character
+
+This is the single most consequential difference between a downloaded
+character and a generated one, and it is invisible from the call site.
+`assets.tryInstantiate` is correct for the first and silently wrong for the
+second: image-to-3D produces **one fused body**, so its manifest entry
+reports `animations: []` and `skinned: false`. A game that swaps its
+procedural body for such a model ends up with a good-looking character that
+never moves — strictly worse than the capsule it replaced, because the
+primitive limbs that *were* being posed went away with the swap.
+
+There are exactly three ways a character can move, and `createAnimatedActor`
+tries them in order:
+
+| Route | `motionSource` | When it applies |
+|---|---|---|
+| The model's own clips | `clips` | A CC0 character, or a generated one re-exported by `gen_motion` |
+| Imported motion, retargeted by bone name | `imported_motion` | `type: 'motion'` artifacts have been staged |
+| A skeleton the rigging pipeline produced | `rigged_asset` | The asset is skinned and its bones carry canonical names |
+| A fitted skeleton plus authored clips | `auto_rig` | A static generated humanoid with no rig |
+| Nothing usable | `none` | The mesh is not shaped like a standing figure |
+
+### The `rigged_asset` Route
+
+This is the route to prefer, and the one to produce. `operators/gen_motion`
+runs Puppeteer, which predicts the skeleton *and* the skinning weights from the
+mesh — a real answer, where `autoRigHumanoid` is a browser-side approximation.
+What comes back is skinned and bound but has **no clips**, because rigging and
+animating are separate stages.
+
+Two things make that asset usable with no retargeting at all:
+
+1. **The exporter renames the predicted joints to `A3GameHumanoidBone` names.**
+   Puppeteer emits `joint0..jointN` in prediction order, which carries no
+   anatomy — `joint23` is a hip on one character and a finger on the next. The
+   labels are derived from topology: the root is the pelvis, the subtree
+   reaching highest is the spine, the two reaching lowest are the legs, and the
+   spine node where two chains branch sideways is the chest. Authored clips
+   address tracks as `` `${boneName}.quaternion` ``, so canonical names bind
+   directly.
+2. **The rest pose is identity rotations plus parent-to-child offsets**, which
+   is how `createHumanoidSkeleton` builds the template. A clip swings a thigh
+   about local X, and that only means "forward" when a bone's local axes
+   coincide with the world's at rest. Proportions may then differ freely between
+   characters, because a rotation is scale-invariant.
+
+`findRiggedHumanoid` performs the check and runs **before** the humanoid gate.
+That order matters: the gate reads a bounding-box aspect ratio, which says
+nothing about a model that already carries a labelled skeleton, and it rejects
+legitimate assets — an archer holding a bow measures wider than tall.
+
+```js
+const rigged = findRiggedHumanoid(object);  // null when not usable
+// -> { skeleton, bones: Map<name, Bone>, height, matched, missing }
+```
+
+`height` comes from the bound geometry, not from the topmost bone: a clip's
+stride and hip travel are fractions of the character's height, and the head
+bone sits inside the skull rather than on top of it.
+
+### Reconstruction Debris Sets The Bounding Box
+
+Worth knowing before concluding that a generated character has bad proportions.
+Three of the four characters in the sample projects measured *wider than tall*
+and were refused by the humanoid gate. The bodies were fine — welded, the
+largest component of one was 98% of the faces and measured a perfectly ordinary
+0.38 x 0.73 x 0.33. **Four stray faces**, left floating by the reconstruction,
+were setting the bounding box.
+
+Every proportion derived from that box is then wrong: `fitToHeight` scales the
+character so the *debris field* is 1.8 m, `ground: true` puts the lowest speck
+on the floor, and the gate reads 0.74 and reports "not a person". Deleting the
+specks is the fix; regenerating the asset is not.
+
+Two traps when doing that in Python: `trimesh.load(..., process=False)` leaves a
+glTF unwelded, so `split()` returns one component per face and says nothing
+about the shape; and `merge_vertices()` preserves UV and normal seams by
+default, which for a glTF means it merges almost nothing. Pass
+`merge_tex=True, merge_norm=True`.
+
+```js
+const actor = await createAnimatedActor(assets, 'arena_trooper', {
+  height: 1.8,
+  ground: true,   // place by the feet: a generated origin is arbitrary
+  states: ['idle', 'walk', 'run', 'aim', 'shoot', 'hit', 'death'],
+  defaultState: 'idle',
+});
+if (!actor || actor.motionSource === 'none') {
+  // Keep the procedural body. It moves, and this one does not.
+} else {
+  entity.setVisual(actor.object, actor.animations, {
+    animator: actor.animator, motionSource: actor.motionSource,
+  });
+}
+```
+
+`motionSource: 'none'` is a real answer that must be honoured. It is
+returned by `measureHumanoid` for a mesh wider than it is tall — the
+characteristic output of a reconstruction that inferred a ground plane —
+and rigging such a mesh produces a writhing lump rather than a fighter.
+Looking correct while frozen is a worse outcome than looking plain and
+moving.
+
+Try candidates **one at a time** rather than handing `tryInstantiate` a
+preference list, because "is it staged" and "can it be animated" are
+different questions and only the second one decides whether the swap is an
+improvement.
+
+- `A3GameHumanoidBone` / `A3GameMotionState` - the canonical bone and
+  state names. Left is `+x`, up is `+y`, forward is `-z`, and every bone
+  rests with an identity rotation, which is what makes one authored clip
+  valid for every character.
+- `createHumanoidSkeleton` - the template skeleton at a given height, as
+  fractions of that height rather than metres.
+- `measureHumanoid` - proportions, ground offset, horizontal centre, and
+  whether the mesh is a standing figure at all.
+- `autoRigHumanoid` - converts every mesh in a subtree into a
+  `SkinnedMesh` bound to one fitted skeleton, with weights from
+  distance to each bone's segment limited by that bone's influence
+  radius. A browser-side approximation of what `operators/gen_motion`
+  does properly with Puppeteer; it returns `null` for an
+  already-skinned model.
+- `createHumanoidClip` / `createHumanoidClipSet` /
+  `A3GAME_HUMANOID_CLIP_NAMES` - authored keyframe clips for `idle`,
+  `walk`, `run`, `jump`, `block`, `punch`, `kick`, `slash`, `hit`,
+  `death`, `aim`, `shoot`, `reload`, `draw`. Pass `hipsRest` from the
+  rig — a clip built against the template's rest position would throw
+  away the fitted skeleton's ground offset and horizontal centre on its
+  first frame.
+- `retargetClipToSkeleton` / `A3GameSourceBoneAliases` - renames a clip's
+  tracks onto another skeleton, resolving `mixamorig:` prefixes and
+  common library names. This is the *name* half of retargeting, which is
+  all a browser can do; reconciling rest poses and bone lengths needs the
+  source bind pose and belongs to `operators/gen_motion`.
+- `A3GameMotionLibrary` - `listMotions`, `loadClips`,
+  `loadForCharacter`, `available`, `warnings`. Renames clips to the state
+  they represent when the artifact declares one, because a game maps
+  states and `retargeted_003` names nothing.
+- `A3GameAnimationDirector.mapStateChain` / `mapStateChains` - bind a
+  state to the first clip name that exists. Necessary because the
+  authored set calls the shooting stance `aim` and the CC0
+  `robot_expressive` avatar has fourteen clips and none of them is
+  called that; a single name means one source silently plays nothing.
+
+## Visual Effects
+
+three.js ships no particle system: `Points` is a draw call and a point
+size, `Sprite` is one quad per object, and neither simulates or pools
+anything. A game that reaches for them directly ends up with one object
+per spark, a `requestAnimationFrame` of its own, and nothing disposed — so
+a firefight degrades the frame rate in proportion to how well it is going.
+
+The kit follows the two libraries that solved this for three.js already,
+without depending on either: **three.quarks** contributes the batched
+renderer, declarative systems, and render modes; **Three-VFX** contributes
+the parameter vocabulary (`size`, `colorStart`/`colorEnd`, `fadeSize`,
+`fadeOpacity`, `emitterShape`, `startPositionAsDirection`, `turbulence`,
+`friction`, `stretchBySpeed`, `blending`, `appearance`, `intensity`).
+Re-implementing it is what keeps a generated project buildable offline,
+and the parts that matter are a pooled CPU simulation feeding one
+instanced draw call.
+
+- `A3GameVfxDirector` / `createVfxDirector` - the batched owner of every
+  effect in a game: `register`, `registerAll`, `get`, `play`, `follow`,
+  `registerBeam`, `fireBeam`, `update`, `attachToHost`, `getState`,
+  `dispose`.
+- `A3GameParticleSystem` - one pooled effect, one draw call: `emit`,
+  `burst`, `start`, `stop`, `clear`, `update`, `attachToHost`,
+  `getState`, `dispose`, plus `emitterPosition` for a moving emitter.
+- `A3GameVfxPreset` - tuned definitions: `MUZZLE_FLASH`,
+  `BULLET_IMPACT`, `IMPACT_DUST`, `BLOOD_HIT`, `MELEE_IMPACT`,
+  `SHOCK_RING`, `BLOCK_SPARK`, `FOOT_DUST`, `LIGHT_ARROW_CORE`,
+  `LIGHT_ARROW_MOTES`, `LIGHT_ARROW_IMPACT`, `BLADE_SLASH`,
+  `PICKUP_SPARKLE`, `SMOKE_PLUME`, `EXPLOSION`, `TYRE_SMOKE`,
+  `SCRAPE_SPARK`, `BOOST_FLAME`. Each is a plain object, so tuning one
+  is a spread rather than a fork.
+- `A3GameBeamEffect` - pooled fading lines for tracers and laser sights.
+  A tracer is not a particle effect: it exists for two frames and has a
+  definite start and end.
+- `A3GameTrailRibbon` - a continuous surface through the positions a
+  projectile actually occupied. Particles alone cannot draw a streak,
+  because a spark stops moving the instant it is emitted and the eye sees
+  a dotted line.
+- `A3GameEmitterShape` (`POINT`, `BOX`, `SPHERE`, `CONE`, `DISK`,
+  `EDGE`), `A3GameParticleBlending` (`NORMAL`, `ADDITIVE`, `MULTIPLY`),
+  `A3GameParticleAppearance` (`DEFAULT`, `GRADIENT`, `CIRCULAR`, `RING`),
+  `A3GameParticleRenderMode` (`BILLBOARD`, `STRETCHED`, `MESH`).
+
+Choosing the right primitive:
+
+| Need | Primitive |
+|---|---|
+| A burst at a point (impact, muzzle, hit) | `play(name, { position, direction })` |
+| A stream that tracks something (trail, exhaust, smoke) | `follow(name, object3D, { rate })` |
+| An instantaneous line (tracer, laser) | `registerBeam` + `fireBeam` |
+| A continuous streak behind a projectile | `A3GameTrailRibbon` |
+
+Three placement rules decide whether an effect reads at all:
+
+1. **A burst points along the surface normal**, not along the shot.
+   Sparks that continue into the wall cannot be seen, which is why
+   `A3GameCollisionProbe.hitscan` now also returns a world-space
+   `normal`.
+2. **A tracer starts at the muzzle**, not at the camera: a line drawn
+   from the eye is inside the near plane and invisible.
+3. **A trail is not parented to what it follows.** A parented trail is
+   dragged along by the object, so the streak never forms — `follow()`
+   moves the *emitter* and leaves emitted particles in world space.
+
+Three properties are contractual, because they are what hand-rolled
+particle code gets wrong: one draw call per system; a **fixed** pool, so
+emission never allocates and a busy fight cannot leak; and no `document`,
+canvas, or GPU at construction time — the shape mask is computed in the
+fragment shader, so every class here can be constructed and stepped by a
+headless `vitest` test. Effects are decoration and must never be
+load-bearing: `play()` on an unregistered name returns `0` rather than
+throwing, so a missing effect can never be why a hit stops registering.
+
+Reference implementation of both halves:
+`engine_adapters/three_js/examples/motion-vfx-example/`.
+
 ## Bindings
 
 - `three.bindings.bind_pbr_material` - Stages a PBR texture set and
@@ -555,13 +789,41 @@ They are game-neutral.
   `POINTER_LOCK` (default, first person), `DRAG` (third person, cursor
   stays usable), `ALWAYS` (debug and headless tests).
 - `A3GameAnimationDirector` - Wraps `AnimationMixer`; `addClip`,
-  `addClips`, `listClipNames`, `mapState`, `mapStates`, `play`,
-  `playOnce`, `stopAll`, `update`, `attachToHost`, `getState`,
-  `dispose`.
+  `addClips`, `listClipNames`, `mapState`, `mapStates`, `mapStateChain`,
+  `mapStateChains`, `play`, `playOnce`, `stopAll`, `update`,
+  `attachToHost`, `getState`, `dispose`.
+- **Motion kit** - `createAnimatedActor`, `findRiggedHumanoid`,
+  `A3GameMotionLibrary`, `autoRigHumanoid`, `createHumanoidSkeleton`,
+  `createHumanoidClip`, `createHumanoidClipSet`, `retargetClipToSkeleton`,
+  `measureHumanoid`, `A3GameHumanoidBone`, `A3GameMotionState`,
+  `A3GameSourceBoneAliases`, `A3GAME_HUMANOID_CLIP_NAMES`. See **Animation**
+  above: a generated character has no skeleton and no clips, and this is what
+  makes it move.
+- **Weapon orientation** - `measureWeapon`, `alignWeaponModel`,
+  `principalAxes`. A weapon's facing cannot come from the manifest:
+  `forward_axis` is a heuristic written for characters ("generated from a front
+  view, so it faces the camera") that is recorded for *every* artifact and can
+  only express quarter turns. Applied to a gun it is a coin flip whose losing
+  side points the barrel at the player's own face, and it cannot fix a mesh
+  authored at an angle — the staged pistol's barrel runs 31 degrees off +Z.
+  `alignWeaponModel` derives the barrel line from the first principal axis and
+  finds the muzzle end from the one feature every gun has: a stretch of **bare
+  barrel** that nothing hangs below, since grip, magazine and stock are all in
+  the lower silhouette. It refuses a mesh that is not weapon-shaped, because a
+  procedural box that points the right way beats an unrecognisable blob that
+  does not. Call it with `orient: false` on `tryInstantiate` so the manifest
+  heuristic does not fight it.
+- **VFX kit** - `createVfxDirector`, `A3GameVfxDirector`,
+  `A3GameParticleSystem`, `A3GameVfxPreset`, `A3GameBeamEffect`,
+  `A3GameTrailRibbon`, `A3GameEmitterShape`, `A3GameParticleBlending`,
+  `A3GameParticleAppearance`, `A3GameParticleRenderMode`. See **Visual
+  Effects** above.
 - `A3GameCollisionProbe` - Raycast and volume primitives that stand in
   for the physics engine three.js does not ship; `setTargets`,
   `addTarget`, `removeTarget`, `sampleGround`, `resolveMove`,
-  `stepCharacter`, `hitscan`, `overlapSphere`, `sweepSphere`.
+  `stepCharacter`, `hitscan`, `overlapSphere`, `sweepSphere`. `hitscan`
+  reports `hit`, `point`, `object`, `distance`, `entityId`, and a
+  world-space `normal` for impact effects.
 - `resolveEntityId` - Walks up an `Object3D` hierarchy for the nearest
   runtime entity id, which is how every probe names what it found.
 - `A3GameHudLayer` - DOM overlay HUD; `addText`, `addBar`, `addPanel`,
@@ -710,6 +972,12 @@ output is one fused body, so a car's wheels cannot spin and a chest's lid
 cannot open. Generate the shell, keep moving parts as primitives driven
 by gameplay, and swap only the visual.
 
+A humanoid is the one exception, and only because the runtime works around
+it: `autoRigHumanoid` fits a skeleton to a static generated body and skins
+it, so a generated character can play the authored clip set. That is an
+approximation of `operators/gen_motion`, not a replacement — and it refuses
+a mesh whose proportions are not a standing figure. See **Animation**.
+
 **Download it** — `operators/gen_3d_object/funcs/asset_pack.py`, a
 curated, licence-checked pack of three CC0 models:
 
@@ -779,6 +1047,17 @@ the orientation correction too.
 
 Also set `frustumCulled: false` on a skinned character: it is culled on
 its bind-pose bounds and otherwise blinks out at the screen edge.
+
+Pass `ground: true` for anything placed by its feet. A generated model's
+origin is wherever the reconstruction left it, and skipping this is why an
+imported character stands with its shins in the floor or floats above it.
+
+**A character needs one more step than a prop.** `tryInstantiate` answers
+"did a file exist"; a character also has to answer "can it move". Use
+`createAnimatedActor` for anything animated and branch on its
+`motionSource` — see **Animation**. Swapping in a clipless model destroys
+the procedural limbs the entity was posing, so the failure mode is a
+handsome statue rather than a visible error.
 
 Separate the gameplay transform from the drawn body — `entity.object`
 carries position, facing, and the hit volume; `entity.visual` is a child
@@ -852,8 +1131,10 @@ content, weapon, vehicle, combat rule, scoring rule, or game-specific
 input mapping.
 
 Generated projects own concrete gameplay implementation. The Arena
-Fighter, FPS, and Racing example packages are read-only references and
-are not dependencies or success criteria.
+Fighter, FPS, Racing, and Motion/VFX example packages are read-only
+references and are not dependencies or success criteria.
+`motion-vfx-example` contains no game — only the two patterns every genre
+needs and that are easy to get wrong.
 
 ## Web-Specific Obligations
 
@@ -909,6 +1190,15 @@ generated three.js games:
 13. **Testability over screenshots.** Assert `getRuntimeSnapshot()`,
     `hud.getState()`, and rule state; drive input through
     `globalThis.__A3GAME_RUNTIME__`.
+14. **A model with no clips is not an upgrade.** Generated characters
+    arrive with `animations: []` and no skeleton, and swapping one in
+    destroys the procedural limbs the entity was posing. Go through
+    `createAnimatedActor` and keep the procedural body when it reports
+    `motionSource: 'none'`.
+15. **Effects are batched or they are a leak.** One `Sprite` per spark is
+    one draw call per spark and a second render loop. Register effects on
+    an `A3GameVfxDirector`, which pools them, ticks them once, and frees
+    them in `dispose()`.
 
 ## Generated Test Pattern
 
