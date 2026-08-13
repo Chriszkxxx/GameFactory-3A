@@ -1,8 +1,13 @@
 """
 test/test_cg_video_gen.py
 
-Integration test: loads the selected real backend, runs the gen_cg_video
-pipeline on one task from a local JSONL file, and asserts an MP4 is created.
+Real-generation integration test for every task in a local JSONL file.
+
+The selected backend is loaded once, then every JSONL task is sent through the
+real gen_cg_video pipeline and each generated MP4 is verified. This is the
+single real-generation test entry point for Seedance API, MiniMax H3 API, and
+MiniMax H3 local checkpoints. The lightweight operator contract checks remain
+in test/harness/.
 
 Run from repo root:
     CG_VIDEO_BACKEND=minimax-h3 \
@@ -59,10 +64,9 @@ class TestGenCGVideoPipeline(unittest.TestCase):
             for line in cls.tasks_path.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.lstrip().startswith("//")
         ]
-        if len(cls.tasks) != 1:
+        if not cls.tasks:
             raise RuntimeError(
-                f"Expected exactly 1 test task in {cls.tasks_path}; "
-                f"found {len(cls.tasks)}"
+                f"Expected at least 1 test task in {cls.tasks_path}; found 0"
             )
 
         from pipeline.assets_gen.gen_cg_video.run import (
@@ -101,17 +105,12 @@ class TestGenCGVideoPipeline(unittest.TestCase):
         if model is not None:
             model.unload()
 
-    def test_tasks_jsonl_has_one_entry(self):
-        self.assertEqual(
-            len(self.tasks), 1, "Expected exactly 1 test task in jsonl."
-        )
-
     def test_run_all_tasks(self):
         from pipeline.assets_gen.gen_cg_video.run import run_from_jsonl
 
         results = run_from_jsonl(str(self.tasks_path), self.operator)
 
-        self.assertEqual(len(results), 1)
+        self.assertEqual(len(results), len(self.tasks))
         for result in results:
             video = Path(result["video_path"])
             self.assertTrue(video.exists(), f"MP4 not found: {video}")
