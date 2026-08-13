@@ -40,7 +40,7 @@ namespace FPSUIExample
 
         private void Awake()
         {
-            EnsureInterface();
+            BuildInterface();
         }
 
         private void Start()
@@ -55,7 +55,6 @@ namespace FPSUIExample
 
         public void Bind(FPSGameRuntimeAdapter runtimeAdapter)
         {
-            EnsureInterface();
             Unsubscribe();
             adapter = runtimeAdapter;
             if (adapter == null) return;
@@ -92,7 +91,6 @@ namespace FPSUIExample
 
         public void Refresh()
         {
-            EnsureInterface();
             if (adapter == null || healthText == null) return;
             healthText.text = string.Format(
                 "HP: {0:0}/{1:0}",
@@ -146,7 +144,6 @@ namespace FPSUIExample
 
         public void ShowGameOver(FPSGameStatus status)
         {
-            EnsureInterface();
             gameOverOverlay.SetActive(true);
             bool won = status == FPSGameStatus.Won;
             gameOverTitle.text = won ? "ARENA CLEARED!" : "YOU DIED";
@@ -181,13 +178,6 @@ namespace FPSUIExample
             return ratio >= 0.5f
                 ? Color.Lerp(new Color(1f, 0.72f, 0.1f), new Color(0.2f, 0.9f, 0.35f), (ratio - 0.5f) * 2f)
                 : Color.Lerp(new Color(0.95f, 0.15f, 0.12f), new Color(1f, 0.72f, 0.1f), ratio * 2f);
-        }
-
-        private void EnsureInterface()
-        {
-            if (canvas != null)
-                return;
-            BuildInterface();
         }
 
         private void BuildInterface()

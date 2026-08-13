@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using UnityEngine;
 using ArenaFighterExample;
+using A3GameRuntime;
 
 namespace ArenaFighterExample.Tests
 {
@@ -156,6 +157,97 @@ namespace ArenaFighterExample.Tests
             _target.TakeDamage(100f);
             Assert.IsFalse(ArenaFighterCombat.IsInRange(_attacker, _target),
                 "IsInRange should return false when the target is dead.");
+        }
+
+        [Test]
+        public void RuntimeInput_MovesAndRequestsPrimaryAction()
+        {
+            int actionRequests = 0;
+            _attacker.PrimaryActionRequested += () => actionRequests++;
+
+            bool accepted = _attacker.ApplyInput(new A3GameRuntimeInputState
+            {
+                move_y = 1f,
+                yaw = 90f,
+                jump = true,
+            });
+
+            Assert.IsTrue(accepted);
+            Assert.Greater(_attacker.transform.position.x, 0f);
+            Assert.AreEqual(1, actionRequests);
+            Assert.AreEqual("walk", _attacker.GetSnapshot().motion_state);
+        }
+
+        [Test]
+        public void MoveTo_PreservesVerticalPosition()
+        {
+            _attacker.transform.position = new Vector3(0f, 3f, 0f);
+
+            _attacker.MoveTo(new Vector3(0.1f, 20f, 0f), 1f);
+
+            Assert.AreEqual(3f, _attacker.transform.position.y);
+        }
+
+        [Test]
+        public void TakeDamage_ReportsAppliedDamageForOverkill()
+        {
+            float reportedDamage = 0f;
+            _target.DamageTaken += amount => reportedDamage = amount;
+
+            _target.TakeDamage(_target.MaxHealth + 50f);
+
+            Assert.AreEqual(_target.MaxHealth, reportedDamage);
+            Assert.IsTrue(_target.IsDead);
+        }
+
+        [Test]
+        public void GameMode_SetupIsIdempotentAndPlayerAttackIsPublic()
+        {
+            var root = new GameObject("ArenaGameMode");
+            var gameMode = root.AddComponent<ArenaFighterGameMode>();
+            gameMode.Setup();
+            ArenaFighterController player = gameMode.Player;
+            ArenaFighterController opponent = gameMode.Opponent;
+            int childCount = root.transform.childCount;
+            int stateChanges = 0;
+            gameMode.OnStateChanged += () => stateChanges++;
+
+            gameMode.Setup();
+            opponent.transform.position = player.transform.position +
+                Vector3.forward;
+
+            Assert.AreSame(player, gameMode.Player);
+            Assert.AreSame(opponent, gameMode.Opponent);
+            Assert.AreEqual(childCount, root.transform.childCount);
+            Assert.IsTrue(gameMode.LocalInputEnabled);
+            gameMode.LocalInputEnabled = false;
+            Assert.IsFalse(gameMode.LocalInputEnabled);
+            Assert.IsTrue(gameMode.PlayerAttack());
+            Assert.Less(gameMode.OpponentHealth, gameMode.Opponent.MaxHealth);
+            Assert.AreEqual(1, stateChanges);
+
+            Object.DestroyImmediate(root);
+        }
+
+        [Test]
+        public void GameMode_RuntimeFactoryReusesPlayerAndControlsInputMode()
+        {
+            var root = new GameObject("ArenaGameMode");
+            var gameMode = root.AddComponent<ArenaFighterGameMode>();
+            gameMode.Setup();
+
+            GameObject entity = gameMode.CreateEntity(new A3GameEntitySpawnRequest
+            {
+                entity_id = "arena_player",
+            });
+
+            Assert.AreSame(gameMode.Player.gameObject, entity);
+            Assert.AreEqual("arena_player", gameMode.Player.GetEntityId());
+            Assert.IsFalse(gameMode.LocalInputEnabled);
+            Assert.IsTrue(gameMode.DestroyEntity("arena_player"));
+            Assert.IsTrue(gameMode.LocalInputEnabled);
+
+            Object.DestroyImmediate(root);
         }
     }
 }

@@ -1,10 +1,11 @@
 {
-    "name": "RacingExample.Tests",
-    "rootNamespace": "RacingExample.Tests",
+    "name": "RacingUIExample.Tests",
+    "rootNamespace": "RacingUIExample.Tests",
     "references": [
         "RacingExample",
-        "A3GameRuntime",
-        "UnityEngine.TestRunner"
+        "RacingUIExample",
+        "UnityEngine.TestRunner",
+        "Unity.ugui"
     ],
     "includePlatforms": [
         "Editor"

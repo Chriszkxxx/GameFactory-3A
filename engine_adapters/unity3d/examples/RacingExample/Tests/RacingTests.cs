@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using UnityEngine;
 using RacingExample;
+using A3GameRuntime;
 
 namespace RacingExample.Tests
 {
@@ -192,6 +193,107 @@ namespace RacingExample.Tests
                 "RacingCheckpoint.Pass should notify the lap counter.");
 
             Object.DestroyImmediate(checkpointGo);
+        }
+
+        [Test]
+        public void OutOfOrderCheckpoint_DoesNotAdvanceProgress()
+        {
+            _lapCounter.Configure(3, 1);
+
+            Assert.IsFalse(_lapCounter.PassCheckpoint(2));
+            Assert.AreEqual(0, _lapCounter.CheckpointsPassed);
+            Assert.AreEqual(0, _lapCounter.NextCheckpointIndex);
+            Assert.IsTrue(_lapCounter.PassCheckpoint(0));
+            Assert.AreEqual(1, _lapCounter.CheckpointsPassed);
+            Assert.AreEqual(1, _lapCounter.NextCheckpointIndex);
+        }
+
+        [Test]
+        public void RuntimeInput_DrivesVehicleAndExposesSnapshot()
+        {
+            var vehicleGo = new GameObject("Vehicle");
+            var vehicle = vehicleGo.AddComponent<RacingVehicleController>();
+            vehicle.entityId = "vehicle_test";
+
+            Assert.IsTrue(vehicle.ApplyInput(new A3GameRuntimeInputState
+            {
+                move_y = 1f,
+                move_x = 0.5f,
+                run = true,
+            }));
+
+            Assert.Greater(vehicle.Speed, 0f);
+            Assert.AreEqual("vehicle_test", vehicle.GetEntityId());
+            Assert.AreEqual("driving", vehicle.GetSnapshot().motion_state);
+            Assert.AreNotEqual(Vector3.zero, vehicle.transform.position);
+
+            Object.DestroyImmediate(vehicleGo);
+        }
+
+        [Test]
+        public void Drive_BoostDoesNotScaleSimulationTime()
+        {
+            var normalGo = new GameObject("NormalVehicle");
+            var boostedGo = new GameObject("BoostedVehicle");
+            var normal = normalGo.AddComponent<RacingVehicleController>();
+            var boosted = boostedGo.AddComponent<RacingVehicleController>();
+
+            normal.Drive(1f, 0f, false, 0.1f);
+            boosted.Drive(1f, 0f, true, 0.1f);
+
+            Assert.AreEqual(normal.Speed * 1.5f, boosted.Speed, 0.001f);
+            Assert.AreEqual(normal.transform.position.z * 1.5f,
+                boosted.transform.position.z, 0.001f);
+
+            Object.DestroyImmediate(normalGo);
+            Object.DestroyImmediate(boostedGo);
+        }
+
+        [Test]
+        public void GameMode_SetupIsIdempotentAndRuntimeEventDrivesVehicle()
+        {
+            var root = new GameObject("RacingGameMode");
+            var gameMode = root.AddComponent<RacingGameMode>();
+            gameMode.Setup();
+            RacingVehicleController vehicle = gameMode.Vehicle;
+            int childCount = root.transform.childCount;
+
+            gameMode.Setup();
+            Assert.IsNotNull(vehicle.GetComponent<A3GameRuntimeEntityComponent>());
+            Assert.IsTrue(vehicle.ApplyInput(new A3GameRuntimeInputState
+            {
+                move_y = 1f,
+            }));
+
+            Assert.AreSame(vehicle, gameMode.Vehicle);
+            Assert.AreEqual(childCount, root.transform.childCount);
+            Assert.IsTrue(gameMode.LocalInputEnabled);
+            gameMode.LocalInputEnabled = false;
+            Assert.IsFalse(gameMode.LocalInputEnabled);
+            Assert.Greater(vehicle.Speed, 0f);
+
+            Object.DestroyImmediate(root);
+        }
+
+        [Test]
+        public void GameMode_RuntimeFactoryReusesVehicleAndControlsInputMode()
+        {
+            var root = new GameObject("RacingGameMode");
+            var gameMode = root.AddComponent<RacingGameMode>();
+            gameMode.Setup();
+
+            GameObject entity = gameMode.CreateEntity(new A3GameEntitySpawnRequest
+            {
+                entity_id = "race_vehicle",
+            });
+
+            Assert.AreSame(gameMode.Vehicle.gameObject, entity);
+            Assert.AreEqual("race_vehicle", gameMode.Vehicle.GetEntityId());
+            Assert.IsFalse(gameMode.LocalInputEnabled);
+            Assert.IsTrue(gameMode.DestroyEntity("race_vehicle"));
+            Assert.IsTrue(gameMode.LocalInputEnabled);
+
+            Object.DestroyImmediate(root);
         }
     }
 }

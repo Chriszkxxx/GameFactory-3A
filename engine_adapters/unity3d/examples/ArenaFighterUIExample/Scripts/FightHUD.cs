@@ -1,7 +1,8 @@
+using ArenaFighterExample;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace ArenaFighterExample
+namespace ArenaFighterUIExample
 {
     /// <summary>
     /// Simple screen-space overlay showing fight status, HP values, and combat log.

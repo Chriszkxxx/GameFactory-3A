@@ -1,7 +1,8 @@
+using ArenaFighterExample;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace ArenaFighterExample
+namespace ArenaFighterUIExample
 {
     /// <summary>
     /// World-space health bar that floats above a fighter.

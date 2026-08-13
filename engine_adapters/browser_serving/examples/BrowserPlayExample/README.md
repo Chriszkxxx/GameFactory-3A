@@ -26,19 +26,25 @@ backend values from its prepared packet.
 ## Run
 
 Configure the selected Engine backend through the Pipeline or operator, then
-run `launch.cmd`.
+run `launch.cmd` on Windows or `launch.sh` on macOS/Linux. The Unix launcher
+defaults to the validated Unity backend; set `A3GAME_BROWSER_ENGINE` to select
+another configured backend.
 
 The launcher mounts this directory through `A3GAME_BROWSER_PLAY_DIR` and starts
 the public Gateway entry point. Open:
 
 ```text
-http://127.0.0.1:7870/game/
+http://127.0.0.1:7870/game/?engine=unity3d
 ```
 
 The page health-checks Browser Serving, recovers a session when one is supplied
 or stored, otherwise creates a new session for the selected Engine, and
 presents the returned `stream_url` in a full-page frame. The streamed Engine
 frame already contains the native gameplay UI.
+
+The Unity path was validated with the FPS generated-game example: Browser
+Serving returned a `unity_webgl` session, the page loaded the WebGL player in
+the iframe, and keyboard/mouse input reached the Unity canvas.
 
 Run the static contract test with:
 

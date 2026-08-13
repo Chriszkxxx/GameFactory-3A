@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 
 namespace FPSExample
@@ -111,7 +110,7 @@ namespace FPSExample
                 if (enemy.ShouldDestroy)
                 {
                     enemies.RemoveAt(index);
-                    DestroyEnemyObject(enemy.gameObject);
+                    Destroy(enemy.gameObject);
                 }
             }
             return damage;
@@ -124,20 +123,12 @@ namespace FPSExample
                 if (enemy == null) continue;
                 enemy.Died -= HandleEnemyDied;
                 enemy.gameObject.SetActive(false);
-                DestroyEnemyObject(enemy.gameObject);
+                Destroy(enemy.gameObject);
             }
             enemies.Clear();
             usedSpawnPositions.Clear();
             usedFloorIds.Clear();
             nextSpawnIndex = 0;
-        }
-
-        private static void DestroyEnemyObject(GameObject enemyObject)
-        {
-            if (Application.isPlaying)
-                Destroy(enemyObject);
-            else
-                DestroyImmediate(enemyObject);
         }
 
         private Vector3 ResolveSpawnPosition(Vector3 requestedPosition)
@@ -146,129 +137,72 @@ namespace FPSExample
                 return requestedPosition;
 
             Vector3 playerPosition = playerTarget.position;
-            Vector3 best = requestedPosition;
+            Collider best = null;
             float bestScore = float.PositiveInfinity;
             float targetDistance = 9f + usedSpawnPositions.Count * 4f;
-            foreach (Vector3 sample in CandidateSamples(requestedPosition))
+            foreach (Collider collider in FindObjectsOfType<Collider>(true))
             {
-                if (!TryFindWalkableGround(sample, out Vector3 candidate, out Collider ground))
+                if (!IsPreparedFloor(collider))
                     continue;
+                if (usedFloorIds.Contains(collider.GetInstanceID()))
+                    continue;
+                Bounds bounds = collider.bounds;
+                float heightDifference = Mathf.Abs(bounds.max.y - playerPosition.y);
+                if (heightDifference > 0.8f)
+                    continue;
+
+                Vector3 candidate = new Vector3(
+                    bounds.center.x,
+                    bounds.max.y + 0.25f,
+                    bounds.center.z);
                 float distance = Vector2.Distance(
                     new Vector2(candidate.x, candidate.z),
                     new Vector2(playerPosition.x, playerPosition.z));
-                if (distance < 8f || distance > 32f)
+                if (distance < 8f || distance > 28f)
                     continue;
-                if (usedSpawnPositions.Any(used => Vector2.Distance(
-                        new Vector2(candidate.x, candidate.z),
-                        new Vector2(used.x, used.z)) < 3.25f))
+
+                bool overlapsUsed = false;
+                foreach (Vector3 used in usedSpawnPositions)
+                {
+                    if (Vector2.Distance(
+                            new Vector2(candidate.x, candidate.z),
+                            new Vector2(used.x, used.z)) < 3.25f)
+                    {
+                        overlapsUsed = true;
+                        break;
+                    }
+                }
+                if (overlapsUsed)
                     continue;
-                if (!HasCharacterSpace(candidate, ground))
-                    continue;
+
                 float score = Mathf.Abs(distance - targetDistance);
                 if (score >= bestScore)
                     continue;
-                best = candidate;
+                best = collider;
                 bestScore = score;
             }
 
-            if (bestScore == float.PositiveInfinity)
+            if (best == null)
             {
                 Debug.LogWarning(
-                    "[FPS_SPAWN] No free walkable sample near configured spawn " +
-                    requestedPosition + "; searching player-relative fallback");
-                foreach (Vector3 sample in CandidateSamples(playerPosition + Vector3.forward * 14f))
-                    if (TryFindWalkableGround(sample, out Vector3 candidate, out Collider ground) &&
-                        Vector2.Distance(new Vector2(candidate.x, candidate.z),
-                            new Vector2(playerPosition.x, playerPosition.z)) >= 8f &&
-                        HasCharacterSpace(candidate, ground))
-                    {
-                        best = candidate;
-                        break;
-                    }
+                    "[FPS_SPAWN] No distinct same-level floor found; using configured spawn " +
+                    requestedPosition);
+                return requestedPosition;
             }
 
-            Vector3 resolved = best;
+            Vector3 resolved = new Vector3(
+                best.bounds.center.x,
+                best.bounds.max.y + 0.25f,
+                best.bounds.center.z);
             usedSpawnPositions.Add(resolved);
-            Collider resolvedGround = FindGroundAt(resolved);
-            if (resolvedGround != null) usedFloorIds.Add(resolvedGround.GetInstanceID());
+            usedFloorIds.Add(best.GetInstanceID());
             Debug.Log(
-                "[FPS_SPAWN] Enemy ground=" +
-                (resolvedGround != null ? resolvedGround.name : "<none>") +
+                "[FPS_SPAWN] Enemy floor=" + best.name +
                 " position=" + resolved +
                 " player_distance=" + Vector2.Distance(
                     new Vector2(resolved.x, resolved.z),
                     new Vector2(playerPosition.x, playerPosition.z)).ToString("F1"));
             return resolved;
-        }
-
-        private static IEnumerable<Vector3> CandidateSamples(Vector3 requested)
-        {
-            yield return requested;
-            float[] rings = { 3f, 6f, 9f };
-            foreach (float radius in rings)
-                for (int index = 0; index < 8; index++)
-                {
-                    float angle = index * Mathf.PI * 2f / 8f;
-                    yield return requested + new Vector3(
-                        Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
-                }
-        }
-
-        private static bool TryFindWalkableGround(
-            Vector3 sample,
-            out Vector3 position,
-            out Collider ground)
-        {
-            position = sample;
-            ground = null;
-            RaycastHit[] hits = Physics.RaycastAll(
-                sample + Vector3.up * 24f,
-                Vector3.down,
-                48f,
-                Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.Ignore);
-            Array.Sort(hits, (left, right) => left.distance.CompareTo(right.distance));
-            foreach (RaycastHit hit in hits)
-            {
-                if (hit.collider == null || hit.normal.y < 0.55f ||
-                    hit.collider.GetComponentInParent<FPSEnemy>() != null ||
-                    hit.collider.GetComponentInParent<FPSPlayerController>() != null)
-                    continue;
-                string name = hit.collider.name.ToLowerInvariant();
-                if ((name.Contains("rock") || name.Contains("stone") ||
-                     name.Contains("boulder") || name.Contains("crate")) &&
-                    hit.point.y > sample.y + 0.5f)
-                    continue;
-                ground = hit.collider;
-                position = new Vector3(sample.x, hit.point.y + 0.03f, sample.z);
-                return true;
-            }
-            return false;
-        }
-
-        private static Collider FindGroundAt(Vector3 sample)
-        {
-            return TryFindWalkableGround(sample, out _, out Collider ground) ? ground : null;
-        }
-
-        private static bool HasCharacterSpace(Vector3 feet, Collider ground)
-        {
-            Vector3 bottom = feet + Vector3.up * 0.45f;
-            Vector3 top = feet + Vector3.up * 1.55f;
-            foreach (Collider collider in Physics.OverlapCapsule(
-                bottom,
-                top,
-                0.42f,
-                Physics.DefaultRaycastLayers,
-                QueryTriggerInteraction.Ignore))
-            {
-                if (collider == null || collider == ground ||
-                    collider.GetComponentInParent<FPSEnemySpawner>() != null ||
-                    collider.GetComponentInParent<FPSPlayerController>() != null)
-                    continue;
-                return false;
-            }
-            return true;
         }
 
         private static bool IsPreparedFloor(Collider collider)

@@ -108,8 +108,6 @@ namespace FPSExample
             if (deltaTime <= 0f)
                 return;
             cooldownRemaining = Mathf.Max(0f, cooldownRemaining - deltaTime);
-            if (cooldownRemaining <= 0.0001f)
-                cooldownRemaining = 0f;
             if (!IsReloading)
                 return;
             reloadRemaining -= deltaTime;

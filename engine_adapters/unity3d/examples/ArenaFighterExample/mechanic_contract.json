@@ -1,39 +1,42 @@
 {
   "schema_version": "aaagameforge.mechanic_contract.v1",
+  "contract_version": 1,
+  "gameplay_module": "ArenaFighterExample",
   "mechanic_id": "arena_fighter",
-  "display_name": "Arena Fighter",
-  "description": "Melee arena combat: two fighters with health, range-based attacks, hit detection, and an AI opponent that chases and attacks.",
+  "state": {
+    "player_health": "ArenaFighterGameMode.PlayerHealth",
+    "opponent_health": "ArenaFighterGameMode.OpponentHealth",
+    "round_active": "ArenaFighterGameMode.IsRoundActive",
+    "player_won": "ArenaFighterGameMode.PlayerWon"
+  },
+  "events": {
+    "on_round_started": "ArenaFighterGameMode.OnRoundStarted",
+    "on_player_attack": "ArenaFighterGameMode.OnPlayerAttack(bool)",
+    "on_player_won": "ArenaFighterGameMode.OnPlayerWon",
+    "on_player_lost": "ArenaFighterGameMode.OnPlayerLost",
+    "on_state_changed": "ArenaFighterGameMode.OnStateChanged"
+  },
+  "commands": {
+    "player_attack": "ArenaFighterGameMode.PlayerAttack()",
+    "reset_game": "ArenaFighterGameMode.RestartRound()",
+    "apply_input": "ArenaFighterController.ApplyInput(A3GameRuntimeInputState)"
+  },
+  "public_api_paths": [
+    "Scripts/ArenaFighterGameMode.cs",
+    "Scripts/ArenaFighterController.cs"
+  ],
   "behavioral_invariants": [
-    {
-      "id": "attack_reduces_health",
-      "description": "A successful attack reduces the target's health by the attacker's AttackDamage.",
-      "precondition": "Attacker and target are alive and within AttackRange.",
-      "action": "attacker.Attack(target)",
-      "expected_result": "target.Health decreases by attacker.AttackDamage."
-    },
-    {
-      "id": "zero_health_triggers_death",
-      "description": "When a fighter's health reaches zero it is marked dead.",
-      "precondition": "Fighter is alive with health greater than zero.",
-      "action": "fighter.TakeDamage(amount) until health <= 0",
-      "expected_result": "fighter.IsDead becomes true and Health is clamped to 0."
-    },
-    {
-      "id": "out_of_range_attack_misses",
-      "description": "An attack against a target outside AttackRange does not connect and deals no damage.",
-      "precondition": "Target is farther than AttackRange from the attacker.",
-      "action": "attacker.Attack(target)",
-      "expected_result": "Attack returns false and target.Health is unchanged."
-    },
-    {
-      "id": "dead_fighter_cannot_act",
-      "description": "A dead fighter cannot attack and cannot be damaged further.",
-      "precondition": "fighter.IsDead is true.",
-      "action": "fighter.Attack(target) or fighter.TakeDamage(amount)",
-      "expected_result": "No damage is applied and Attack returns false."
-    }
+    "A successful in-range attack reduces the target by AttackDamage",
+    "Health at zero marks a fighter dead and prevents further actions",
+    "An out-of-range attack does not damage the target",
+    "Setup is idempotent and creates one player and one opponent",
+    "Runtime movement input moves the player-controlled fighter",
+    "Runtime primary-action input requests the player attack command",
+    "Restart restores both fighters and their spawn transforms"
   ],
   "dependencies": {
-    "assemblies": ["A3GameRuntime"]
+    "assemblies": [
+      "A3GameRuntime"
+    ]
   }
 }

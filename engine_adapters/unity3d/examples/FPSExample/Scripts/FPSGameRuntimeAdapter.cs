@@ -108,8 +108,12 @@ namespace FPSExample
             weapon = playerObject.AddComponent<FPSWeapon>();
             player = playerObject.AddComponent<FPSPlayerController>();
 
-            GameObject cameraObject = EnsurePlayerCamera(playerObject);
-            playerCamera = cameraObject.GetComponent<Camera>();
+            GameObject cameraObject = new GameObject("Main Camera");
+            cameraObject.tag = "MainCamera";
+            cameraObject.transform.SetParent(playerObject.transform, false);
+            cameraObject.transform.localPosition = Vector3.up * FPSPlayerController.DefaultEyeHeight;
+            playerCamera = cameraObject.AddComponent<Camera>();
+            cameraObject.AddComponent<AudioListener>();
             player.Configure(playerCamera, weapon);
             player.SetInitialView(initialViewRotation);
             player.SnapToGround();
@@ -162,36 +166,6 @@ namespace FPSExample
             PublishState();
         }
 
-        private static GameObject EnsurePlayerCamera(GameObject playerObject)
-        {
-            Camera existing = Camera.main;
-            if (existing == null)
-                existing = FindObjectOfType<Camera>(true);
-
-            GameObject cameraObject = existing != null
-                ? existing.gameObject
-                : new GameObject("Main Camera");
-            cameraObject.name = "Main Camera";
-            cameraObject.tag = "MainCamera";
-            cameraObject.transform.SetParent(playerObject.transform, false);
-            cameraObject.transform.localPosition = Vector3.up * FPSPlayerController.DefaultEyeHeight;
-            cameraObject.transform.localRotation = Quaternion.identity;
-
-            Camera camera = cameraObject.GetComponent<Camera>();
-            if (camera == null)
-                camera = cameraObject.AddComponent<Camera>();
-            camera.enabled = true;
-            camera.targetDisplay = 0;
-            camera.clearFlags = CameraClearFlags.Skybox;
-            camera.nearClipPlane = 0.03f;
-            camera.farClipPlane = 2000f;
-            if (cameraObject.GetComponent<AudioListener>() == null)
-                cameraObject.AddComponent<AudioListener>();
-            Debug.Log("[FPS_CAMERA] Main Camera ready enabled=" + camera.enabled +
-                " display=" + camera.targetDisplay + " parent=" + playerObject.name);
-            return cameraObject;
-        }
-
         private void CreateSafetyBounds()
         {
             GameObject bounds = new GameObject("FPS_InvisibleSafetyBounds");
@@ -207,7 +181,6 @@ namespace FPSExample
         private static void CreateEnvironmentColliders()
         {
             int added = 0;
-            int reinforced = 0;
             int removed = 0;
             foreach (MeshFilter filter in FindObjectsOfType<MeshFilter>(true))
             {
@@ -228,34 +201,12 @@ namespace FPSExample
                     continue;
                 MeshCollider generatedCollider = filter.gameObject.AddComponent<MeshCollider>();
                 generatedCollider.sharedMesh = filter.sharedMesh;
-                generatedCollider.convex = false;
                 added++;
-                if (IsSolidPropMesh(filter.transform) && filter.GetComponent<BoxCollider>() == null)
-                {
-                    BoxCollider boundsCollider = filter.gameObject.AddComponent<BoxCollider>();
-                    boundsCollider.center = filter.sharedMesh.bounds.center;
-                    boundsCollider.size = filter.sharedMesh.bounds.size;
-                    boundsCollider.isTrigger = false;
-                    reinforced++;
-                }
             }
             Debug.Log(
                 "[FPS_COLLISION] Added " + added +
-                "; reinforced solid props " + reinforced +
                 " structural colliders; removed " + removed +
                 " non-structural mesh colliders");
-        }
-
-        private static bool IsSolidPropMesh(Transform item)
-        {
-            for (Transform current = item; current != null; current = current.parent)
-            {
-                string normalized = current.name.ToLowerInvariant();
-                if (normalized.Contains("rock") || normalized.Contains("stone") ||
-                    normalized.Contains("boulder"))
-                    return true;
-            }
-            return false;
         }
 
         private static bool IsNonStructuralEnvironmentMesh(Transform item)

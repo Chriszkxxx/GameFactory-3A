@@ -1,8 +1,8 @@
 {
-    "name": "FPSUIExample",
-    "rootNamespace": "FPSUIExample",
+    "name": "RacingUIExample",
+    "rootNamespace": "RacingUIExample",
     "references": [
-        "FPSExample",
+        "RacingExample",
         "Unity.ugui"
     ],
     "includePlatforms": [],

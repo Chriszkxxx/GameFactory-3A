@@ -39,13 +39,13 @@ namespace RacingExample
         /// </summary>
         void OnTriggerEnter(Collider other)
         {
-            var vehicle = other.GetComponent<RacingVehicleController>();
+            var vehicle = other.GetComponentInParent<RacingVehicleController>();
             if (vehicle == null)
                 return;
 
             var counter = vehicle.LapCounter ?? lapCounter;
             if (counter != null)
-                counter.PassCheckpoint();
+                counter.PassCheckpoint(checkpointIndex);
         }
 
         /// <summary>
@@ -55,7 +55,7 @@ namespace RacingExample
         public void Pass(RacingLapCounter counter)
         {
             if (counter != null)
-                counter.PassCheckpoint();
+                counter.PassCheckpoint(checkpointIndex);
         }
     }
 }

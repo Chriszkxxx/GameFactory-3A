@@ -1,107 +1,98 @@
 # Browser Serving Agent API Reference
 
-Status: implemented Browser Serving API `v1`.
+Status: implemented Browser Serving API version `v1`.
 
-## Hard Boundary
+This file is a compact index of implemented public capabilities. It lists
+public names and their functions only. Read the current source when exact
+parameters, routes, or result payload fields are required.
 
-Browser Serving is an engine-agnostic mapping layer:
+## Hard API Boundary
+
+Browser Serving is the engine-neutral browser mapping layer:
 
 ```text
-Browser UI -> Browser Serving API -> EngineBackend -> Engine
+Browser UI -> Browser Serving API -> EngineBackend -> Engine Client -> Engine
 ```
 
-It maps engine view, assets, Worlds, sessions, preview, Play, stream, and
-generic input to Web. It does not replace the engine-native Mechanic UI.
-
-`UE5ExampleBackend` is only the first backend example. Browser Serving is not
-UE Serving.
-
-The UE example may access Unreal only through:
+Browser UI must not import concrete backends, call Engine clients directly, or
+branch on Engine names. Backends may access UE5 and Unity only through their
+public clients:
 
 ```python
 from engine_adapters.ue5 import UEClient
+from engine_adapters.unity3d import UnityClient
 ```
 
-Browser UI must not import a concrete engine backend or branch on engine names.
+Browser Serving exposes engine view, assets, Worlds, sessions, streams, and
+generic input. It does not replace engine-native Mechanic UI.
 
 ## Result Contract
 
-Public operations return:
+Public operations return JSON-serializable results with these stable fields:
 
-- `ok` - operation success;
-- `operation` - stable operation name;
-- `engine` - selected backend id;
-- `artifacts` - produced or inspected assets;
-- `warnings` - non-fatal diagnostics;
-- `errors` - fatal diagnostics;
-- `payload` - operation-specific data.
+- `ok` - whether the operation completed successfully;
+- `operation` - stable operation identifier;
+- `engine` - selected backend identifier;
+- `artifacts` - produced or inspected artifacts;
+- `warnings` - non-fatal problems;
+- `errors` - fatal problems;
+- `payload` - operation-specific result data.
 
-## Public Entry Point
+## Public Entry Points
 
-- `BrowserServingClient` - Python client for the public HTTP API.
-- `BrowserServingConfig` - Resolves Gateway, Admin, upload, stream, session,
-  and backend configuration.
-- `BrowserServingService` - Delegates public operations to a registered
+Python Agents import the public API from:
+
+```python
+from engine_adapters.browser_serving import BrowserServingClient
+```
+
+- `API_VERSION` - Reports the public Browser Serving API version.
+- `BrowserServingClient` - Calls the public Browser Serving HTTP API.
+- `BrowserServingConfig` - Resolves Gateway, Admin, Engine, stream, upload, and
+  session configuration.
+- `BrowserServingService` - Delegates public operations to a registered Engine
   backend.
-- `EngineBackend` - Contract implemented by engine backends.
+- `EngineBackend` - Protocol implemented by Engine backends.
 - `EngineCapabilities` - Declares supported browser-facing capabilities.
-- `EngineDescriptor` - Describes one registered backend.
-- `AssetImportRequest` - Carries a staged file and task descriptor to a
-  backend.
-- `AssetRecord` - Engine-neutral imported asset record.
-- `WorldRecord` - Engine-neutral runtime World record.
+- `EngineDescriptor` - Describes a registered backend.
+- `AssetImportRequest` - Carries a staged task artifact to a backend.
+- `StagedUpload` - Describes a browser upload materialized as a canonical task
+  artifact.
+- `AssetRecord` - Describes an engine-neutral imported asset.
+- `WorldRecord` - Describes an engine-neutral runtime World.
+- `BrowserServingError` - Base public Browser Serving error.
+- `UnknownEngineError` - Reports an unregistered Engine identifier.
+- `EngineCapabilityError` - Reports an operation unsupported by a backend.
 - `create_app` - Creates the Browser Serving FastAPI Gateway.
 
-## BrowserServingClient
+## Client
 
-- `client.health` - Reports API readiness and registered engines.
-- `client.engines` - Lists engine descriptors and capabilities.
+- `client.health` - Reports Gateway readiness and registered Engines.
+- `client.engines` - Lists Engine descriptors and capabilities.
 - `client.engine_status` - Reports readiness for one backend.
 
 ## Assets
 
-- `client.assets.upload` - Uploads a file, stages it as a standard
-  AAAGameForge task artifact, and imports it through the selected backend.
+- `client.assets.upload` - Stages an uploaded file as a canonical task artifact
+  and imports it through the selected backend.
 - `client.assets.import_descriptor` - Imports an existing generated task
-  artifact.
+  artifact through the selected backend.
 - `client.assets.list` - Lists backend-visible assets.
-- `client.assets.groups` - Groups Avatar, Skeleton, Motion, environment, prop,
-  weapon, effect, material, and texture assets.
+- `client.assets.groups` - Groups assets by engine-neutral asset type.
 - `client.assets.inspect` - Inspects one imported artifact.
 
-Routes:
-
-```text
-POST /api/assets/upload
-POST /api/assets/import
-POST /api/assets/inspect
-GET  /api/assets
-GET  /api/assets/groups
-```
-
-Uploads are staged through `pipeline.common.paths`. The UE example receives a
-generated task descriptor through `UEClient`, not an arbitrary browser path.
-
-Use `artifact_id` for cross-engine session selection. `native.path` is
-backend metadata.
+Uploads use `pipeline.common.paths`. Cross-engine consumers select assets by
+`artifact_id`; backend-native paths are metadata only.
 
 ## Worlds
 
-- `client.worlds.upload` - Uploads a Scene and invokes backend World
-  build/publish.
-- `client.worlds.list` - Lists runtime World packages.
-
-Route:
-
-```text
-GET /api/worlds
-```
-
-Scene upload uses `POST /api/assets/upload` with `asset_type=scene`.
+- `client.worlds.upload` - Stages a Scene and invokes backend World
+  build/publication.
+- `client.worlds.list` - Lists backend-visible runtime World packages.
 
 ## Sessions
 
-- `client.sessions.create` - Starts one browser-owned engine/stream session.
+- `client.sessions.create` - Starts a browser-owned Engine/stream session.
 - `client.sessions.list` - Lists active sessions.
 - `client.sessions.get` - Reads one session.
 - `client.sessions.recover` - Re-registers a still-reachable session.
@@ -112,62 +103,80 @@ Scene upload uses `POST /api/assets/upload` with `asset_type=scene`.
 - `client.sessions.load_world` - Selects a runtime World.
 - `client.sessions.join` - Enters Play mode.
 - `client.sessions.leave` - Leaves Play mode.
-- `client.sessions.apply_input` - Sends normalized movement/look/run/jump
-  input.
+- `client.sessions.apply_input` - Sends normalized movement, look, run, and
+  jump input.
 - `client.sessions.apply_preview_camera` - Sends preview camera input.
-- `client.sessions.stop` - Stops the engine session and stream.
+- `client.sessions.stop` - Stops the Engine session and stream.
 
-Routes:
+Game-specific actions remain owned by the generated Mechanic contract.
 
-```text
-POST   /api/sessions
-GET    /api/sessions
-GET    /api/sessions/catalog
-POST   /api/sessions/recover
-POST   /api/sessions/runtime-event
-GET    /api/sessions/{session_id}
-POST   /api/sessions/{session_id}/character
-POST   /api/sessions/{session_id}/preview-animation
-POST   /api/sessions/{session_id}/load-world
-POST   /api/sessions/{session_id}/join
-POST   /api/sessions/{session_id}/leave
-POST   /api/sessions/{session_id}/input
-POST   /api/sessions/{session_id}/preview-camera
-DELETE /api/sessions/{session_id}
-```
+## Browser HTTP API
 
-WebSocket:
+Generated Browser Play calls the Gateway HTTP API rather than importing the
+Python client. Public routes map directly to the client operations above:
 
-```text
-WS /api/sessions/{session_id}/input-ws
-```
+- `GET /api/health` - Reports Gateway readiness.
+- `GET /api/engines` - Lists registered Engines and capabilities.
+- `GET /api/engines/{engine}/capabilities` - Reads one capability set.
+- `GET /api/engines/{engine}/status` - Reads one backend's readiness.
+- `POST /api/assets/upload` - Uploads and imports an asset.
+- `POST /api/assets/import` - Imports a generated artifact descriptor.
+- `GET /api/assets` - Lists assets.
+- `GET /api/assets/groups` - Groups assets by type.
+- `POST /api/assets/inspect` - Inspects an asset.
+- `GET /api/worlds` - Lists runtime Worlds.
+- `POST /api/sessions` - Creates a session.
+- `GET /api/sessions` - Lists sessions.
+- `GET /api/sessions/catalog` - Lists runtime-ready assets and Worlds.
+- `POST /api/sessions/recover` - Recovers a session snapshot.
+- `POST /api/sessions/runtime-event` - Applies an Engine readiness or runtime
+  event to a session.
+- `GET /api/sessions/{session_id}` - Reads a session.
+- `POST /api/sessions/{session_id}/character` - Configures its character.
+- `POST /api/sessions/{session_id}/preview-animation` - Plays a preview
+  Motion.
+- `POST /api/sessions/{session_id}/load-world` - Selects a World.
+- `POST /api/sessions/{session_id}/join` - Enters Play mode.
+- `POST /api/sessions/{session_id}/leave` - Leaves Play mode.
+- `POST /api/sessions/{session_id}/input` - Applies normalized input.
+- `POST /api/sessions/{session_id}/preview-camera` - Applies preview camera
+  input.
+- `DELETE /api/sessions/{session_id}` - Stops a session.
+- `WS /api/sessions/{session_id}/input-ws` - Streams normalized input.
 
-Normalized input supports movement, look, run, jump, sequence, and timestamp.
-Game-specific actions remain owned by the Mechanic contract.
+HTTP results use the Result Contract above. Browser code reads operation data
+from `payload`, and reads the playable Engine URL from session
+`payload.stream_url`.
 
-## Engine Discovery
+## Capabilities And Streams
 
-- `GET /api/health` - Reports API readiness.
-- `GET /api/engines` - Lists registered backends.
-- `GET /api/engines/{engine}/capabilities` - Reports backend capabilities.
-- `GET /api/engines/{engine}/status` - Reports backend readiness.
+- `asset_upload` - Backend accepts browser-staged asset uploads.
+- `asset_import` - Backend imports generated task descriptors.
+- `asset_inspection` - Backend exposes imported artifact inspection.
+- `world_build` - Backend builds or publishes Worlds.
+- `world_catalog` - Backend lists runtime Worlds.
+- `runtime_sessions` - Backend supports browser-owned sessions.
+- `skeletal_animation` - Backend supports Avatar/Motion selection.
+- `streaming` - Backend returns a browser-embeddable `stream_url`.
+- `pixel_streaming` - Backend provides UE-compatible Pixel Streaming.
+- `preview_camera` - Backend accepts preview camera controls.
 
-UI must enable controls from capabilities, not from engine-name checks.
-
-`streaming` is the engine-neutral capability for a backend that can return a
-browser-embeddable `stream_url`. `pixel_streaming` remains a UE compatibility
-capability and must not be required from future non-UE backends.
+Browser UI enables features from capabilities, not Engine names. Generated
+Browser Play consumes `stream_url`; transport-specific URL aliases are not the
+cross-Engine contract.
+Passing `engine` as backend selection data is allowed; Engine-specific UI logic
+is not.
 
 ## EngineBackend Contract
 
-- `descriptor` - Returns id, display name, API version, and capabilities.
+- `descriptor` - Returns backend identity and capabilities.
 - `status` - Reports backend readiness.
-- `import_asset` - Imports a staged asset.
-- `inspect_asset` - Inspects one asset.
+- `import_asset` - Imports a staged artifact.
+- `inspect_asset` - Inspects one artifact.
 - `list_assets` - Lists assets.
 - `list_worlds` - Lists runtime Worlds.
 - `build_world` - Builds or publishes a World.
-- `create_session` - Creates an engine/browser session.
+- `create_session` - Creates an Engine/browser session.
 - `list_sessions` - Lists sessions.
 - `get_session` - Reads one session.
 - `recover_session` - Recovers one session.
@@ -179,155 +188,67 @@ capability and must not be required from future non-UE backends.
 - `leave_world` - Leaves Play mode.
 - `apply_input` - Applies normalized input.
 - `apply_preview_camera` - Applies preview camera input.
-- `handle_runtime_event` - Applies engine readiness/runtime events.
-- `stop_session` - Stops one session.
-- `debug` - Supports migrated developer controls without exposing engine
+- `handle_runtime_event` - Applies Engine readiness and runtime events.
+- `stop_session` - Stops one session and its owned processes.
+- `debug` - Runs supported developer controls without exposing Engine
   internals to frontend code.
 
-A streaming backend returns `stream_url` from create, get, and recover session
-operations. Transport-specific aliases may also be present, but generated
-Browser Play uses `stream_url`.
+## Bundled Backends
 
-The engine-neutral session handoff is:
+- `create_ue5_example_backend` - Creates the UE5 backend, maps operations to
+  `UEClient`, and exposes UE Pixel Streaming through `stream_url`.
+- `create_unity3d_example_backend` - Creates the Unity3D backend, maps
+  operations to `UnityClient`, and exposes a Unity WebGL page through
+  `stream_url`.
 
-```json
-{
-  "streaming": true,
-  "stream_url": "https://browser-embeddable-session-url"
-}
-```
+UE5 sessions use Pixel Streaming and deliver normalized input through the UE
+runtime session. Unity browser sessions use `runtime_kind=unity_webgl`,
+`streaming_transport=unity_webgl_http`, and
+`input_transport=browser_canvas`; keyboard and pointer events are delivered
+directly to the Unity canvas, not through UE-compatible Pixel Streaming.
 
-`streaming` declares that the selected backend supports browser presentation.
-`stream_url` is the URL consumed by generated Browser Play. The current UE
-backend may also expose `pixel_streaming` and `pixel_streaming_url` for
-compatibility, but those fields are not the cross-Engine contract.
-
-## UE5 Example Backend
-
-Implementation:
-
-```text
-engine_adapters/browser_serving/backends/ue5_example.py
-```
-
-- `create_ue5_example_backend` - Creates the first example backend.
-- `status` - Maps public UE environment status.
-- `import_asset` - Maps assets to public `ue.assets`.
-- `build_world` - Maps Scenes to public `ue.world`.
-- `list_assets` - Maps UE assets to `AssetRecord`.
-- `list_worlds` - Maps UE packages to `WorldRecord`.
-- `create_session` - Allocates ports and launches signalling plus UE.
-- `configure_session` - Maps Avatar/Motion selection to
-  `ue.runtime.sessions`.
-- `join_world` - Enters the selected Play World.
-- `apply_input` - Maps browser input to normalized UE runtime input.
-- `stop_session` - Stops UE and Pixel Streaming processes owned by Serving.
-
-This code is a backend example for other engines. Generated browser UI must not
-import it.
-
-## Adding Another Backend
-
-1. Add `engine_adapters/browser_serving/backends/<engine>_example.py`.
-2. Implement `EngineBackend` with truthful capabilities.
-3. Export its factory from `backends/__init__.py`.
-4. Register it through `create_app(backends=[backend])`.
-5. Add asset, World, session, stream, input, and cleanup tests.
-6. Keep the existing 7860/7870 controls and routes unchanged.
-
-Do not change player/admin buttons when adding an engine backend.
+Bundled backends are implementation references. Generated browser UI must not
+import them.
 
 ## Frontends
 
-- `build_admin_app` - Creates the 7860 asset administration UI.
-- `launch_admin` - Runs the 7860 Admin UI.
-- `run_gateway` - Runs the 7870 Gateway/player.
-- `run_all` - Runs both services.
-- `frontend/admin.py` - Upload/import, Avatar/Motion, Scene/World, preview, and
-  session controls.
-- `frontend/player/viewer.html` - Player window.
-- `frontend/player/viewer.js` - Engine discovery, sessions, Play, stream, and
-  input behavior.
-- `frontend/player/viewer.css` - Player layout.
+- `build_admin_app` - Creates the asset and session administration UI.
+- `launch_admin` - Runs the Admin UI.
+- `run_gateway` - Runs the Gateway, API, player, and mounted Browser Play.
+- `run_all` - Runs the Gateway and Admin UI.
+- `frontend/player` - Discovers Engines, manages sessions, presents
+  `stream_url`, and handles generic input.
+- `BrowserPlayExample` - Read-only reference for session creation/recovery,
+  stream presentation, focus, fullscreen, and error handling.
 
-Generated Browser Play must be directly bootstrappable:
+Generated Browser Play reads the engine-neutral `stream_url`, keeps input in
+the Engine frame, and reports session or stream errors. It does not configure
+backends or duplicate engine-native Mechanic UI.
 
-- call `GET /api/health` before session work;
-- recover a supplied `session` query parameter when present;
-- otherwise create a generic session with `POST /api/sessions`;
-- read engine-neutral `stream_url` from the returned session;
-- keep keyboard and mouse input inside the streamed Engine frame;
-- report session or stream errors instead of showing a false ready state.
+## UI Generation Boundary
 
-The validated engine-neutral Browser Play delivery reference is:
+Engine-native UI uses the selected Engine API and generated Mechanic contract.
+Browser Play uses this Browser Serving API for stream, session, and generic
+controls only.
 
-```text
-engine_adapters/browser_serving/examples/BrowserPlayExample
-```
-
-It demonstrates the task-owned manifest, thin launcher, create-or-recover
-session flow, `stream_url` presentation, input focus, fullscreen, and error
-recovery without assuming a specific Engine or streaming transport. Generated
-UI may adapt that delivery pattern but must not depend on the Example at
-runtime.
-
-The generated page does not configure or implement Engine backends. The
-Pipeline or operator must mount its directory through
-`A3GAME_BROWSER_PLAY_DIR` and configure the packet-selected backend before
-launching Browser Serving.
-
-For the current bundled UE 5.4 backend specifically, configure
-`A3GAME_UE_PROJECT` and `A3GAME_UE_ROOT`. For its `player.html`, keep
-`A3GAME_BROWSER_PIXEL_USE_FRONTEND=0`. Setting it to `1` requires a separately
-running Epic Frontend service.
-
-## UIgen Boundary
-
-Engine-runtime UI:
-
-- reads the Pipeline-selected concrete Engine API;
-- reads the finalized generated Mechanic contract and Public source;
-- selects the minimum useful same-Engine Mechanic and UI reference files under
-  the packet-registered roots;
-- generates the real engine-native HUD/widgets/menus.
-
-Browser Serving UI:
-
-- uses `api_context_target = browser_serving`;
-- reads this Pipeline-selected Browser Serving API;
-- maps stream, assets, sessions, preview, Play, and generic controls to Web;
-- does not replace or duplicate engine-native Mechanic UI.
-
-The current Browser Serving API does not expose a versioned Mechanic
-state/event/command bridge to Web. Do not invent Web health, ammo, score,
-objective, pause, victory, or command UI.
+Browser Serving does not expose a versioned Mechanic state/event/command bridge
+to Web. Generated Browser Play must not invent health, ammo, score, objective,
+pause, victory, or game-specific command APIs.
 
 ## Launch
 
-- `python -m engine_adapters.browser_serving all` - Runs 7860 and 7870.
-- `python -m engine_adapters.browser_serving gateway` - Runs 7870 only.
-- `python -m engine_adapters.browser_serving admin` - Runs 7860 only.
+- `python -m engine_adapters.browser_serving all` - Runs Admin and Gateway.
+- `python -m engine_adapters.browser_serving gateway` - Runs the Gateway only.
+- `python -m engine_adapters.browser_serving admin` - Runs the Admin UI only.
+- `A3GAME_BROWSER_PLAY_DIR` - Selects the mounted generated Browser Play
+  directory.
+- `A3GAME_BROWSER_ENGINE` - Selects the default backend.
+- `A3GAME_UE_PROJECT` / `A3GAME_UE_ROOT` - Configure the UE5 backend.
+- `A3GAME_UNITY_PROJECT` / `A3GAME_UNITY_ROOT` - Configure the Unity backend.
+- `A3GAME_UNITY_WEBGL_BUILD` - Selects an existing Unity WebGL build.
+- `A3GAME_BROWSER_DRY_RUN` - Validates Serving lifecycle without real Engine
+  rendering.
 
-Port ownership is:
-
-- `7860` - asset administration;
-- `7870` - Gateway, API, generic player, and mounted `/game`;
-- `18080+` - current UE backend per-session stream pages;
-- `18888+` - current UE backend streamer WebSocket ports.
-
-Do not assume `7080`, `8000`, or `8080`. Override the documented environment
-variables when those ports are required.
-
-Engine-neutral task-owned Browser Play launch:
-
-```powershell
-$env:A3GAME_BROWSER_PLAY_DIR = "D:\path\generated_ui\browser_play"
-# Configure the packet-selected Engine backend here.
-python -m engine_adapters.browser_serving all
-```
-
-Then open `/game` on the Gateway. The page creates a session when no session
-query parameter is supplied.
-
-`A3GAME_BROWSER_DRY_RUN=1` validates Serving/frontend lifecycle without real
-engine rendering.
+Default ports are `7860` for Admin, `7870` for Gateway, `18080+` for session
+pages, and `18888+` for UE streamer WebSockets. Unity WebGL does not use the UE
+streamer WebSocket ports.

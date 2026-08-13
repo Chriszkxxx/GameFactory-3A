@@ -1,8 +1,8 @@
 {
-    "name": "FPSUIExample",
-    "rootNamespace": "FPSUIExample",
+    "name": "ArenaFighterUIExample",
+    "rootNamespace": "ArenaFighterUIExample",
     "references": [
-        "FPSExample",
+        "ArenaFighterExample",
         "Unity.ugui"
     ],
     "includePlatforms": [],

@@ -3,6 +3,7 @@
     "rootNamespace": "ArenaFighterExample.Tests",
     "references": [
         "ArenaFighterExample",
+        "A3GameRuntime",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [

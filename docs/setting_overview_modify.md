@@ -12,7 +12,8 @@ the corresponding Skill or API document, not here.
 | Task packet | Current task, canonical Engine, inputs, acceptance criteria, and read/write boundaries |
 | This overview | Routes the task to the required Skill and API documents |
 | Task-specific Skill | Workflow, implementation rules, outputs, provenance, run publication, assembly, tests, and evaluation handoff |
-| Engine Context | Public Engine or Browser Serving APIs generated code may call |
+| Engine Context | Public Engine APIs generated engine code may call |
+| Browser Serving Context | Public browser session, stream, input, and frontend handoff APIs generated Browser Play code may call |
 | Examples | Read-only implementation references used according to the selected Skill |
 
 ## Task Router
@@ -90,6 +91,16 @@ three_js  -> agent_skills/engine_context/three_js_api.md
 ```
 
 Do not combine APIs or Examples from different Engines.
+
+Browser Serving is selected by delivery target rather than Engine. When the
+task includes Browser Play or engine-to-browser presentation, also read:
+
+```text
+agent_skills/engine_context/browser_serving_api.md
+```
+
+This supplements the selected Engine API; it does not replace it or authorize
+mixing APIs from different Engines.
 
 ## Reading Order
 

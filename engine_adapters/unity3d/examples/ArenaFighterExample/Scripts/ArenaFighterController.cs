@@ -1,3 +1,4 @@
+using System;
 using A3GameRuntime;
 using UnityEngine;
 
@@ -29,6 +30,14 @@ namespace ArenaFighterExample
 
         private float _health = DefaultMaxHealth;
         private bool _isDead;
+        private bool _isMoving;
+        private Vector3 _spawnPosition;
+        private Quaternion _spawnRotation;
+
+        public event Action<float> DamageTaken;
+        public event Action Died;
+        public event Action PrimaryActionRequested;
+        public event Action StateChanged;
 
         /// <summary>Current health, clamped to [0, MaxHealth].</summary>
         public float Health
@@ -62,12 +71,13 @@ namespace ArenaFighterExample
 
         void Awake()
         {
-            // Lazy initialization handles defaults; Awake only clamps
-            // serialized fields that Unity may have reset to zero.
             if (maxHealth <= 0f) maxHealth = 100f;
             if (attackDamage <= 0f) attackDamage = 10f;
             if (attackRange <= 0f) attackRange = 2f;
             if (moveSpeed <= 0f) moveSpeed = 5f;
+            Health = MaxHealth;
+            _spawnPosition = transform.position;
+            _spawnRotation = transform.rotation;
         }
 
         /// <summary>
@@ -80,12 +90,16 @@ namespace ArenaFighterExample
             if (IsDead || amount <= 0f)
                 return;
 
-            Health -= amount;
+            float appliedDamage = Mathf.Min(amount, Health);
+            Health -= appliedDamage;
+            DamageTaken?.Invoke(appliedDamage);
             if (Health <= 0f)
             {
                 Health = 0f;
                 Die();
+                return;
             }
+            StateChanged?.Invoke();
         }
 
         /// <summary>
@@ -108,6 +122,9 @@ namespace ArenaFighterExample
                 return;
             IsDead = true;
             Health = 0f;
+            _isMoving = false;
+            Died?.Invoke();
+            StateChanged?.Invoke();
         }
 
         /// <summary>
@@ -118,6 +135,8 @@ namespace ArenaFighterExample
         {
             Health = maxHealth > 0f ? maxHealth : DefaultMaxHealth;
             IsDead = false;
+            _isMoving = false;
+            StateChanged?.Invoke();
         }
 
         /// <summary>
@@ -134,18 +153,22 @@ namespace ArenaFighterExample
             toTarget.y = 0f; // keep movement on the horizontal plane
 
             if (toTarget.sqrMagnitude < 0.0001f)
+            {
+                _isMoving = false;
                 return;
+            }
 
             Vector3 dir = toTarget.normalized;
-            float step = moveSpeed * deltaTime;
+            float step = MoveSpeed * Mathf.Max(0f, deltaTime);
 
             // Don't overshoot the destination.
             if (step * step >= toTarget.sqrMagnitude)
-                transform.position = destination;
+                transform.position += toTarget;
             else
                 transform.position += dir * step;
 
             transform.rotation = Quaternion.LookRotation(dir);
+            _isMoving = true;
         }
 
         // ── IA3GameControllableEntity ────────────────────────────────────────
@@ -163,8 +186,7 @@ namespace ArenaFighterExample
             if (IsDead)
                 return false;
 
-            // Face the camera orientation.
-            transform.rotation = Quaternion.Euler(input.pitch, input.yaw, 0f);
+            transform.rotation = Quaternion.Euler(0f, input.yaw, 0f);
 
             float mx = Mathf.Clamp(input.move_x, -1f, 1f);
             float my = Mathf.Clamp(input.move_y, -1f, 1f);
@@ -172,16 +194,27 @@ namespace ArenaFighterExample
 
             if (move.sqrMagnitude > 0.0001f)
             {
-                float speed = input.run ? moveSpeed * 1.5f : moveSpeed;
-                // Approximate one frame at 60 fps for a single input tick.
+                float speed = input.run ? MoveSpeed * 1.5f : MoveSpeed;
                 transform.position += move.normalized * speed * 0.0166f;
+                _isMoving = true;
             }
+            else
+            {
+                _isMoving = false;
+            }
+            if (input.jump)
+                PrimaryActionRequested?.Invoke();
 
             return true;
         }
 
         /// <summary>Reset entity to spawn state (IA3GameControllableEntity).</summary>
-        public void ResetEntity() => ResetFighter();
+        public void ResetEntity()
+        {
+            ResetFighter();
+            transform.position = _spawnPosition;
+            transform.rotation = _spawnRotation;
+        }
 
         /// <summary>
         /// Return a serializable snapshot of this fighter for the runtime
@@ -189,14 +222,24 @@ namespace ArenaFighterExample
         /// </summary>
         public A3GameEntitySnapshot GetSnapshot()
         {
+            var runtimeEntity = GetComponent<A3GameRuntimeEntityComponent>();
             return new A3GameEntitySnapshot
             {
-                entity_id = entityId,
+                entity_id = !string.IsNullOrEmpty(entityId)
+                    ? entityId
+                    : (runtimeEntity != null ? runtimeEntity.entityId : string.Empty),
+                world_id = runtimeEntity != null
+                    ? runtimeEntity.worldId
+                    : string.Empty,
                 actor_label = gameObject.name,
                 locomotion_state = IsDead
                     ? A3GameLocomotionState.Idle
-                    : A3GameLocomotionState.Walk,
-                motion_state = IsDead ? "dead" : "idle",
+                    : (_isMoving
+                        ? A3GameLocomotionState.Walk
+                        : A3GameLocomotionState.Idle),
+                motion_state = IsDead
+                    ? "dead"
+                    : (_isMoving ? "walk" : "idle"),
                 position = transform.position,
                 rotation = transform.eulerAngles,
             };

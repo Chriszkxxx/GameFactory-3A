@@ -10,20 +10,33 @@ testable game logic.
 | Example | Genre | Demonstrates |
 | --- | --- | --- |
 | `ArenaFighterExample` | Melee arena combat | Health, attacks, range-based hit detection, AI opponent |
+| `ArenaFighterUIExample` | Arena presentation | Fight status, combat log, and world-space health bars |
 | `FPSExample` | First-person shooter mechanic | CharacterController movement/collision, jump, door interaction, environment collision, enemy pursuit, hitscan combat, restart |
 | `FPSUIExample` | FPS presentation | HUD, crosshair, health/ammo/kill/timer state, damage/hit feedback, restart interaction |
 | `RacingExample` | Arcade racing | Checkpoint-based lap counting, vehicle movement |
+| `RacingUIExample` | Racing presentation | Speed/lap/checkpoint HUD, result overlay, restart interaction |
 
 ## Key Properties
 
 - **Gameplay and presentation are separate.** Gameplay examples reference
   `A3GameRuntime`; optional UI examples reference the public gameplay assembly.
 - **All gameplay scripts are MonoBehaviours** with complete, working logic.
-- **Every example ships with NUnit EditMode tests** that create real
+- **Gameplay examples ship with NUnit EditMode tests** that create real
   `GameObject`s and verify behavioral invariants (damage, death, lap counting).
-- **Each example includes a `mechanic_contract.json`** using the
+- **Each gameplay example includes a `mechanic_contract.json`** using the
   `aaagameforge.mechanic_contract.v1` schema, documenting the behavioral
   invariants the implementation must satisfy.
+
+Arena Fighter and Racing now follow the same mechanic/UI assembly boundary as
+FPS. Their mechanics accept generic runtime input and their optional UI
+assemblies consume only the public mechanic state, events, and commands.
+
+`FPSExample` and `FPSUIExample` are namespace-generic copies of the separate
+Mechanic and UI assemblies exercised by the `gameB_fps_test` Unity end-to-end
+run. That run imported the prepared avatars, rifle, motions, and outpost scene,
+compiled both assemblies, built WebGL, entered Play Mode, and was played through
+Browser Serving. Arena Fighter and Racing remain code/test references; they
+were not part of that end-to-end validation.
 
 ## Directory Layout
 
@@ -42,6 +55,13 @@ examples/
 │   └── Tests/
 │       ├── ArenaFighterExample.Tests.asmdef
 │       └── ArenaFighterTests.cs
+├── ArenaFighterUIExample/
+│   ├── package.json
+│   ├── ArenaFighterUIExample.asmdef
+│   ├── Scripts/
+│   │   ├── FightHUD.cs
+│   │   └── FighterHealthBar.cs
+│   └── ui_binding_manifest.json
 ├── FPSExample/
 │   ├── package.json
 │   ├── FPSExample.asmdef
@@ -62,21 +82,31 @@ examples/
 │   ├── FPSUIExample.asmdef
 │   ├── Scripts/
 │   │   └── FPSArenaHUD.cs
+│   ├── ui_binding_manifest.json
 │   └── Tests/
 │       ├── FPSUIExample.Tests.asmdef
-│       └── FPSArenaHUDTests.cs
-└── RacingExample/
+│       ├── FPSArenaHUDTests.cs
+│       └── fixtures/mechanic_contract_fixture.json
+├── RacingExample/
+│   ├── package.json
+│   ├── RacingExample.asmdef
+│   ├── Scripts/
+│   │   ├── RacingVehicleController.cs
+│   │   ├── RacingCheckpoint.cs
+│   │   ├── RacingLapCounter.cs
+│   │   └── RacingGameMode.cs
+│   ├── mechanic_contract.json
+│   └── Tests/
+│       ├── RacingExample.Tests.asmdef
+│       └── RacingTests.cs
+└── RacingUIExample/
     ├── package.json
-    ├── RacingExample.asmdef
-    ├── Scripts/
-    │   ├── RacingVehicleController.cs
-    │   ├── RacingCheckpoint.cs
-    │   ├── RacingLapCounter.cs
-    │   └── RacingGameMode.cs
-    ├── mechanic_contract.json
+    ├── RacingUIExample.asmdef
+    ├── Scripts/RacingHUD.cs
+    ├── ui_binding_manifest.json
     └── Tests/
-        ├── RacingExample.Tests.asmdef
-        └── RacingTests.cs
+        ├── RacingUIExample.Tests.asmdef
+        └── RacingHUDTests.cs
 ```
 
 ## Running the Tests
@@ -91,7 +121,7 @@ so no scene setup is required.
 
 ## Relationship to A3GameRuntime
 
-Each example depends on the `A3GameRuntime` assembly for:
+Each gameplay example depends on the `A3GameRuntime` assembly for:
 
 - Entity identity and observation (`A3GameRuntimeEntityComponent`,
   `IA3GameControllableEntity`, `A3GameEntitySnapshot`)
@@ -100,8 +130,11 @@ Each example depends on the `A3GameRuntime` assembly for:
   `A3GameControlMode`)
 
 The examples never modify `A3GameRuntime`; they consume its public API.
+UI examples reference only their corresponding gameplay assembly and Unity
+uGUI; they do not reference `A3GameRuntime` directly.
 
-> **Note:** These examples are disabled by default and are never installed
-> automatically. Generated games should adapt the relevant patterns inside
-> their own gameplay code rather than depending on or inheriting from an
-> example.
+> **Note:** These examples are not installed automatically. Generated games
+> should adapt the relevant patterns inside their own gameplay code rather than
+> depending on or inheriting from an example. Once copied into a generated
+> project, the FPS Mechanic and UI assemblies use the same auto-reference
+> behavior as the assemblies exercised by the validated run.

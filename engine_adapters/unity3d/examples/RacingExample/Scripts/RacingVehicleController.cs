@@ -1,3 +1,4 @@
+using A3GameRuntime;
 using UnityEngine;
 
 namespace RacingExample
@@ -9,7 +10,7 @@ namespace RacingExample
     /// </summary>
     [AddComponentMenu("AAAGameForge/Racing Vehicle Controller")]
     [DisallowMultipleComponent]
-    public class RacingVehicleController : MonoBehaviour
+    public class RacingVehicleController : MonoBehaviour, IA3GameControllableEntity
     {
         [Header("Physics")]
         [SerializeField] private float maxSpeed = 80f;
@@ -19,6 +20,17 @@ namespace RacingExample
 
         [Header("Lap Tracking")]
         [SerializeField] private RacingLapCounter lapCounter;
+
+        [HideInInspector] public string entityId = string.Empty;
+
+        private Vector3 _spawnPosition;
+        private Quaternion _spawnRotation;
+
+        void Awake()
+        {
+            _spawnPosition = transform.position;
+            _spawnRotation = transform.rotation;
+        }
 
         /// <summary>Current speed in units per second.</summary>
         public float Speed { get; private set; }
@@ -100,6 +112,86 @@ namespace RacingExample
         public void ResetVehicle()
         {
             Speed = 0f;
+        }
+
+        public void Drive(
+            float throttle,
+            float steering,
+            bool boost,
+            float deltaTime)
+        {
+            float dt = Mathf.Max(0f, deltaTime);
+            float normalizedThrottle = Mathf.Clamp(throttle, -1f, 1f);
+            float normalizedSteering = Mathf.Clamp(steering, -1f, 1f);
+            float throttleScale = boost ? 1.5f : 1f;
+
+            if (normalizedThrottle > 0.001f)
+            {
+                Speed = Mathf.Min(
+                    Speed + acceleration * normalizedThrottle * throttleScale * dt,
+                    maxSpeed);
+            }
+            else if (normalizedThrottle < -0.001f)
+            {
+                Speed = Mathf.Max(
+                    Speed - brakeDeceleration * -normalizedThrottle * dt,
+                    -maxSpeed * 0.5f);
+            }
+            else
+            {
+                float friction = brakeDeceleration * 0.3f * dt;
+                if (Speed > 0f)
+                    Speed = Mathf.Max(0f, Speed - friction);
+                else if (Speed < 0f)
+                    Speed = Mathf.Min(0f, Speed + friction);
+            }
+
+            Steer(normalizedSteering, dt);
+            ApplyMovement(dt);
+        }
+
+        public string GetEntityId()
+        {
+            if (!string.IsNullOrEmpty(entityId))
+                return entityId;
+            var runtimeEntity = GetComponent<A3GameRuntimeEntityComponent>();
+            return runtimeEntity != null ? runtimeEntity.entityId : string.Empty;
+        }
+
+        public bool ApplyInput(A3GameRuntimeInputState input)
+        {
+            Drive(input.move_y, input.move_x, input.run, 1f / 60f);
+            return true;
+        }
+
+        public void ResetEntity()
+        {
+            ResetVehicle();
+            transform.position = _spawnPosition;
+            transform.rotation = _spawnRotation;
+        }
+
+        public A3GameEntitySnapshot GetSnapshot()
+        {
+            var runtimeEntity = GetComponent<A3GameRuntimeEntityComponent>();
+            A3GameLocomotionState locomotion = IsMoving
+                ? A3GameLocomotionState.Custom
+                : A3GameLocomotionState.Idle;
+            return new A3GameEntitySnapshot
+            {
+                entity_id = GetEntityId(),
+                world_id = runtimeEntity != null
+                    ? runtimeEntity.worldId
+                    : string.Empty,
+                actor_label = gameObject.name,
+                locomotion_state = locomotion,
+                motion_state = IsMoving ? "driving" : "idle",
+                position = transform.position,
+                rotation = transform.eulerAngles,
+                parameters = "{\"speed\":" + Speed.ToString("F3",
+                    System.Globalization.CultureInfo.InvariantCulture) +
+                    ",\"lap\":" + CurrentLap + "}",
+            };
         }
     }
 }
