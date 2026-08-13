@@ -36,6 +36,10 @@ import sys
 import traceback
 from pathlib import Path
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 _HERE = Path(__file__).resolve().parent
 _REPO_ROOT = _HERE.parents[1]
 # Repo root for `pipeline.*` / `operators.*`; own dir for `stubs` — imported by
@@ -98,6 +102,32 @@ EXTRA_ROUTE_TASKS: dict[str, list[dict]] = {
 }
 
 
+def _make_task(kind: str, task_id: str, game_id: str | None = None) -> dict:
+    """Build the smallest valid task for one stubbed operator."""
+    task = {
+        "task_id": task_id,
+        "image": stubs.make_ref_image(size=128),
+        "seed": 7,
+        **EXTRA_TASK_FIELDS.get(kind, {}),
+    }
+    if game_id is not None:
+        task["game_id"] = game_id
+    if kind == "motion":
+        fixture_dir = paths.OUTPUT_ROOT / "_smoke_motion_inputs"
+        fixture_dir.mkdir(parents=True, exist_ok=True)
+        target = fixture_dir / "target.glb"
+        target.write_bytes(stubs.make_minimal_glb())
+        task.update(
+            {
+                "task_type": "humanoid",
+                "target_glb_path": str(target),
+                "prompt": "A person walks forward and waves.",
+                "in_place": True,
+            }
+        )
+    return task
+
+
 class SmokeFailure(AssertionError):
     pass
 
@@ -120,14 +150,8 @@ def smoke_per_game_mode(
           + (f" (backend={backend})" if backend else ""))
     op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID, model_key=backend)
 
-    task = {
-        "game_id": SMOKE_GAME,
-        "task_id": task_id,
-        "image": stubs.make_ref_image(size=128),
-        "seed": 7,
-        **EXTRA_TASK_FIELDS.get(kind, {}),
-        **(task_overrides or {}),
-    }
+    task = _make_task(kind, task_id, game_id=SMOKE_GAME)
+    task.update(task_overrides or {})
     result = op.run(task)
 
     missing = [k for k in REQUIRED_RESULT_KEYS if k not in result]
@@ -182,12 +206,7 @@ def smoke_legacy_flat_mode(kind: str, tmp_dir: Path,
     op = stubs.build_operator(kind, run_id=SMOKE_RUN_ID, output_dir=str(tmp_dir),
                               model_key=backend)
 
-    result = op.run({
-        "task_id": task_id,
-        "image": stubs.make_ref_image(size=128),
-        "seed": 7,
-        **EXTRA_TASK_FIELDS.get(kind, {}),
-    })
+    result = op.run(_make_task(kind, task_id))
 
     for key in (k for k in result if k.endswith("_path")):
         if result[key] is None:
@@ -249,6 +268,10 @@ def smoke_kind(kind: str, keep: bool, backend: str | None = None) -> None:
     finally:
         if not keep:
             shutil.rmtree(tmp_flat, ignore_errors=True)
+            shutil.rmtree(
+                paths.OUTPUT_ROOT / "_smoke_motion_inputs",
+                ignore_errors=True,
+            )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

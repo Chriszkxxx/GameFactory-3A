@@ -1,0 +1,36 @@
+[
+  {"type": "load_scene", "payload": {"scene_path": "/Library/Scenes/stage.blend"}},
+  {"type": "join_world", "payload": {
+      "participant_id": "user_0",
+      "controller_id": "ctrl_0",
+      "entity_id": "player_0",
+      "kind": "human"
+  }},
+  {"type": "ensure_player", "payload": {
+      "entity_id": "player_0",
+      "obj_path": "/Library/Avatars/Robot.glb",
+      "spawn_location": [0.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 180.0]
+  }},
+  {"type": "ensure_player", "payload": {
+      "entity_id": "player_1",
+      "obj_path": "/Library/Avatars/Robot.glb",
+      "spawn_location": [2.2, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0]
+  }},
+  {"type": "load_action", "payload": {
+      "entity_id": "player_0", "action_path": "/Library/Motions/Idle.fbx", "loop": true
+  }},
+  {"type": "load_action", "payload": {
+      "entity_id": "player_1", "action_path": "/Library/Motions/Walk.fbx", "loop": true
+  }},
+  {"type": "apply_input", "payload": {
+      "entity_id": "player_1", "move_x": 0.0, "move_y": 1.0,
+      "run": false, "jump": false, "yaw": 0.0, "pitch": 0.0
+  }},
+  {"type": "trigger_vfx", "payload": {
+      "vfx_kind": "particle",
+      "entity_id": "player_0",
+      "params": {"count": 800, "lifetime": 90}
+  }}
+]

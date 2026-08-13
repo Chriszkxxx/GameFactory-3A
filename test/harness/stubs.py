@@ -21,6 +21,8 @@ Add a stub whenever you add a model slot — `smoke.py` looks them up by task ki
 """
 from __future__ import annotations
 
+import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -382,6 +384,195 @@ class StubMeshyModel(_StubCloudModel):
     provider = "meshy"
 
 
+class StubPuppeteerModel(_StubBase):
+    """Mimic Puppeteer's in-memory skeleton and skinning result."""
+
+    def infer(
+        self,
+        mesh: bytes,
+        mesh_format: str = ".glb",
+        seed: int = 42,
+        **kw,
+    ) -> dict:
+        self.calls.append(
+            {
+                "op": "infer",
+                "mesh_format": mesh_format,
+                "mesh_bytes": len(mesh),
+                "seed": seed,
+                **kw,
+            }
+        )
+        joints = [
+            "joints joint0 0 0 0",
+            "joints joint1 0 1 0",
+            "joints joint2 -1 1 0",
+            "joints joint3 1 1 0",
+            "joints joint4 -0.5 -1 0",
+            "joints joint5 0.5 -1 0",
+            "root joint0",
+            "hier joint0 joint1",
+            "hier joint1 joint2",
+            "hier joint1 joint3",
+            "hier joint0 joint4",
+            "hier joint0 joint5",
+        ]
+        rig = "\n".join(
+            [
+                *joints,
+                "skin 0 joint0 1.0",
+                "skin 1 joint1 1.0",
+                "skin 2 joint2 1.0",
+            ]
+        ) + "\n"
+        return {
+            "rig_text": rig,
+            "skeleton_text": "\n".join(joints) + "\n",
+            "mesh_obj_bytes": (
+                b"o StubAvatar\n"
+                b"v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"
+            ),
+            "joint_count": 6,
+            "skin_vertex_count": 3,
+            "seed": seed,
+        }
+
+
+class StubMoMaskModel(_StubBase):
+    """Mimic one HumanML3D MoMask generation at the native 20 FPS."""
+
+    def infer(self, prompt: str, seed: int = 42, **kw) -> dict:
+        self.calls.append(
+            {"op": "infer", "prompt": prompt, "seed": seed, **kw}
+        )
+        bvh = (
+            "HIERARCHY\n"
+            "ROOT Hips\n"
+            "{\n"
+            "  OFFSET 0 0 0\n"
+            "  CHANNELS 6 Xposition Yposition Zposition "
+            "Zrotation Xrotation Yrotation\n"
+            "  End Site\n"
+            "  {\n"
+            "    OFFSET 0 1 0\n"
+            "  }\n"
+            "}\n"
+            "MOTION\n"
+            "Frames: 2\n"
+            "Frame Time: 0.050000\n"
+            "0 0 0 0 0 0\n"
+            "0 0 0 5 0 0\n"
+        ).encode("utf-8")
+        joints = np.zeros((2, 22, 3), dtype=np.float32)
+        return {
+            "bvh_bytes": bvh,
+            "raw_bvh_bytes": bvh,
+            "ik_bvh_bytes": bvh,
+            "joints": joints,
+            "preview_mp4_bytes": b"\x00\x00\x00\x18ftypmp42stub",
+            "fps": 20,
+            "seed": seed,
+        }
+
+
+def retarget_mapping() -> dict:
+    """Return the small humanoid mapping used by motion smoke tests."""
+    return {
+        "root_bones": {"source": "Hips", "puppeteer": "joint0"},
+        "bone_map": {
+            "Hips": "joint0",
+            "Spine": "joint1",
+            "LeftArm": "joint2",
+            "RightArm": "joint3",
+            "LeftLeg": "joint4",
+            "RightLeg": "joint5",
+        },
+        "retarget_chains": {
+            "spine": {
+                "source": ["Hips", "Spine"],
+                "puppeteer": ["joint0", "joint1"],
+            },
+            "left_arm": {
+                "source": ["LeftArm"],
+                "puppeteer": ["joint2"],
+            },
+            "right_arm": {
+                "source": ["RightArm"],
+                "puppeteer": ["joint3"],
+            },
+            "left_leg": {
+                "source": ["LeftLeg"],
+                "puppeteer": ["joint4"],
+            },
+            "right_leg": {
+                "source": ["RightLeg"],
+                "puppeteer": ["joint5"],
+            },
+        },
+    }
+
+
+def retarget_info(fps: int) -> dict:
+    """Return structural metadata matching the stub mapping."""
+    return {
+        "source_frame_range": [1, 2],
+        "output_frame_range": [1, 2],
+        "fps": fps,
+        "source_bone_count": 6,
+        "target_bone_count": 6,
+    }
+
+
+def stub_retarget_motion(
+    *,
+    output_path: str,
+    anim_only_output_path: str | None,
+    mapping_path: str | None,
+    mapping_output_path: str,
+    info_output_path: str,
+    fps: int = 30,
+    export_anim_only: bool = True,
+    **_kw,
+) -> dict[str, str | None]:
+    """Mimic the retarget function without importing or invoking Blender."""
+    output = Path(output_path)
+    animation = (
+        Path(anim_only_output_path)
+        if anim_only_output_path is not None
+        else None
+    )
+    mapping_output = Path(mapping_output_path)
+    info_output = Path(info_output_path)
+    for path in (output, animation, mapping_output, info_output):
+        if path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+    output.write_bytes(b"Kaydara FBX Binary  \x00" + bytes(256))
+    if export_anim_only and animation is not None:
+        animation.write_bytes(b"Kaydara FBX Binary  \x00" + bytes(128))
+    if mapping_path:
+        shutil.copyfile(mapping_path, mapping_output)
+    else:
+        mapping_output.write_text(
+            json.dumps(retarget_mapping(), indent=2),
+            encoding="utf-8",
+        )
+    info_output.write_text(
+        json.dumps(retarget_info(fps), indent=2),
+        encoding="utf-8",
+    )
+    return {
+        "retargeted_fbx_path": str(output),
+        "anim_only_fbx_path": (
+            str(animation)
+            if export_anim_only and animation is not None
+            else None
+        ),
+        "mapping_path": str(mapping_output),
+        "retarget_info_path": str(info_output),
+    }
+
+
 class StubQwenEditModel(_StubBase):
     """Mimics `models.gen_image.qwen_edit_model.QwenEditModel`."""
 
@@ -465,6 +656,32 @@ class StubWooshDFlowModel(_StubBase):
         waveform = (0.25 * rng.standard_normal(samples) * envelope).astype(np.float32)
         self.calls.append({"op": "infer", "prompt": prompt, "seed": seed, **kw})
         return {"waveform": waveform[None, :], "sample_rate": sample_rate}
+
+
+class StubSeedAudioModel(_StubBase):
+    """Mimics ``SeedAudioModel`` in either dialogue or sound-effect mode."""
+
+    def __init__(self, mode: str = "dialogue", **kw):
+        super().__init__(model_path="stub://seed-audio-1.0", device="cpu", **kw)
+        self.mode = mode
+
+    def infer(self, text=None, seed: int = 42, *, prompt=None,
+              duration_sec=None, **kw) -> dict:
+        sample_rate = 24_000
+        source = str(text or prompt or "")
+        duration = float(duration_sec or max(0.25, min(2.0, len(source) * 0.08)))
+        samples = max(1, int(sample_rate * duration))
+        t = np.arange(samples, dtype=np.float32) / sample_rate
+        if self.mode == "dialogue":
+            waveform = 0.2 * np.sin(2.0 * np.pi * (180.0 + seed % 80) * t)
+        else:
+            rng = np.random.default_rng(seed)
+            envelope = np.exp(-np.linspace(0.0, 8.0, samples, dtype=np.float32))
+            waveform = 0.25 * rng.standard_normal(samples) * envelope
+        self.calls.append({"op": "infer", "mode": self.mode, "text": text,
+                           "prompt": prompt, "seed": seed, **kw})
+        return {"waveform": waveform.astype(np.float32)[None, :],
+                "sample_rate": sample_rate}
 
 
 # ── Tool-model stubs ──────────────────────────────────────────────────────────
@@ -572,11 +789,20 @@ STUB_BACKENDS: dict[str, dict[str, Any]] = {
     "cg_video": {
         "seedance": StubVideoModel,
     },
+    "audio": {
+        "local": StubQwen3TTSModel,
+        "seed_audio": StubSeedAudioModel,
+    },
 }
 
 #: task_kind -> factory returning the kwargs for that task's operator.
 #: Extend this when you add an asset task, so `smoke.py --kind <new>` works.
 STUB_OPERATOR_KWARGS: dict[str, Any] = {
+    "motion": lambda model_key=None: {
+        "puppeteer_model": StubPuppeteerModel(),
+        "momask_model": StubMoMaskModel(),
+        "retarget_fn": stub_retarget_motion,
+    },
     "3d_object": lambda model_key=None: {
         "model": STUB_BACKENDS["3d_object"][model_key or "trellis2"]()},
     "tpose": lambda model_key=None: {
@@ -588,9 +814,15 @@ STUB_OPERATOR_KWARGS: dict[str, Any] = {
         "video_model": StubWorldPlayModel()},
     "cg_video": lambda model_key=None: {
         "model": STUB_BACKENDS["cg_video"][model_key or "seedance"]()},
-    "audio": lambda: {
-        "dialogue_model": StubQwen3TTSModel(),
-        "sound_effect_model": StubWooshDFlowModel(),
+    "audio": lambda model_key=None: {
+        "dialogue_model": (
+            StubSeedAudioModel(mode="dialogue")
+            if model_key == "seed_audio" else StubQwen3TTSModel()
+        ),
+        "sound_effect_model": (
+            StubSeedAudioModel(mode="sound_effect")
+            if model_key == "seed_audio" else StubWooshDFlowModel()
+        ),
     },
 }
 
@@ -641,7 +873,6 @@ OPERATOR_LOCATION: dict[str, tuple[str, str]] = {
     "motion": ("operators.gen_motion.operator", "GenMotionOperator"),
     "cg_video": ("operators.gen_cg_video.operator", "GenCGVideoOperator"),
     "audio": ("operators.gen_audio.operator", "GenAudioOperator"),
-    "retarget": ("operators.retarget.operator", "RetargetOperator"),
     "mechanic": ("operators.gen_mechanic.operator", "GenMechanicOperator"),
     "ui": ("operators.gen_ui.operator", "GenUIOperator"),
 }

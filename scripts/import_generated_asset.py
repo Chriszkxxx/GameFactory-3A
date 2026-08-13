@@ -4,11 +4,16 @@ scripts/import_generated_asset.py
 
 Host-side launcher for the last leg of the chain:
 
-    models/gen_3d_object  →  test_data/outputs/.../model.glb  →  UE5 / Unity asset
+    models/gen_3d_object  →  test_data/outputs/.../model.glb  →  UE5 / Unity / Blender asset
 
 It finds the engine binary, drives it in batch mode with the importer that lives
 in `engine_adapters/<engine>/import_generated/`, and reports what the engine
 said. The engine-side scripts are the contract; this file only launches them.
+
+Blender is in the list for a different reason than the other two: it is not a
+target, it is the neutral step that reads what a game engine will not (`.ply`,
+`.usd`), conditions the asset and writes back the `.glb` UE5 and Unity want. It
+is also the only one of the three that needs no project.
 
 Nothing here constructs an output path — sources come from a `--src` or from the
 `<kind>_results_summary.json` that `pipeline/assets_gen/gen_3d_object/run.py`
@@ -26,6 +31,10 @@ Usage:
     python scripts/import_generated_asset.py --src out/model.glb \\
         --engine ue5 --uproject D:/proj/MyGame/MyGame.uproject
 
+    # Blender: condition the asset and write a preview, no project needed
+    python scripts/import_generated_asset.py --src out/world.glb \\
+        --engine blender --blender-preview
+
     # everything a generation run produced
     python scripts/import_generated_asset.py --engine both \\
         --summary test_data/outputs/<game>/<run>/3d_object_results_summary.json
@@ -35,11 +44,13 @@ Environment (so the flags can be omitted):
     AAAGF_UPROJECT        path to the .uproject
     AAAGF_UNITY           path to Unity.exe
     AAAGF_UNITY_PROJECT   path to the Unity project root
+    AAAGF_BLENDER         path to blender(.exe), or a python that can import bpy
 """
 from __future__ import annotations
 
 import argparse
 import glob
+import importlib.util
 import json
 import os
 import platform
@@ -55,11 +66,28 @@ if str(_REPO_ROOT) not in sys.path:
 
 from models.common.glb_utils import glb_summary  # noqa: E402
 
+try:
+    from models.common import ply_utils  # noqa: E402
+except ImportError:  # pragma: no cover - optional helper, not always present
+    ply_utils = None  # type: ignore[assignment]
+
 UE_IMPORTER = _REPO_ROOT / "engine_adapters" / "ue5" / "import_generated" / "import_mesh.py"
+UE_MOTION_IMPORTER = (
+    _REPO_ROOT / "engine_adapters" / "ue5" / "import_generated" / "import_motion.py"
+)
 UNITY_IMPORTER = (_REPO_ROOT / "engine_adapters" / "unity3d" / "import_generated"
                   / "ImportGeneratedMesh.cs")
+BLENDER_IMPORTER = (_REPO_ROOT / "engine_adapters" / "blender" / "import_generated"
+                    / "import_mesh.py")
+BLENDER_MOTION_IMPORTER = (
+    _REPO_ROOT / "engine_adapters" / "blender" / "import_generated" / "import_motion.py"
+)
 
-USAGES = ("asset", "vfx_standalone", "vfx_particle")
+USAGES = ("asset", "vfx_standalone", "vfx_particle", "motion")
+KINDS = ("mesh", "motion")
+
+#: `both` predates the Blender route and still means the two game engines.
+ENGINE_SETS = {"both": ["ue5", "unity"], "all": ["ue5", "unity", "blender"]}
 
 
 # ── Engine discovery ──────────────────────────────────────────────────────────
@@ -118,6 +146,43 @@ def find_unity(explicit: Optional[str] = None) -> Optional[Path]:
     return Path(found[-1]) if found else None
 
 
+def find_blender(explicit: Optional[str] = None) -> Optional[Path]:
+    """
+    Locate something that can run `bpy`; newest installed Blender wins.
+
+    Two things qualify and the importer runs identically under both: a Blender
+    application, and a Python whose environment has the pip `bpy` wheel. The
+    second is what a headless install script leaves behind, so this interpreter
+    is checked before giving up.
+    """
+    if explicit or os.environ.get("AAAGF_BLENDER"):
+        return Path(explicit or os.environ["AAAGF_BLENDER"])
+
+    on_path = shutil.which("blender")
+    if on_path:
+        return Path(on_path)
+
+    if platform.system() == "Windows":
+        patterns = [r"C:\Program Files\Blender Foundation\Blender *\blender.exe"]
+    elif platform.system() == "Darwin":
+        patterns = ["/Applications/Blender.app/Contents/MacOS/Blender"]
+    else:
+        patterns = ["/usr/share/blender/*/blender",
+                    str(Path.home() / "blender-*" / "blender")]
+    found = sorted(p for pattern in patterns for p in glob.glob(pattern))
+    if found:
+        return Path(found[-1])
+
+    if importlib.util.find_spec("bpy") is not None:
+        return Path(sys.executable)
+    return None
+
+
+def is_blender_app(binary: Path) -> bool:
+    """True for a Blender application, False for a `bpy`-carrying Python."""
+    return "blender" in binary.stem.lower()
+
+
 # ── Source resolution ─────────────────────────────────────────────────────────
 
 
@@ -144,7 +209,14 @@ def sources_from_args(args) -> list[tuple[str, Optional[str]]]:
     summary = read_json(Path(args.summary))
     out = []
     for entry in summary:
-        path = entry.get("glb_path")
+        if getattr(args, "kind", "mesh") == "motion":
+            path = (
+                entry.get("retargeted_fbx_path")
+                or entry.get("anim_only_fbx_path")
+                or entry.get("glb_path")
+            )
+        else:
+            path = entry.get("glb_path")
         if path:
             out.append((str(Path(path).resolve()), entry.get("task_id")))
     if not out:
@@ -156,8 +228,9 @@ def validate_source(path: str) -> dict:
     """
     Check the artifact before spending an engine launch on it.
 
-    Catches the two cheap failures: a missing file, and a "GLB" that is actually
-    an error page the download step never noticed.
+    Catches the cheap failures: a missing file, a "GLB" that is actually an error
+    page the download step never noticed, and a `.ply` that turns out to be the
+    Gaussian-splat half of a world and carries no geometry at all.
     """
     p = Path(path)
     info: dict = {"path": str(p), "exists": p.is_file()}
@@ -167,17 +240,49 @@ def validate_source(path: str) -> dict:
     info["bytes"] = p.stat().st_size
     if p.suffix.lower() in (".glb", ".gltf"):
         info.update(glb_summary(p.read_bytes()))
+    elif p.suffix.lower() == ".fbx":
+        # FBX is binary; structural validity is proven by the engine importer,
+        # not by a host-side parse. A Kaydara header is enough to refuse an
+        # empty placeholder before paying for an editor launch.
+        header = p.read_bytes()[:24]
+        info["format"] = "fbx"
+        info["looks_like_fbx"] = header.startswith(b"Kaydara FBX Binary") or (
+            b"FBX" in header
+        )
+        if info["bytes"] < 64 or not info["looks_like_fbx"]:
+            info["error"] = "file does not look like an FBX"
+    elif p.suffix.lower() == ".ply":
+        if ply_utils is None:
+            info["warning"] = "ply_utils unavailable; skipping PLY inspect"
+        else:
+            try:
+                info.update(ply_utils.describe(p))
+            except (ply_utils.PlyError, OSError) as e:
+                info["error"] = str(e)
     return info
 
 
 # ── Command construction ──────────────────────────────────────────────────────
 
 
+def _ue_importer(args) -> Path:
+    return UE_MOTION_IMPORTER if getattr(args, "kind", "mesh") == "motion" else UE_IMPORTER
+
+
+def _blender_importer(args) -> Path:
+    return (
+        BLENDER_MOTION_IMPORTER
+        if getattr(args, "kind", "mesh") == "motion"
+        else BLENDER_IMPORTER
+    )
+
+
 def ue_command(editor: Path, uproject: Path, src: str, args,
                asset_name: Optional[str], report: Path,
                source_tris: Optional[int] = None) -> tuple[list[str], dict]:
     """
-    UnrealEditor-Cmd invocation that runs `import_mesh.py` in the project.
+    UnrealEditor-Cmd invocation that runs `import_mesh.py` or
+    `import_motion.py` in the project.
 
     Parameters travel in a JSON job file named by `$AAAGF_IMPORT_JOB` rather than
     on the command line: `-script="file.py --a b"` has to survive both the shell
@@ -186,19 +291,30 @@ def ue_command(editor: Path, uproject: Path, src: str, args,
     Returns:
         (command, extra environment)
     """
-    job = {
-        "src": src,
-        "dest": args.ue_dest,
-        "name": asset_name,
-        "usage": args.usage,
-        "target_tris": args.target_tris,
-        "pivot": args.pivot,
-        "normalize_scale": args.normalize_scale,
-        "report": str(report),
-        # Read from the file here so the engine side can flag a mismatch — under
-        # Nanite, UE reports the fallback mesh, not the source density.
-        "source_tris": source_tris,
-    }
+    importer = _ue_importer(args)
+    if getattr(args, "kind", "mesh") == "motion":
+        job = {
+            "src": src,
+            "dest": getattr(args, "ue_motion_dest", None) or "/Game/Generated/Motion",
+            "name": asset_name,
+            "existing_skeleton": getattr(args, "ue_skeleton", None),
+            "no_mesh": bool(getattr(args, "ue_anim_only", False)),
+            "report": str(report),
+        }
+    else:
+        job = {
+            "src": src,
+            "dest": args.ue_dest,
+            "name": asset_name,
+            "usage": args.usage,
+            "target_tris": args.target_tris,
+            "pivot": args.pivot,
+            "normalize_scale": args.normalize_scale,
+            "report": str(report),
+            # Read from the file here so the engine side can flag a mismatch — under
+            # Nanite, UE reports the fallback mesh, not the source density.
+            "source_tris": source_tris,
+        }
     job_path = report.with_name(report.stem + "_job.json")
     job_path.parent.mkdir(parents=True, exist_ok=True)
     job_path.write_text(json.dumps(job, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -210,14 +326,14 @@ def ue_command(editor: Path, uproject: Path, src: str, args,
         # slower start, and the script has to close it when it is done.
         command = [
             str(_prefer_gui_binary(editor)), str(uproject),
-            f"-ExecutePythonScript={UE_IMPORTER}",
+            f"-ExecutePythonScript={importer}",
             "-unattended", "-nopause", "-nosplash", "-stdout", "-utf8output",
         ]
         env["AAAGF_UE_QUIT_WHEN_DONE"] = "1"
     else:
         command = [
             str(editor), str(uproject),
-            "-run=pythonscript", f"-script={UE_IMPORTER}",
+            "-run=pythonscript", f"-script={importer}",
             "-unattended", "-nopause", "-nosplash", "-stdout", "-utf8output",
         ]
     command += list(args.ue_extra or [])
@@ -256,6 +372,57 @@ def unity_command(unity: Path, project: Path, src: str, args,
     if args.normalize_scale:
         cmd += ["--normalize-scale"]
     return cmd
+
+
+def blender_command(binary: Path, src: str, args, asset_name: Optional[str],
+                    report: Path, source_tris: Optional[int] = None
+                    ) -> tuple[list[str], dict]:
+    """
+    Blender invocation that runs `import_mesh.py` or `import_motion.py`
+    with no project and no window.
+
+    Parameters travel in the same JSON job file the UE5 route uses: Blender puts
+    everything after a bare `--` into `sys.argv` untouched, but one job shape for
+    every engine is worth more than saving a file.
+
+    Returns:
+        (command, extra environment)
+    """
+    importer = _blender_importer(args)
+    if getattr(args, "kind", "mesh") == "motion":
+        job = {
+            "src": src,
+            "dest": args.blender_dest or str(report.parent / "blender_library"),
+            "name": asset_name,
+            "export": args.blender_export,
+            "preview": args.blender_preview,
+            "report": str(report),
+        }
+    else:
+        job = {
+            "src": src,
+            "dest": args.blender_dest or str(report.parent / "blender_library"),
+            "name": asset_name,
+            "usage": args.usage,
+            "target_tris": args.target_tris,
+            "source_tris": source_tris,
+            "pivot": args.pivot,
+            "normalize_scale": args.normalize_scale,
+            "export": args.blender_export,
+            "preview": args.blender_preview,
+            "report": str(report),
+        }
+    job_path = report.with_name(report.stem + "_job.json")
+    job_path.parent.mkdir(parents=True, exist_ok=True)
+    job_path.write_text(json.dumps(job, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    if is_blender_app(binary):
+        command = [str(binary), "--background", "--factory-startup",
+                   "--python", str(importer)]
+    else:
+        command = [str(binary), str(importer)]
+    return command, {"AAAGF_IMPORT_JOB": str(job_path),
+                     "AAAGF_BLENDER_EXIT_ON_DONE": "1"}
 
 
 def _quote(value: str) -> str:
@@ -318,9 +485,17 @@ def summarize(label: str, report: dict) -> None:
         print(f"[{label}] dry run — command printed, engine not launched")
         return
     if report.get("ok"):
-        print(f"[{label}] OK  asset={report.get('assetPath') or report.get('asset_path')}  "
-              f"prefab={report.get('prefabPath', '-')}  "
+        asset = (report.get("assetPath") or report.get("asset_path")
+                 or report.get("object"))
+        # Only Unity makes a prefab; naming it for the others reads as a failure.
+        prefab = report.get("prefabPath")
+        print(f"[{label}] OK  asset={asset}  "
+              f"{f'prefab={prefab}  ' if prefab else ''}"
               f"tris={report.get('triangles') or report.get('tris')}")
+        for kind, path in (report.get("exports") or {}).items():
+            print(f"[{label}]   {kind}: {path}")
+        if report.get("preview"):
+            print(f"[{label}]   preview: {report['preview']}")
     else:
         print(f"[{label}] FAILED  {report.get('error')}")
     for w in report.get("warnings", []):
@@ -334,10 +509,37 @@ def main() -> int:
     src.add_argument("--src", help="One generated .glb / .fbx")
     src.add_argument("--summary", help="A <kind>_results_summary.json from run.py")
 
-    ap.add_argument("--engine", default="both", choices=["ue5", "unity", "both"])
+    ap.add_argument("--engine", default="both",
+                    choices=["ue5", "unity", "blender", "both", "all"],
+                    help="'both' is UE5 + Unity; 'all' adds Blender")
+    ap.add_argument(
+        "--kind",
+        default="mesh",
+        choices=list(KINDS),
+        help=(
+            "'mesh' (default) runs the static-prop importers; 'motion' runs "
+            "import_motion.py and expects a retargeted .fbx"
+        ),
+    )
     ap.add_argument("--name", default=None, help="Asset name (single --src only)")
     ap.add_argument("--usage", default="asset", choices=USAGES,
-                    help="Import tier; 'asset' imports verbatim (part B4)")
+                    help="Import tier; 'asset' imports verbatim (part B4); "
+                         "'motion' is implied by --kind motion")
+    ap.add_argument(
+        "--ue-skeleton",
+        default=None,
+        help="For --kind motion: import animation onto this existing Skeleton",
+    )
+    ap.add_argument(
+        "--ue-anim-only",
+        action="store_true",
+        help="For --kind motion: do not import a SkeletalMesh (needs --ue-skeleton)",
+    )
+    ap.add_argument(
+        "--ue-motion-dest",
+        default="/Game/Generated/Motion",
+        help="UE package path for motion imports",
+    )
     ap.add_argument("--target-tris", type=int, default=None,
                     help="Advisory triangle budget for mesh particles")
     ap.add_argument("--pivot", default=None,
@@ -366,6 +568,17 @@ def main() -> int:
     ap.add_argument("--no-install-editor-script", action="store_true",
                     help="Do not copy ImportGeneratedMesh.cs into the Unity project")
 
+    ap.add_argument("--blender", default=None,
+                    help="blender(.exe), or a python that can import bpy")
+    ap.add_argument("--blender-dest", default=None,
+                    help="Library directory for the conditioned copies "
+                         "(default: blender_library/ next to the report)")
+    ap.add_argument("--blender-export", nargs="*", default=["glb"],
+                    choices=["glb", "fbx", "blend"],
+                    help="Formats Blender writes back out")
+    ap.add_argument("--blender-preview", action="store_true",
+                    help="Also render a poster frame of what came in")
+
     ap.add_argument("--report-dir", default=None,
                     help="Where engine reports land (default: next to the source)")
     ap.add_argument("--timeout", type=int, default=1800)
@@ -373,7 +586,7 @@ def main() -> int:
                     help="Validate the artifact and print the commands only")
     args = ap.parse_args()
 
-    engines = ["ue5", "unity"] if args.engine == "both" else [args.engine]
+    engines = ENGINE_SETS.get(args.engine, [args.engine])
     sources = sources_from_args(args)
 
     failures = 0
@@ -386,11 +599,19 @@ def main() -> int:
             continue
         if info.get("triangles") == 0:
             print("    warning: the GLB parses but contains no triangles")
+        if info.get("error"):
+            print(f"    error: {info['error']}")
+            failures += 1
+            continue
 
         report_dir = Path(args.report_dir) if args.report_dir else Path(path).parent
         stem = asset_name or Path(path).stem
 
         for engine in engines:
+            if args.kind == "motion" and engine == "unity":
+                print("[unity] --kind motion is not wired yet; use blender or ue5")
+                failures += 1
+                continue
             extra_env: dict = {}
             if engine == "ue5":
                 editor = find_unreal_editor(args.ue_editor)
@@ -407,6 +628,18 @@ def main() -> int:
                 cmd, extra_env = ue_command(editor, Path(args.uproject), path, args,
                                             asset_name, report_path,
                                             source_tris=info.get("triangles"))
+            elif engine == "blender":
+                binary = find_blender(args.blender)
+                if not binary or not binary.exists():
+                    print("[blender] no Blender found — pass --blender, set "
+                          "AAAGF_BLENDER, or `pip install bpy` into this "
+                          "environment")
+                    failures += 1
+                    continue
+                report_path = report_dir / f"{stem}_blender_import.json"
+                cmd, extra_env = blender_command(binary, path, args, asset_name,
+                                                 report_path,
+                                                 source_tris=info.get("triangles"))
             else:
                 unity = find_unity(args.unity)
                 if not unity or not unity.exists():
