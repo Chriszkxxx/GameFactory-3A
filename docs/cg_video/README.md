@@ -201,6 +201,22 @@ metadata and summaries without loading a model or contacting a provider:
 python test/harness/smoke.py --kind cg_video
 ```
 
+Real API and local-checkpoint generation has one test entry point. Backend and
+runtime selection must be explicit; see the backend pages below for complete
+commands and optional settings:
+
+```bash
+CG_VIDEO_BACKEND=minimax-h3 \
+MINIMAX_H3_RUNTIME=local \
+CG_VIDEO_CKPT=Comfy-Org/MiniMax-H3 \
+CG_VIDEO_TEST_TASKS=/absolute/path/to/cg_tasks.jsonl \
+python test/test_cg_video_gen.py
+```
+
+The test validates the selected task set before provider access or checkpoint
+loading. Set `CG_VIDEO_TEST_TASK_ID=<task_id>` to reproduce one line from a
+larger JSONL without editing the file.
+
 ## Backends
 
 - [Seedance](seedance.md) — Volcengine Ark cloud API.

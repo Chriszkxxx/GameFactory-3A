@@ -95,10 +95,13 @@ def run_from_jsonl(
     tasks_path: str,
     operator,
     game_filter: str | None = None,
+    task_filter: str | None = None,
 ) -> list[dict]:
     """Run every selected task from a standard AAAGameForge JSONL file."""
     results = []
     for task, game_id in paths.iter_tasks(tasks_path, game_filter=game_filter):
+        if task_filter and task.get("task_id") != task_filter:
+            continue
         print(
             f"[run] game={game_id}  task_id={task.get('task_id', '?')}  "
             f"mode={task.get('mode', 'text_to_video')}"

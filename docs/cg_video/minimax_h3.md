@@ -171,18 +171,64 @@ The API wrapper performs create task → query status → retrieve file metadata
 download, while sharing the existing retry, error classification and billed
 response cache with Seedance.
 
-## Offline validation
+## Testing
+
+Run the free operator contract check first:
 
 ```bash
-python -m unittest test.test_cg_video_gen -v
 python test/harness/smoke.py --kind cg_video --backend minimax-h3
 ```
 
-Paid live validation is opt-in:
+All real API and local-checkpoint generation uses
+`test/test_cg_video_gen.py`. The test requires an explicit runtime so an agent
+cannot accidentally spend API credits or start a large checkpoint download.
+
+MiniMax Hailuo API (`text_to_video` and `first_frame_to_video` only):
 
 ```bash
 export MINIMAX_API_KEY="your-key"
-export AAAGF_RUN_MINIMAX_LIVE=1
-export MINIMAX_LIVE_MODES="text_to_video"
-python -m unittest test.test_api_cg_video.TestMiniMaxLive -v
+export CG_VIDEO_BACKEND=minimax-h3
+export MINIMAX_H3_RUNTIME=api
+export CG_VIDEO_TEST_TASKS=/absolute/path/to/minimax_api_tasks.jsonl
+export CG_VIDEO_TEST_OUT_DIR=/absolute/path/to/output
+export AAAGF_API_CACHE=/absolute/path/to/api_cache
+python test/test_cg_video_gen.py
 ```
+
+Local pruned INT8/convrot checkpoints:
+
+```bash
+export CG_VIDEO_BACKEND=minimax-h3
+export MINIMAX_H3_RUNTIME=local
+export CG_VIDEO_CKPT=Comfy-Org/MiniMax-H3
+export CG_VIDEO_TEST_TASKS=/absolute/path/to/minimax_local_tasks.jsonl
+export CG_VIDEO_TEST_OUT_DIR=/absolute/path/to/output
+export COMFYUI_PATH=/absolute/path/to/ComfyUI
+export HUGGINGFACE_HUB_CACHE=/absolute/path/to/huggingface-cache
+python test/test_cg_video_gen.py
+```
+
+`CG_VIDEO_CKPT` may instead point to a complete local weight directory. After
+the files are cached, set `MINIMAX_LOCAL_FILES_ONLY=1` to prohibit downloads.
+To reproduce one task from a larger JSONL, set
+`CG_VIDEO_TEST_TASK_ID=<task_id>`.
+
+Optional settings mirror the pipeline runner:
+
+```bash
+export MINIMAX_RESOLUTION=768P       # API
+export MINIMAX_WIDTH=864             # local
+export MINIMAX_HEIGHT=480            # local
+export MINIMAX_FPS=24                # local; fixed by the model
+export MINIMAX_STEPS=20              # local
+export MINIMAX_SCHEDULER=simple       # local
+export MINIMAX_SAMPLER_MODE=res_multistep
+export MINIMAX_REF_IMAGE_SIZE=match
+export MINIMAX_TASK_TIMEOUT=1800
+export MINIMAX_POLL_INTERVAL=3
+export MINIMAX_MAX_RETRIES=3
+```
+
+Before constructing the backend, the test parses the entire selected task set,
+validates modes, durations, unique task ids, control-frame combinations and
+image readability. A successful run verifies every output is a non-trivial MP4.
