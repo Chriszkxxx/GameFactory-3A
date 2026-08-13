@@ -313,7 +313,7 @@ gameplay code should not add a second blanket axis conversion. FBX authoring
 axes and units can vary, so imported orientation, scale, rig, and weapon
 forward direction still require inspection or importer configuration.
 
-# Unity API Context
+# Unity VFX API
 
 For smoke, fire, explosion, dust, and particle lifecycle work, use the
 [`create-vfx-effects`](create-vfx-effects/SKILL.md) skill and
