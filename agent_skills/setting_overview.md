@@ -10,6 +10,7 @@ prompt. Everything here is **prose for an agent to read**, not code to import �
 |------|----------|---------|
 | `setting_overview.md` | any agent | This file — what `agent_skills/` is and how to navigate it |
 | `develop_harness/` | a coding agent extending this repo | Contracts for the `models/` → `operators/` → `pipeline/` asset-generation chain |
+| `asset_qa/` | an agent choosing how to generate / QA assets | Per-asset-kind strategy notes (e.g. when to reconstruct a scene vs assemble it) |
 | `engine_context/` | the `gen_mechanic` / `gen_ui` code agents | Per-engine API notes (UE5 / Unity3D / Blender / three.js) used when generating engine code |
 | `asset_qa/` | a **vision-capable** agent reviewing 3D content | The two questions about an asset that no code can answer: which way it faces, and whether a generated mesh is fit to ship |
 
@@ -22,11 +23,12 @@ agent_skills/
 │   ├── operatar_require.md        ← contract for operators/  (task dict → artifacts)
 │   └── pipeline_require.md        ← contract for pipeline/   (CLI, batching, scoring)
 ├── engine_context/
-│   ├── ue5_api.md · unity3d_api.md · blender_api.md · three_js_api.md
+│   └── ue5_api.md · unity3d_api.md · blender_api.md · three_js_api.md
 └── asset_qa/
     ├── README.md
     ├── imported_asset_orientation.md   ← which way does this model face?
-    └── generated_asset_review.md       ← is this generated mesh shippable?
+    ├── generated_asset_review.md       ← is this generated mesh shippable?
+    └── generate_3D_scene_skills.md ← closed vs open 3D scene strategy
 ```
 
 ## Three different kinds of agent work
