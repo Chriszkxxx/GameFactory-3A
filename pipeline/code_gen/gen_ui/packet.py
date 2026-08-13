@@ -25,7 +25,7 @@ from pipeline.common.artifacts import (
     render_template,
     resolve_repo_path,
 )
-from pipeline.common.code_gen import (
+from pipeline.common.code_mapping import (
     CONTEXT_USED_SCHEMA,
     EXAMPLE_REFERENCE_PURPOSES,
     provenance_digests,

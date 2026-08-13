@@ -11,7 +11,7 @@ from pipeline.code_gen.gen_mechanic.contracts import (
     validate_mechanic_contract,
 )
 from pipeline.common.artifacts import read_json
-from pipeline.common.code_gen import (
+from pipeline.common.code_mapping import (
     resolve_engine_registration,
     validate_context_used,
 )
