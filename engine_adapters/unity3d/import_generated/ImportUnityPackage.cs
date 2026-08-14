@@ -59,7 +59,9 @@ public static class ImportUnityPackage
         if (report.sceneObjectCount == 0)
             report.warnings.Add("Imported package scene contains no serialized GameObjects");
         if (report.prefabColliderCount == 0)
-            report.warnings.Add("Imported package contains no prefab colliders; runtime must generate structural colliders");
+            report.warnings.Add(
+                "Imported package contains no prefab colliders; scene composition must bake " +
+                "structural colliders before building a Player");
         if (report.brokenShaderCount > 0)
             report.warnings.Add("Imported package contains shader/material references that Unity could not resolve");
         return report;

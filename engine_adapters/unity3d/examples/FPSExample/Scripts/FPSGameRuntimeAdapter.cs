@@ -182,6 +182,7 @@ namespace FPSExample
         {
             int added = 0;
             int removed = 0;
+            int skippedUnreadable = 0;
             foreach (MeshFilter filter in FindObjectsOfType<MeshFilter>(true))
             {
                 if (filter == null || filter.sharedMesh == null ||
@@ -192,13 +193,21 @@ namespace FPSExample
                 {
                     foreach (MeshCollider existingCollider in filter.GetComponents<MeshCollider>())
                     {
-                        DestroyImmediate(existingCollider);
+                        if (Application.isPlaying)
+                            Destroy(existingCollider);
+                        else
+                            DestroyImmediate(existingCollider);
                         removed++;
                     }
                     continue;
                 }
                 if (filter.GetComponent<Collider>() != null)
                     continue;
+                if (!filter.sharedMesh.isReadable && !Application.isEditor)
+                {
+                    skippedUnreadable++;
+                    continue;
+                }
                 MeshCollider generatedCollider = filter.gameObject.AddComponent<MeshCollider>();
                 generatedCollider.sharedMesh = filter.sharedMesh;
                 added++;
@@ -206,7 +215,8 @@ namespace FPSExample
             Debug.Log(
                 "[FPS_COLLISION] Added " + added +
                 " structural colliders; removed " + removed +
-                " non-structural mesh colliders");
+                " non-structural mesh colliders; skipped " + skippedUnreadable +
+                " unreadable runtime meshes");
         }
 
         private static bool IsNonStructuralEnvironmentMesh(Transform item)
@@ -325,13 +335,14 @@ namespace FPSExample
             if (!IsReady || playerCamera == null)
                 return false;
 
-            RaycastHit[] hits = Physics.RaycastAll(
+            RaycastHit[] hits = Physics.SphereCastAll(
                 playerCamera.transform.position,
+                0.25f,
                 playerCamera.transform.forward,
                 4f,
                 Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.Ignore);
-            Array.Sort(hits, (left, right) => left.distance.CompareTo(right.distance));
+            FPSPhysicsOrder.SortHits(hits);
             foreach (RaycastHit hit in hits)
             {
                 if (hit.collider == null ||
@@ -339,11 +350,42 @@ namespace FPSExample
                     continue;
                 FPSDoor door = hit.collider.GetComponentInParent<FPSDoor>();
                 if (door == null)
-                    return false;
+                    continue;
                 door.Toggle();
                 return true;
             }
+            FPSDoor nearby = FindClosestDoor(4f);
+            if (nearby != null)
+            {
+                nearby.Toggle();
+                return true;
+            }
             return false;
+        }
+
+        private FPSDoor FindClosestDoor(float maxDistance)
+        {
+            Vector3 origin = playerCamera.transform.position;
+            FPSDoor closest = null;
+            float closestDistance = maxDistance * maxDistance;
+            foreach (FPSDoor door in doors)
+            {
+                if (door == null || !door.IsConfigured)
+                    continue;
+                float distance = (door.transform.position - origin).sqrMagnitude;
+                foreach (Collider collider in door.GetComponentsInChildren<Collider>(true))
+                {
+                    if (collider == null || collider.isTrigger)
+                        continue;
+                    Vector3 point = collider.bounds.ClosestPoint(origin);
+                    distance = Mathf.Min(distance, (point - origin).sqrMagnitude);
+                }
+                if (distance >= closestDistance)
+                    continue;
+                closest = door;
+                closestDistance = distance;
+            }
+            return closest;
         }
 
         public void Move(float moveX, float moveY, float deltaTime)
@@ -456,10 +498,11 @@ namespace FPSExample
 
         private void LateUpdate()
         {
-            if (playerGunView != null && playerCamera != null)
-                playerGunView.transform.rotation = Quaternion.LookRotation(
-                    playerCamera.transform.forward,
-                    playerCamera.transform.up);
+            if (playerGunView == null || playerCamera == null)
+                return;
+            playerGunView.transform.rotation = Quaternion.LookRotation(
+                playerCamera.transform.forward,
+                playerCamera.transform.up);
         }
     }
 }

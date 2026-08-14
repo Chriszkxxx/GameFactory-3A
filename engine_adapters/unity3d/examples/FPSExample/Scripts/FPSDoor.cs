@@ -35,8 +35,8 @@ namespace FPSExample
 
             var sorted = new List<Transform>(uniquePanels);
             sorted.Sort((left, right) =>
-                transform.InverseTransformPoint(left.position).x.CompareTo(
-                    transform.InverseTransformPoint(right.position).x));
+                transform.InverseTransformPoint(PanelWorldCenter(left)).x.CompareTo(
+                    transform.InverseTransformPoint(PanelWorldCenter(right)).x));
             if (sorted.Count > 2)
                 sorted = sorted.GetRange(0, 2);
             if (sorted.Count == 0)
@@ -48,12 +48,20 @@ namespace FPSExample
             panels = sorted.ToArray();
             closedPositions = new Vector3[panels.Length];
             openPositions = new Vector3[panels.Length];
+            Vector3 doorwayCenter = Vector3.zero;
+            foreach (Transform panel in panels)
+                doorwayCenter += PanelWorldCenter(panel);
+            doorwayCenter /= panels.Length;
+
             for (int index = 0; index < panels.Length; index++)
             {
                 Transform panel = panels[index];
                 closedPositions[index] = panel.localPosition;
-                float side = index == 0 ? -1f : 1f;
-                Vector3 worldDirection = transform.right * side;
+                Vector3 worldDirection = Vector3.ProjectOnPlane(
+                    PanelWorldCenter(panel) - doorwayCenter,
+                    transform.up).normalized;
+                if (worldDirection.sqrMagnitude < 0.0001f)
+                    worldDirection = transform.right * (index == 0 ? -1f : 1f);
                 Vector3 localDirection = panel.parent != null
                     ? panel.parent.InverseTransformDirection(worldDirection).normalized
                     : worldDirection.normalized;
@@ -72,6 +80,7 @@ namespace FPSExample
             if (!IsConfigured)
                 return;
             IsOpen = open;
+            SetPanelCollidersEnabled(!open);
             if (immediate)
             {
                 for (int index = 0; index < panels.Length; index++)
@@ -95,6 +104,24 @@ namespace FPSExample
                     panels[index].localPosition,
                     target,
                     Mathf.Max(0f, openSpeed) * Time.deltaTime);
+            }
+        }
+
+        private static Vector3 PanelWorldCenter(Transform panel)
+        {
+            BoxCollider collider = panel.GetComponent<BoxCollider>();
+            return collider != null ? collider.bounds.center : panel.position;
+        }
+
+        private void SetPanelCollidersEnabled(bool value)
+        {
+            foreach (Transform panel in panels)
+            {
+                if (panel == null)
+                    continue;
+                foreach (Collider collider in panel.GetComponentsInChildren<Collider>(true))
+                    if (collider != null)
+                        collider.enabled = value;
             }
         }
     }

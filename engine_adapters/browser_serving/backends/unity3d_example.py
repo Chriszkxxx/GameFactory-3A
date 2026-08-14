@@ -397,35 +397,33 @@ class Unity3DExampleBackend:
         self,
         request: Mapping[str, Any],
     ) -> dict[str, Any]:
-        slot = 0
-        input_port = self.config.base_runtime_port + slot
-        webgl_port = self.config.base_pixel_http_port + slot
         session_id = f"bs_{uuid4().hex[:10]}"
         user_id = str(request.get("user_id") or "")
         participant_id = str(
             request.get("participant_id")
             or f"participant_{user_id or session_id}"
         )
-        stream_url = (
-            f"http://{self.config.pixel_host}:{webgl_port}/index.html"
-        )
-        client = self._new_client(
-            runtime_port=input_port,
-        )
-        session = Unity3DBrowserSession(
-            session_id=session_id,
-            participant_id=participant_id,
-            user_id=user_id,
-            state="CREATED",
-            input_port=input_port,
-            webgl_port=webgl_port,
-            stream_url=stream_url,
-            unity_input_host=self.config.runtime_host,
-            preview_scene=self.config.preview_map,
-            client=client,
-            character=dict(request.get("character") or {}),
-        )
         with self._lock:
+            slot, input_port, webgl_port = self._allocate_session_ports()
+            stream_url = (
+                f"http://{self.config.pixel_host}:{webgl_port}/index.html"
+            )
+            client = self._new_client(
+                runtime_port=input_port,
+            )
+            session = Unity3DBrowserSession(
+                session_id=session_id,
+                participant_id=participant_id,
+                user_id=user_id,
+                state="CREATED",
+                input_port=input_port,
+                webgl_port=webgl_port,
+                stream_url=stream_url,
+                unity_input_host=self.config.runtime_host,
+                preview_scene=self.config.preview_map,
+                client=client,
+                character=dict(request.get("character") or {}),
+            )
             self._sessions[session_id] = session
         try:
             session.state = "BOOTING_WEBGL"
@@ -497,6 +495,28 @@ class Unity3DExampleBackend:
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
+
+    def _allocate_session_ports(self) -> tuple[int, int, int]:
+        used_webgl_ports = {
+            session.webgl_port for session in self._sessions.values()
+        }
+        used_input_ports = {
+            session.input_port for session in self._sessions.values()
+        }
+        for slot in range(self.config.max_sessions):
+            input_port = self.config.base_runtime_port + slot
+            webgl_port = (
+                self.config.base_pixel_http_port
+                + slot * self.config.session_port_stride
+            )
+            if webgl_port in used_webgl_ports or input_port in used_input_ports:
+                continue
+            if self.config.dry_run or (
+                _is_tcp_port_free(self.config.pixel_host, webgl_port)
+                and _is_udp_port_free(self.config.runtime_host, input_port)
+            ):
+                return slot, input_port, webgl_port
+        raise RuntimeError("No free Unity browser serving session ports")
 
     def list_sessions(self) -> dict[str, Any]:
         return serving_result(
