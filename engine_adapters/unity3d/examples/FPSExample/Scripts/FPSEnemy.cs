@@ -198,7 +198,7 @@ namespace FPSExample
                 10f,
                 Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.Ignore);
-            Array.Sort(hits, (left, right) => left.distance.CompareTo(right.distance));
+            FPSPhysicsOrder.SortHits(hits);
             foreach (RaycastHit hit in hits)
             {
                 if (hit.collider == null ||

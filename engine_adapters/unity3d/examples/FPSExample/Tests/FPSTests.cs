@@ -139,21 +139,36 @@ namespace FPSExample.Tests
             GameObject right = new GameObject("right_panel");
             left.transform.SetParent(root.transform, false);
             right.transform.SetParent(root.transform, false);
-            left.transform.localPosition = new Vector3(-0.75f, 1.5f, 0f);
-            right.transform.localPosition = new Vector3(0.75f, 1.5f, 0f);
-            left.AddComponent<BoxCollider>().size = new Vector3(1.5f, 3f, 0.2f);
-            right.AddComponent<BoxCollider>().size = new Vector3(1.5f, 3f, 0.2f);
+            left.transform.localPosition = new Vector3(0.75f, 1.5f, 0f);
+            right.transform.localPosition = new Vector3(-0.75f, 1.5f, 0f);
+            BoxCollider leftCollider = left.AddComponent<BoxCollider>();
+            BoxCollider rightCollider = right.AddComponent<BoxCollider>();
+            leftCollider.size = new Vector3(1.5f, 3f, 0.2f);
+            rightCollider.size = new Vector3(1.5f, 3f, 0.2f);
+            leftCollider.center = new Vector3(-1.5f, 0f, 0f);
+            rightCollider.center = new Vector3(1.5f, 0f, 0f);
             FPSDoor door = root.AddComponent<FPSDoor>();
 
             Assert.That(door.ConfigureFromPrefab(), Is.True);
             Vector3 leftClosed = left.transform.localPosition;
             Vector3 rightClosed = right.transform.localPosition;
+            float closedDistance = Vector3.Distance(
+                left.transform.TransformPoint(leftCollider.center),
+                right.transform.TransformPoint(rightCollider.center));
             door.SetOpen(true, true);
+            float openDistance = Vector3.Distance(
+                left.transform.TransformPoint(leftCollider.center),
+                right.transform.TransformPoint(rightCollider.center));
             Assert.That(left.transform.localPosition, Is.Not.EqualTo(leftClosed));
             Assert.That(right.transform.localPosition, Is.Not.EqualTo(rightClosed));
+            Assert.That(openDistance, Is.GreaterThan(closedDistance));
+            Assert.That(leftCollider.enabled, Is.False);
+            Assert.That(rightCollider.enabled, Is.False);
             door.SetOpen(false, true);
             Assert.That(left.transform.localPosition, Is.EqualTo(leftClosed));
             Assert.That(right.transform.localPosition, Is.EqualTo(rightClosed));
+            Assert.That(leftCollider.enabled, Is.True);
+            Assert.That(rightCollider.enabled, Is.True);
 
             Object.DestroyImmediate(root);
         }

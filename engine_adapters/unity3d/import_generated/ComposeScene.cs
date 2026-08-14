@@ -93,6 +93,9 @@ public static class ComposeScene
         public bool enable_urp = true;
         public bool use_base_scene_camera_rotation = true;
         public bool create_default_camera = true;
+        public bool bake_environment_colliders = true;
+        public bool convert_environment_materials = true;
+        public string[] non_collidable_name_tokens;
         public ObjectSpec[] objects;
     }
 
@@ -107,6 +110,8 @@ public static class ComposeScene
         public string renderPipelinePath = "";
         public int rootObjectCount;
         public int configuredObjectCount;
+        public int bakedColliderCount;
+        public int convertedMaterialCount;
         public List<string> usedAssetPaths = new List<string>();
         public List<string> dependencies = new List<string>();
         public List<string> warnings = new List<string>();
@@ -193,13 +198,15 @@ public static class ComposeScene
             report.usedAssetPaths.Add(item.prefab_path);
         }
 
-        if (job.create_ground)
+        // Imported scenes own their visible floor. A generated plane beneath a
+        // modular environment shows through intentional openings in WebGL.
+        if (job.create_ground && string.IsNullOrEmpty(job.base_scene))
         {
             GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "ArenaWalkableGround";
             ground.transform.SetParent(environmentRoot.transform, false);
             ground.transform.localScale = new Vector3(6f, 1f, 6f);
-            Material material = new Material(Shader.Find("Standard"));
+            Material material = EnsureGroundMaterial(job.enable_urp);
             material.color = new Color(0.12f, 0.15f, 0.17f);
             ground.GetComponent<Renderer>().sharedMaterial = material;
         }
@@ -226,10 +233,12 @@ public static class ComposeScene
                     cameraObject.AddComponent<AudioListener>();
                 cameraObject.transform.position = new Vector3(0f, 1.7f, -6f);
             }
+            PrepareEnvironmentForPlayer(job, report);
             SaveScene(job, scene, report);
             return report;
         }
 
+        PrepareEnvironmentForPlayer(job, report);
         RuntimeAnimatorController characterController = CreateCharacterController(job);
         report.animatorControllerPath = AssetDatabase.GetAssetPath(characterController);
         report.usedAssetPaths.Add(report.animatorControllerPath);
@@ -309,6 +318,236 @@ public static class ComposeScene
         cameraObject.transform.rotation = Quaternion.Euler(rotation);
         if (cameraObject.GetComponent<AudioListener>() == null)
             cameraObject.AddComponent<AudioListener>();
+    }
+
+    private static void PrepareEnvironmentForPlayer(SceneJob job, SceneReport report)
+    {
+        PrepareInteractiveDoors();
+        if (job.convert_environment_materials && job.enable_urp)
+            report.convertedMaterialCount = ConvertSceneMaterialsToUrp(report);
+        if (job.bake_environment_colliders)
+            report.bakedColliderCount = BakeStructuralMeshColliders(
+                job.non_collidable_name_tokens);
+    }
+
+    private static void PrepareInteractiveDoors()
+    {
+        foreach (Transform candidate in UnityEngine.Object.FindObjectsOfType<Transform>(true))
+        {
+            string normalized = candidate.name.ToLowerInvariant();
+            if (normalized != "door" && !normalized.StartsWith("door ("))
+                continue;
+            foreach (Transform item in candidate.GetComponentsInChildren<Transform>(true))
+                GameObjectUtility.SetStaticEditorFlags(item.gameObject, 0);
+        }
+    }
+
+    private static Material EnsureGroundMaterial(bool useUrp)
+    {
+        const string directory = "Assets/Generated/Materials/Environment";
+        const string materialPath = directory + "/ArenaWalkableGround.mat";
+        Directory.CreateDirectory(directory);
+        Shader shader = Shader.Find(
+            useUrp ? "Universal Render Pipeline/Lit" : "Standard");
+        if (shader == null)
+            throw new InvalidOperationException("Walkable ground shader is unavailable");
+        Material material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+        if (material == null)
+        {
+            material = new Material(shader) { name = "ArenaWalkableGround" };
+            AssetDatabase.CreateAsset(material, materialPath);
+        }
+        else
+        {
+            material.shader = shader;
+        }
+        EditorUtility.SetDirty(material);
+        return material;
+    }
+
+    private static int ConvertSceneMaterialsToUrp(SceneReport report)
+    {
+        Shader urpLit = Shader.Find("Universal Render Pipeline/Lit");
+        if (urpLit == null)
+            throw new InvalidOperationException("URP/Lit shader is unavailable");
+
+        var converted = new Dictionary<Material, Material>();
+        foreach (Renderer renderer in UnityEngine.Object.FindObjectsOfType<Renderer>(true))
+        {
+            Material[] materials = renderer.sharedMaterials;
+            bool changed = false;
+            for (int index = 0; index < materials.Length; index++)
+            {
+                Material source = materials[index];
+                if (!RequiresUrpConversion(source))
+                    continue;
+                if (!converted.TryGetValue(source, out Material target))
+                {
+                    target = CreateUrpMaterialCopy(source, urpLit, report);
+                    converted.Add(source, target);
+                }
+                materials[index] = target;
+                changed = true;
+            }
+            if (!changed) continue;
+            renderer.sharedMaterials = materials;
+            EditorUtility.SetDirty(renderer);
+        }
+        return converted.Count;
+    }
+
+    private static bool RequiresUrpConversion(Material material)
+    {
+        if (material == null)
+            return false;
+        if (material.shader == null)
+            return true;
+        string shaderName = material.shader.name ?? "";
+        return !shaderName.StartsWith("Universal Render Pipeline/", StringComparison.Ordinal) &&
+            !shaderName.StartsWith("Skybox/", StringComparison.Ordinal);
+    }
+
+    private static Material CreateUrpMaterialCopy(
+        Material source,
+        Shader shader,
+        SceneReport report)
+    {
+        const string directory = "Assets/Generated/Materials/Environment";
+        Directory.CreateDirectory(directory);
+        string sourcePath = AssetDatabase.GetAssetPath(source);
+        string guid = AssetDatabase.AssetPathToGUID(sourcePath);
+        string suffix = string.IsNullOrEmpty(guid)
+            ? Math.Abs(source.GetInstanceID()).ToString()
+            : guid.Substring(0, Math.Min(12, guid.Length));
+        string materialPath = directory + "/" + SanitizeAssetName(source.name) +
+            "_" + suffix + "_URP.mat";
+        Material target = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+        if (target == null)
+        {
+            target = new Material(shader) { name = source.name + " URP" };
+            AssetDatabase.CreateAsset(target, materialPath);
+        }
+        else
+        {
+            target.shader = shader;
+        }
+
+        CopyTexture(source, target, "_BaseMap", "_BaseMap", "_MainTex", "_Base_Color", "_Albedo");
+        CopyTexture(source, target, "_BumpMap", "_BumpMap", "_NormalMap", "_Base_Normal");
+        CopyTexture(source, target, "_MetallicGlossMap", "_MetallicGlossMap", "_Mask_Map", "_Mask");
+        CopyTexture(source, target, "_OcclusionMap", "_OcclusionMap", "_Mask_Map", "_Mask");
+        CopyTexture(source, target, "_EmissionMap", "_EmissionMap", "_Emission");
+        CopyColor(source, target, "_BaseColor", "_BaseColor", "_Color");
+        CopyFloat(source, target, "_Metallic", "_Metallic");
+        CopyFloat(source, target, "_Smoothness", "_Smoothness", "_Glossiness");
+        CopyFloat(source, target, "_BumpScale", "_BumpScale", "_NormalStrength");
+        CopyFloat(source, target, "_OcclusionStrength", "_OcclusionStrength");
+        if (target.GetTexture("_BumpMap") != null) target.EnableKeyword("_NORMALMAP");
+        if (target.GetTexture("_MetallicGlossMap") != null)
+            target.EnableKeyword("_METALLICSPECGLOSSMAP");
+        if (target.GetTexture("_OcclusionMap") != null) target.EnableKeyword("_OCCLUSIONMAP");
+        if (target.GetTexture("_EmissionMap") != null) target.EnableKeyword("_EMISSION");
+        EditorUtility.SetDirty(target);
+        if (!report.usedAssetPaths.Contains(materialPath))
+            report.usedAssetPaths.Add(materialPath);
+        return target;
+    }
+
+    private static void CopyTexture(
+        Material source,
+        Material target,
+        string targetProperty,
+        params string[] sourceProperties)
+    {
+        foreach (string property in sourceProperties)
+        {
+            if (!source.HasProperty(property)) continue;
+            Texture texture = source.GetTexture(property);
+            if (texture == null) continue;
+            target.SetTexture(targetProperty, texture);
+            target.SetTextureScale(targetProperty, source.GetTextureScale(property));
+            target.SetTextureOffset(targetProperty, source.GetTextureOffset(property));
+            if (targetProperty == "_BaseMap")
+            {
+                target.SetTexture("_MainTex", texture);
+                target.SetTextureScale("_MainTex", source.GetTextureScale(property));
+                target.SetTextureOffset("_MainTex", source.GetTextureOffset(property));
+            }
+            return;
+        }
+    }
+
+    private static void CopyColor(
+        Material source,
+        Material target,
+        string targetProperty,
+        params string[] sourceProperties)
+    {
+        foreach (string property in sourceProperties)
+        {
+            if (!source.HasProperty(property)) continue;
+            target.SetColor(targetProperty, source.GetColor(property));
+            return;
+        }
+        target.SetColor(targetProperty, Color.white);
+    }
+
+    private static void CopyFloat(
+        Material source,
+        Material target,
+        string targetProperty,
+        params string[] sourceProperties)
+    {
+        foreach (string property in sourceProperties)
+        {
+            if (!source.HasProperty(property)) continue;
+            target.SetFloat(targetProperty, source.GetFloat(property));
+            return;
+        }
+    }
+
+    private static int BakeStructuralMeshColliders(string[] configuredTokens)
+    {
+        string[] tokens = configuredTokens != null && configuredTokens.Length > 0
+            ? configuredTokens
+            : new[]
+            {
+                "bed", "mug", "shelf", "crate", "tablet", "cargo",
+                "debris", "solar", "lamp", "antenna", "plant",
+            };
+        int added = 0;
+        foreach (MeshFilter filter in UnityEngine.Object.FindObjectsOfType<MeshFilter>(true))
+        {
+            if (filter == null || filter.sharedMesh == null ||
+                filter.GetComponent<Collider>() != null ||
+                NameContainsToken(filter.transform, tokens))
+                continue;
+            MeshCollider collider = filter.gameObject.AddComponent<MeshCollider>();
+            collider.sharedMesh = filter.sharedMesh;
+            EditorUtility.SetDirty(collider);
+            added++;
+        }
+        return added;
+    }
+
+    private static bool NameContainsToken(Transform item, string[] tokens)
+    {
+        for (Transform current = item; current != null; current = current.parent)
+        {
+            string normalized = current.name.ToLowerInvariant();
+            foreach (string token in tokens)
+                if (!string.IsNullOrWhiteSpace(token) &&
+                    normalized.Contains(token.Trim().ToLowerInvariant()))
+                    return true;
+        }
+        return false;
+    }
+
+    private static string SanitizeAssetName(string name)
+    {
+        foreach (char value in Path.GetInvalidFileNameChars())
+            name = name.Replace(value, '_');
+        return string.IsNullOrWhiteSpace(name) ? "Material" : name;
     }
 
     private static int ComposeObjects(ObjectSpec[] specs, SceneReport report)
@@ -502,13 +741,9 @@ public static class ComposeScene
         AnimatorStateMachine machine = controller.layers[0].stateMachine;
         AnimatorState idleState = machine.AddState("Idle");
         AnimatorState walkState = machine.AddState("Walk");
-        AnimatorState shootState = machine.AddState("Shoot");
-        AnimatorState reloadState = machine.AddState("Reload");
         AnimatorState deathState = machine.AddState("Death");
         idleState.motion = idle;
         walkState.motion = walk;
-        shootState.motion = shoot;
-        reloadState.motion = reload;
         deathState.motion = death;
         machine.defaultState = idleState;
 
@@ -521,13 +756,60 @@ public static class ComposeScene
         toIdle.duration = 0.12f;
         toIdle.AddCondition(AnimatorConditionMode.Less, 0.1f, "Speed");
 
-        AddTriggeredTransition(machine, shootState, "Shoot");
-        AddTriggeredTransition(machine, reloadState, "Reload");
         AddTriggeredTransition(machine, deathState, "Death");
-        AddExitTransition(shootState, idleState);
-        AddExitTransition(reloadState, idleState);
+
+        AvatarMask weaponMask = EnsureUpperBodyWeaponMask(directory);
+        controller.AddLayer("UpperBodyWeapon");
+        AnimatorControllerLayer[] layers = controller.layers;
+        int upperLayerIndex = layers.Length - 1;
+        AnimatorControllerLayer upperLayer = layers[upperLayerIndex];
+        upperLayer.avatarMask = weaponMask;
+        upperLayer.blendingMode = AnimatorLayerBlendingMode.Override;
+        upperLayer.defaultWeight = 1f;
+        layers[upperLayerIndex] = upperLayer;
+        controller.layers = layers;
+
+        AnimatorStateMachine upperMachine = controller.layers[upperLayerIndex].stateMachine;
+        AnimatorState weaponIdleState = upperMachine.AddState("WeaponIdle");
+        AnimatorState shootState = upperMachine.AddState("Shoot");
+        AnimatorState reloadState = upperMachine.AddState("Reload");
+        AnimatorState upperDeathState = upperMachine.AddState("Death");
+        weaponIdleState.motion = idle;
+        shootState.motion = shoot;
+        reloadState.motion = reload;
+        upperDeathState.motion = death;
+        upperMachine.defaultState = weaponIdleState;
+        AddTriggeredTransition(upperMachine, shootState, "Shoot");
+        AddTriggeredTransition(upperMachine, reloadState, "Reload");
+        AddTriggeredTransition(upperMachine, upperDeathState, "Death");
+        AddExitTransition(shootState, weaponIdleState);
+        AddExitTransition(reloadState, weaponIdleState);
         AssetDatabase.SaveAssets();
         return controller;
+    }
+
+    private static AvatarMask EnsureUpperBodyWeaponMask(string directory)
+    {
+        string maskPath = (string.IsNullOrEmpty(directory) ? "Assets" : directory) +
+            "/FPSUpperBodyWeapon.mask";
+        AvatarMask mask = AssetDatabase.LoadAssetAtPath<AvatarMask>(maskPath);
+        if (mask == null)
+        {
+            mask = new AvatarMask { name = "FPSUpperBodyWeapon" };
+            AssetDatabase.CreateAsset(mask, maskPath);
+        }
+        for (int index = 0; index < (int)AvatarMaskBodyPart.LastBodyPart; index++)
+            mask.SetHumanoidBodyPartActive((AvatarMaskBodyPart)index, false);
+        mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.Body, true);
+        mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.Head, true);
+        mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftArm, true);
+        mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightArm, true);
+        mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftFingers, true);
+        mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightFingers, true);
+        mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.LeftHandIK, true);
+        mask.SetHumanoidBodyPartActive(AvatarMaskBodyPart.RightHandIK, true);
+        EditorUtility.SetDirty(mask);
+        return mask;
     }
 
     private static void AddTriggeredTransition(

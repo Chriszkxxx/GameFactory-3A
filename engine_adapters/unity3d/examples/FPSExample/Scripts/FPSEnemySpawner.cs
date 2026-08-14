@@ -140,7 +140,7 @@ namespace FPSExample
             Collider best = null;
             float bestScore = float.PositiveInfinity;
             float targetDistance = 9f + usedSpawnPositions.Count * 4f;
-            foreach (Collider collider in FindObjectsOfType<Collider>(true))
+            foreach (Collider collider in FPSPhysicsOrder.FindColliders())
             {
                 if (!IsPreparedFloor(collider))
                     continue;
@@ -224,7 +224,7 @@ namespace FPSExample
                 24f,
                 Physics.DefaultRaycastLayers,
                 QueryTriggerInteraction.Ignore);
-            Array.Sort(hits, (left, right) => left.distance.CompareTo(right.distance));
+            FPSPhysicsOrder.SortHits(hits);
             RaycastHit? terrainFallback = null;
             foreach (RaycastHit hit in hits)
             {
@@ -286,7 +286,7 @@ namespace FPSExample
         {
             Collider best = null;
             float bestDistance = float.PositiveInfinity;
-            foreach (Collider collider in FindObjectsOfType<Collider>(true))
+            foreach (Collider collider in FPSPhysicsOrder.FindColliders())
             {
                 if (collider == null || !collider.enabled || collider.isTrigger)
                     continue;
