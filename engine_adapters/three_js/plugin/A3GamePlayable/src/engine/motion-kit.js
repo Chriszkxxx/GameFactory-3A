@@ -1083,6 +1083,35 @@ export function findRiggedHumanoid(object, minimumBones = 12) {
 }
 
 export async function createAnimatedActor(assets, reference, options = {}) {
+  // A preference list is resolved *here* rather than by
+  // `AssetLibrary.findEntry`, which stops at the first staged candidate.
+  // That is the right rule for a prop and the wrong one for a character:
+  // "the newer, better-looking mesh, unless it cannot be made to move"
+  // is only answerable after trying to rig it, and a character that
+  // cannot move is worse than a plainer one that can. So every candidate
+  // is attempted in order, the first one that ends up with clips wins,
+  // and a motionless result is kept only as a last resort.
+  if (!Array.isArray(reference)) {
+    return createSingleAnimatedActor(assets, reference, options);
+  }
+  let fallback = null;
+  for (const candidate of reference) {
+    const actor = await createSingleAnimatedActor(assets, candidate, options);
+    if (!actor) continue;
+    if (actor.motionSource !== 'none') return actor;
+    if (!fallback) {
+      fallback = actor;
+      fallback.warnings = [
+        ...(actor.warnings ?? []),
+        `Asset ${String(candidate)} loaded but could not be animated; ` +
+          'later candidates were tried before falling back to it.',
+      ];
+    }
+  }
+  return fallback;
+}
+
+async function createSingleAnimatedActor(assets, reference, options = {}) {
   const loaded = await assets.tryInstantiate(reference, {
     height: options.height,
     // A character is placed by its feet, and a generated model's origin is

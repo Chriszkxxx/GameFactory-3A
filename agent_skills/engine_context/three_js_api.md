@@ -419,10 +419,17 @@ and rigging such a mesh produces a writhing lump rather than a fighter.
 Looking correct while frozen is a worse outcome than looking plain and
 moving.
 
-Try candidates **one at a time** rather than handing `tryInstantiate` a
-preference list, because "is it staged" and "can it be animated" are
-different questions and only the second one decides whether the swap is an
-improvement.
+So hand the preference list to **`createAnimatedActor`**, not to
+`tryInstantiate`. `tryInstantiate` answers "is it staged" and stops at the
+first candidate; `createAnimatedActor` tries each in order and returns the
+first that ends up with clips, keeping a loaded-but-motionless one only as
+a last resort. Only the second question decides whether a swap is an
+improvement, and it cannot be answered before the rig is attempted.
+
+```js
+const actor = await createAnimatedActor(
+  assets, ['explorer_hero', 'explorer_ranger', 'robot_expressive'], { height: 1.8 });
+```
 
 - `A3GameHumanoidBone` / `A3GameMotionState` - the canonical bone and
   state names. Left is `+x`, up is `+y`, forward is `-z`, and every bone
@@ -568,9 +575,19 @@ not a hand-built scene, is what `A3GameSceneLoader` consumes.
 Coordinates are right-handed, Y-up, metres; rotations are radians.
 
 - `world_id`, `name`, `project_id`, `metadata`;
-- `environment` - `background`, `environment_artifact_id`,
-  `background_intensity`, `tone_mapping`, `tone_mapping_exposure`,
-  `shadows`, `fog` (`type`/`color`/`near`/`far`/`density`), `ground`;
+- `environment` - `preset` (`room`/`sky`/`gradient`/`none`), `sun`
+  (`{x,y,z}`, also aims the painted sun), `sky` (palette and cloud
+  settings for the `gradient` preset — see `createSkyGradient`),
+  `background`, `environment_artifact_id`, `background_artifact_id`,
+  `environment_intensity`, `background_intensity`,
+  `background_blurriness`, `tone_mapping`, `tone_mapping_exposure`,
+  `shadows`, `fog` (`type`/`color`/`near`/`far`/`density`), `ground`
+  (`size`/`color`/`texture_artifact_id`/`normal_artifact_id`/
+  `roughness_artifact_id`/`texture_repeat`);
+  a `preset` and an imported HDRI are complementary, not exclusive: the
+  preset can keep the visible sky while the HDRI supplies the lighting.
+  An unknown `preset` is rejected when the world is published rather than
+  showing up as a silently unlit scene in the browser;
 - `camera` - `type`, `fov`, `near`, `far`, `position`, `target`,
   `controls`;
 - `lights[]` - `light_id`, `type`, `color`, `intensity`, `position`,
@@ -754,12 +771,22 @@ They are game-neutral.
   `remove`, `getRoot`, `usePerspectiveCamera`, `useOrthographicCamera`,
   `setFrustumHeight`, `attachOrbitControls`, `attachPointerLockControls`,
   `requestPointerLock`, `exitPointerLock`, `isPointerLocked`,
-  `detachControls`, `setEnvironment`, `setFog`, `raycastFromPointer`,
+  `detachControls`, `setEnvironment`, `setFog`, `getSunDirection`,
+  `getSunPosition`, `raycastFromPointer`,
   `raycast`, `captureFrame`, `getStats`, `dispose`.
+  `setEnvironment` also takes `backgroundTexture` (an equirectangular
+  image as the visible sky, with the mapping set for you),
+  `backgroundBlurriness`, `backgroundRotationDegrees`,
+  `environmentRotationDegrees` and `environmentIntensity`.
 - `A3GameEnvironmentPreset` - Procedural image-based lighting selected by
-  `setEnvironment({ preset })`: `ROOM` (interiors), `SKY` (a physical sky
-  that also becomes the backdrop), `NONE`. Generated on the GPU at boot,
-  so no `.hdr` is downloaded and no licence applies.
+  `setEnvironment({ preset })`: `ROOM` (interiors), `GRADIENT` (**the
+  outdoor default** — horizon gradient, sun, drifting clouds, and an
+  art-directable palette, convolved into the environment map so
+  reflections match the visible sky), `SKY` (the Preetham physical model:
+  correct, and therefore cloudless), `NONE`. Generated on the GPU at boot,
+  so no `.hdr` is downloaded and no licence applies. Whichever preset
+  paints a sky records where it put the sun, so `getSunPosition()` places
+  a `DirectionalLight` that agrees with it.
 - `disposeObject3D` - Recursively disposes geometries, materials, and
   textures.
 - **Visual kit** - the look-and-feel building blocks, all game-neutral:
@@ -767,17 +794,27 @@ They are game-neutral.
   gunmetal, plastic, rubber, cloth, leather, wood, stone, concrete,
   tarmac, grass, sand, glass, emissive), `createRoundedBox`,
   `createSunLight` (shadow camera fitted to a radius), `createFillLight`,
-  `createContactShadow`, `createRadialGradientTexture`,
+  `createContactShadow`, `createRadialGradientTexture` (falls back to a
+  `DataTexture` with no DOM, so headless world tests can build scenery),
   `createSeededRandom`, `createInstancedFromModel` (one draw call for many
-  copies of one generated body), plus the imported-model utilities
-  `prepareModel`,
+  copies of one generated body), the outdoor dressing set
+  `createSkyGradient`, `createDistantRange` (closes the hard edge where a
+  ground plane stops), `createCloudLayer` (parallax the dome cannot give),
+  `createWaterSurface` (near-mirror reflections of `scene.environment`,
+  no second render pass) and `createTilingTexture` (fixes clamped
+  wrapping, anisotropy 1 and the colour space), plus the imported-model
+  utilities `prepareModel`,
   `orientModel`, `forwardAxisYaw`, `A3GameForwardAxis`,
   `A3GAME_RUNTIME_FORWARD_AXIS`, `fitToHeight`, `groundObject`, and
-  `measureObject`.
+  `measureObject`. Every factory that animates exposes
+  `userData.update(delta)`; only the sky dome is ticked by the host.
 - `A3GameAssetLibrary` - Loads the asset manifest and resolves artifacts;
   `load`, `has`, `findEntry`, `requireEntry`, `listByType`,
   `loadArtifact`, `instantiate`, `tryInstantiate`, `instantiateOrBuild`,
-  `applyMaterialBinding`, `dispose`.
+  `tryLoadTexture`, `applyEnvironment`, `applyMaterialBinding`, `dispose`.
+  `tryLoadTexture` and `applyEnvironment` return `null` rather than
+  throwing when nothing was staged, exactly like `tryInstantiate`,
+  because a game must run before its art arrives.
 - `A3GameSceneLoader` - Builds a scene from a published world scene
   graph; `loadWorld`, `buildWorld`, `getEntityObject`,
   `resolveSpawnTransform`, plus `collisionTargets` and `spawnPoints`.
@@ -880,10 +917,14 @@ framework calls below, not by finding a model to load. In rough order of
 visible effect per line of code:
 
 1. **An environment map.** `host.setEnvironment({ preset: 'room' })` for
-   an interior, `{ preset: 'sky' }` for outdoors. Both are generated on
-   the GPU at boot — no `.hdr` download, no licence. Without one, every
+   an interior, `{ preset: 'gradient' }` for outdoors. Both are generated
+   on the GPU at boot — no `.hdr` download, no licence. Without one, every
    PBR material has nothing to reflect and reads as flat plastic however
    many lights are added. This is the single largest factor.
+   Prefer `gradient` over `sky` outdoors: `sky` is the Preetham model, so
+   it is physically correct and completely **cloudless**, and an empty
+   gradient overhead is the clearest single tell of a generated scene.
+   See *Sky, IBL and Outdoor Dressing* below.
 2. **Filmic tone mapping.** `toneMapping: 'ACESFilmicToneMapping'` with
    an exposure near 0.7 outdoors. The default clips highlights to white.
 3. **A fitted shadow camera.** `createSunLight({ radius })`. The stock
@@ -905,6 +946,182 @@ to face the right way. A generated mesh at the wrong scale reads as a
 toy; one facing the wrong way makes the character strafe for its entire
 walk cycle. Neither is a rendering problem, and no lighting change hides
 either.
+
+### Sky, IBL and Outdoor Dressing
+
+An outdoor scene loses its realism in four specific places, and none of
+them is the geometry. Fix them in this order.
+
+**1. The sky.** `preset: 'gradient'` installs a stylised dome — horizon
+gradient, sun disc and glow, and drifting fbm clouds — and convolves the
+*same* dome into the environment map, so what a car bonnet reflects is
+what the player sees above it. The host ticks the cloud clock itself.
+
+```js
+host.setEnvironment({
+  preset: 'gradient',
+  sunPosition: sunDirection,           // also aims the painted sun
+  sky: {
+    zenith: 0x2f6fbd, horizon: 0xd3e2ee, ground: 0x5d6a52,
+    sunColor: 0xfff0cf, sunSize: 0.006, sunGlow: 220,
+    cloudCoverage: 0.44,               // lower = more cloud
+    cloudOpacity: 0.92, cloudScale: 1.35, cloudSpeed: 0.008,
+    haze: 0.4,                         // forward scattering near the sun
+  },
+  toneMapping: 'ACESFilmicToneMapping',
+  toneMappingExposure: 0.78,
+});
+host.setFog({ type: 'Fog', color: 0xc2d7e4, near: 70, far: 240 });
+```
+
+Tint the fog to `sky.horizon`. Fog in any other colour puts a grey band
+in front of the sky instead of dissolving distance into it.
+
+**One sun direction, used four times** — the dome, the
+`DirectionalLight`, the environment map and the fog. `host.getSunPosition(d)`
+and `host.getSunDirection()` return what the installed sky actually
+painted, so a light can be placed from it instead of guessing. Shadows
+falling towards the light source is the most common lighting bug in a
+generated outdoor scene, and it has no other cause.
+
+**2. Real captured lighting.** A 1k HDRI supplies bounces no light rig
+reproduces — a forest floor throwing green up onto a character's chin.
+Keep the dome as the *visible* sky and import only the lighting:
+
+```js
+await assets.applyEnvironment(host, 'env_forest_sunrise', {
+  background: false,             // the gradient dome keeps the sky
+  environmentIntensity: 0.85,
+});
+```
+
+`applyEnvironment` also reads the entry's `sun: {elevation, azimuth}`
+hint and aligns `host.sunDirection` to it. To use a photograph *as* the
+backdrop instead, pass `background: true` (or a separate
+`backgroundReference`), and reach for `backgroundBlurriness` to keep
+sharp reflections without the player reading the JPEG artefacts.
+
+**3. Surfaces.** `assets.tryLoadTexture(ref, { repeat: 34 })` returns
+`null` when nothing was staged and otherwise fixes the three settings
+that are wrong by default: clamped wrapping (so `repeat` only stretches
+the last pixel), `anisotropy: 1` (so a ground plane is mush at every
+angle a player actually looks from), and the colour space. Multiply a
+photograph over existing vertex colours rather than replacing them — the
+height-and-slope palette is what makes the terrain read as terrain, and
+the texture is what gives a sense of speed.
+
+**4. The horizon and the water.**
+
+```js
+host.add(createDistantRange({ radius: 300, height: 96, color: 0x5c6f86,
+                              topColor: 0xa9bccf, seed: 91 }), 'environment');
+const clouds = createCloudLayer({ count: 16, radius: 260, height: 110 });
+host.onTick((d) => clouds.userData.update(d));
+
+const lake = createWaterSurface({ size: 55, normalMap, waveHeight: 0.07 });
+host.onTick((d) => lake.userData.update(d));
+```
+
+`createDistantRange` closes the hard edge where a ground plane stops —
+fog alone cannot, because it fades the ground into the sky and leaves
+nothing behind it. `createCloudLayer` parallaxes against the dome's
+clouds, which sit at infinity and never move. `createWaterSurface` is a
+near-mirror `MeshStandardMaterial` reflecting `scene.environment`, which
+costs nothing next to the `Water` addon's second render pass; assign
+`material.normalMap` whenever the texture arrives, including after
+construction.
+
+**Carve water into the height field, not on top of it.** Gameplay asks
+the terrain function where the floor is; a blue plane laid over an
+unchanged height field puts the shoreline in a different place for the
+player than for the physics.
+
+#### Acquiring the files
+
+`operators/gen_3d_scene/funcs/scene_assets.py` is a vetted catalogue of
+CC0/MIT equirectangular HDRIs, sky photographs, tiling ground textures,
+VFX sprites and open-source scene geometry, with a downloader and a
+stager that writes `manifest.json` entries the asset library already
+knows how to load.
+
+```bash
+python -m operators.gen_3d_scene.funcs.scene_assets \
+    --games game_archer_explorer --assets env_forest_sunrise tex_grass_ground
+```
+
+Licences travel into the manifest as `licence` and `attribution`.
+Anything CC-BY **must** display its credit — `scene_assets.attribution_lines(project)`
+returns exactly what a project owes. CC-BY-NC and bespoke licences
+(DamagedHelmet, Duck, Sponza) were rejected and are not in the
+catalogue.
+
+### Upgrading Appearance With Meshy or Tripo
+
+TRELLIS.2 reconstructs a shape from **one** view, so on a synthetic
+reference the silhouette is right and everything the camera could not see
+is guessed. In-game the guess reads as holes: a character missing the back
+of its hood, a pistol whose slide dissolves into the grip, trees with a
+bite out of the canopy. No lighting change hides an unclosed mesh.
+
+Meshy and Tripo are text-to-3D services with a multi-view prior and a
+texture pass, so for "make this prop look good" they are strictly better.
+`operators/gen_3d_scene/funcs/appearance_assets.py` holds the plan,
+generation, GLB optimisation and staging:
+
+```bash
+export MESHY_API_KEY=...        # or TRIPO_API_KEY, with --provider tripo
+python -m operators.gen_3d_scene.funcs.appearance_assets \
+    --games game_arcade_racer --workers 4
+```
+
+Entries re-generate an `asset_id` a game **already references**, so
+gameplay needs no change to benefit, and the existing `artifact_id` is
+kept so anything that resolved it keeps working. The previous mesh is
+saved beside it as `*.glb.trellis.bak`.
+
+Four things about this are worth carrying to the next job:
+
+* **Prompt for the whole object, and forbid what must not be in it.**
+  "single object", "complete", "standing upright", "no character", "no
+  hand". A bow prompt without the last one returns an archer about a
+  third of the time.
+* **Ask for the shell when the thing has moving parts.** A fused car
+  cannot steer or spin a wheel, so `racer_car_body` is prompted with "no
+  wheels, hollow open wheel arches" and `racer_wheel` is generated
+  separately. The shell carries the shape and the paint; the wheels go
+  inside the pivots the handling code already drives. Generate the shell
+  and the moving part as two assets — never one.
+* **Shrink the textures.** Both services return 2048² PBR sets, so one
+  tree arrives as 9 MB and a dressed forest is a 60 MB download before
+  the first frame. `appearance_assets.optimise()` halves each axis (a 4x
+  saving, invisible on scenery at ten metres) and stubs the all-black
+  emissive map these services emit, which also removes the self-lit look
+  that `emissiveFactor: [1, 1, 1]` gives everything.
+* **Declare the height from the chassis, not from reality.** A generated
+  mesh arrives normalised into a unit box, so `scale_hint_metres` is the
+  only thing preventing every prop being one metre tall — and it must
+  match what the simulation assumes. The racer's wheel is authored at
+  0.90 m because that is the diameter of the torus it replaces, not
+  because a tyre is that big.
+
+**A character is the exception.** A raw generated humanoid has no
+skeleton, so it can only be auto-rigged, and `autoRigHumanoid` refuses a
+mesh whose height/width is under about 1.45. Prompt for a **relaxed
+A-pose with empty hands** — a figure reconstructed holding a bow measured
+0.78 and could never be rigged. Pass a candidate list and let the runtime
+decide:
+
+```js
+createAnimatedActor(assets, ['explorer_hero', 'explorer_ranger', 'robot_expressive'])
+```
+
+An array is tried **in order**, and the first candidate that ends up with
+clips wins; a loaded-but-motionless one is kept only as a last resort.
+That is deliberately different from `assets.findEntry`, which stops at
+the first staged candidate: for a prop "whatever was staged" is right,
+but for a character "the better-looking mesh, unless it cannot be made to
+move" is only answerable after trying to rig it, and a character that
+cannot move is worse than a plainer one that can.
 
 ### Sourcing Imported Models
 

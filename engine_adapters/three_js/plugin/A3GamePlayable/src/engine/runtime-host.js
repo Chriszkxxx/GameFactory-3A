@@ -12,6 +12,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { createSkyGradient } from './visual-kit.js';
 
 /**
  * Procedural environments, so image-based lighting needs no `.hdr`.
@@ -20,14 +21,28 @@ import { Sky } from 'three/addons/objects/Sky.js';
  * loses every highlight and reads as flat plastic no matter how the
  * lights are placed. This is the largest single difference between a
  * generated three.js scene that looks cheap and one that does not, and
- * both of these presets are generated on the GPU at boot from geometry
+ * every preset here is generated on the GPU at boot from geometry
  * three.js already ships.
  */
 export const A3GameEnvironmentPreset = Object.freeze({
   /** Neutral studio box. Interiors, arenas, menus, product-like views. */
   ROOM: 'room',
-  /** Physical sky with a sun. Outdoor games. */
+  /**
+   * Preetham physical sky with a sun.
+   *
+   * Correct, and therefore *cloudless* — which is why an outdoor scene
+   * using it still reads as an empty studio dome. Prefer `GRADIENT`
+   * unless the game genuinely needs atmospheric scattering.
+   */
   SKY: 'sky',
+  /**
+   * Stylised sky: horizon gradient, sun disc and glow, drifting clouds.
+   *
+   * The default for outdoor games. It supplies the two things `SKY`
+   * cannot — clouds and an art-directable palette — and it feeds the
+   * same PMREM convolution, so reflections match the visible sky.
+   */
+  GRADIENT: 'gradient',
   /** No environment map. */
   NONE: 'none',
 });
@@ -96,6 +111,28 @@ export class A3GameRuntimeHost {
      * @type {THREE.Texture | null}
      */
     this.generatedEnvironment = null;
+    /**
+     * The visible sky object installed by a preset, if any.
+     *
+     * Held because a stylised sky animates: its clouds drift, so the
+     * host has to tick it, and a game that had to remember to do that
+     * itself would simply forget.
+     *
+     * @type {THREE.Object3D | null}
+     */
+    this.skyDome = null;
+    /**
+     * Direction *towards* the sun, in world space, unit length.
+     *
+     * The single most common lighting bug in a generated outdoor scene is
+     * a `DirectionalLight` pointing one way while the sun is painted
+     * somewhere else, so shadows fall towards the light source. Whatever
+     * installs a sky records the answer here and
+     * `getSunDirection()` hands it to the game.
+     *
+     * @type {THREE.Vector3}
+     */
+    this.sunDirection = new THREE.Vector3(0.35, 0.22, -1).normalize();
     this.clock = new THREE.Clock();
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
@@ -432,24 +469,47 @@ export class A3GameRuntimeHost {
    * that does neither gets no reflections, and its PBR materials will
    * look flat however many lights it adds.
    *
+   * An imported equirectangular image can serve either role, and the two
+   * are independent: `environmentTexture` is what surfaces reflect,
+   * `backgroundTexture` is what the player sees behind the scene. Using
+   * one HDRI for both is the usual case and is what
+   * `A3GameAssetLibrary.applyEnvironment()` does.
+   *
    * @param {{background?: number | string,
-   *          preset?: 'room' | 'sky' | 'none',
+   *          preset?: 'room' | 'sky' | 'gradient' | 'none',
    *          environmentTexture?: THREE.Texture,
+   *          backgroundTexture?: THREE.Texture,
    *          environmentIntensity?: number,
+   *          environmentRotationDegrees?: number,
    *          backgroundIntensity?: number,
+   *          backgroundBlurriness?: number,
+   *          backgroundRotationDegrees?: number,
    *          showSky?: boolean,
    *          sunPosition?: {x: number, y: number, z: number},
    *          turbidity?: number, rayleigh?: number,
+   *          sky?: object,
    *          toneMapping?: keyof typeof TONE_MAPPINGS,
    *          toneMappingExposure?: number}} options
    */
   setEnvironment(options = {}) {
     if (!this.scene) throw new Error('init() must run before setEnvironment()');
+    if (options.sunPosition) {
+      this.sunDirection
+        .set(
+          Number(options.sunPosition.x ?? 0),
+          Number(options.sunPosition.y ?? 1),
+          Number(options.sunPosition.z ?? 0),
+        )
+        .normalize();
+    }
     if (options.preset !== undefined) {
       this.#applyEnvironmentPreset(options);
     }
     if (options.background !== undefined) {
-      this.scene.background = new THREE.Color(options.background);
+      this.scene.background =
+        options.background === null
+          ? null
+          : new THREE.Color(options.background);
     }
     if (options.environmentTexture) {
       options.environmentTexture.mapping =
@@ -457,11 +517,42 @@ export class A3GameRuntimeHost {
       this.#releaseGeneratedEnvironment();
       this.scene.environment = options.environmentTexture;
     }
+    if (options.backgroundTexture) {
+      // A photograph is a *better* sky than any shader for a still
+      // horizon, and it is the one thing the Sky addon cannot produce.
+      // The mapping has to be set here: a texture loaded as a plain
+      // image defaults to UV mapping and would render as a stretched
+      // smear across the backdrop.
+      options.backgroundTexture.mapping =
+        THREE.EquirectangularReflectionMapping;
+      this.#removeSkyRoot();
+      this.scene.background = options.backgroundTexture;
+    }
     if (options.environmentIntensity !== undefined) {
       this.scene.environmentIntensity = Number(options.environmentIntensity);
     }
     if (options.backgroundIntensity !== undefined) {
       this.scene.backgroundIntensity = Number(options.backgroundIntensity);
+    }
+    if (options.backgroundBlurriness !== undefined) {
+      // Blurring the backdrop while leaving the environment map sharp is
+      // how a game keeps crisp reflections without the player reading the
+      // JPEG artefacts of a 1k sky.
+      this.scene.backgroundBlurriness = Number(options.backgroundBlurriness);
+    }
+    if (options.backgroundRotationDegrees !== undefined) {
+      this.scene.backgroundRotation.set(
+        0,
+        THREE.MathUtils.degToRad(Number(options.backgroundRotationDegrees)),
+        0,
+      );
+    }
+    if (options.environmentRotationDegrees !== undefined) {
+      this.scene.environmentRotation.set(
+        0,
+        THREE.MathUtils.degToRad(Number(options.environmentRotationDegrees)),
+        0,
+      );
     }
     if (options.toneMapping && TONE_MAPPINGS[options.toneMapping]) {
       this.renderer.toneMapping = TONE_MAPPINGS[options.toneMapping];
@@ -472,6 +563,25 @@ export class A3GameRuntimeHost {
       );
     }
     return this;
+  }
+
+  /**
+   * Unit vector pointing at the sun, as the installed sky painted it.
+   *
+   * @returns {THREE.Vector3} a copy, so callers cannot corrupt it
+   */
+  getSunDirection() {
+    return this.sunDirection.clone();
+  }
+
+  /**
+   * World position for a `DirectionalLight` that matches the visible sun.
+   *
+   * @param {number} [distance] metres from the origin
+   * @returns {THREE.Vector3}
+   */
+  getSunPosition(distance = 100) {
+    return this.sunDirection.clone().multiplyScalar(Number(distance) || 1);
   }
 
   /**
@@ -496,36 +606,66 @@ export class A3GameRuntimeHost {
     const generator = new THREE.PMREMGenerator(this.renderer);
     let source = null;
     let sky = null;
+    const paintsSky =
+      preset === A3GameEnvironmentPreset.SKY ||
+      preset === A3GameEnvironmentPreset.GRADIENT;
     try {
       if (preset === A3GameEnvironmentPreset.SKY) {
         sky = new Sky();
         sky.scale.setScalar(this.options.far * 0.9);
         const sun = options.sunPosition ?? { x: 0.4, y: 0.22, z: -1 };
         const direction = new THREE.Vector3(sun.x, sun.y, sun.z).normalize();
+        this.sunDirection.copy(direction);
         sky.material.uniforms.sunPosition.value.copy(direction);
         sky.material.uniforms.turbidity.value = Number(options.turbidity ?? 6);
         sky.material.uniforms.rayleigh.value = Number(options.rayleigh ?? 2);
-        sky.material.uniforms.mieCoefficient.value = 0.005;
-        sky.material.uniforms.mieDirectionalG.value = 0.8;
+        sky.material.uniforms.mieCoefficient.value = Number(
+          options.mieCoefficient ?? 0.005,
+        );
+        sky.material.uniforms.mieDirectionalG.value = Number(
+          options.mieDirectionalG ?? 0.8,
+        );
         source = new THREE.Scene();
         source.add(sky);
+      } else if (preset === A3GameEnvironmentPreset.GRADIENT) {
+        // The convolved copy has to be geometrically the same dome as the
+        // visible one, or reflections disagree with the backdrop — the
+        // subtle wrongness that makes a scene feel composited. It is built
+        // from the same factory with the same options, at a radius the
+        // generator's unit camera can see.
+        const dome = createSkyGradient({
+          ...(options.sky ?? {}),
+          radius: 50,
+          sunDirection: options.sunPosition ?? this.sunDirection,
+        });
+        // `depthTest: false` is right for a backdrop and wrong for a
+        // PMREM source, where it lets the far side of the sphere win.
+        dome.material.depthTest = true;
+        dome.material.depthWrite = true;
+        dome.onBeforeRender = () => {};
+        source = new THREE.Scene();
+        source.add(dome);
       } else if (preset === A3GameEnvironmentPreset.ROOM) {
         source = new RoomEnvironment();
       } else {
         throw new Error(
           `Unknown environment preset ${String(options.preset)}; expected ` +
-            'room, sky, or none',
+            'room, sky, gradient, or none',
         );
       }
       const texture = generator.fromScene(source, 0.04).texture;
       this.#releaseGeneratedEnvironment();
       this.generatedEnvironment = texture;
       this.scene.environment = texture;
-      if (preset === A3GameEnvironmentPreset.SKY && options.showSky !== false) {
+      if (paintsSky && options.showSky !== false) {
         // The sky is also the backdrop, so a second instance is added to
         // the live scene. The one above was consumed by the generator and
         // is disposed with it.
-        this.#installSkyDome(options);
+        if (preset === A3GameEnvironmentPreset.GRADIENT) {
+          this.#installSkyGradient(options);
+        } else {
+          this.#installSkyDome(options);
+        }
       } else if (options.background === undefined) {
         this.scene.background = texture;
       }
@@ -545,19 +685,53 @@ export class A3GameRuntimeHost {
     }
   }
 
-  /** Add the visible sky dome under a dedicated root. */
-  #installSkyDome(options) {
+  /** Add the visible stylised sky dome, and remember it so it can tick. */
+  #installSkyGradient(options) {
+    this.#removeSkyRoot();
+    const dome = createSkyGradient({
+      ...(options.sky ?? {}),
+      // Sized from the far plane so it is always beyond the scene, and
+      // scaled down slightly so a game that raises `far` later still has
+      // headroom before the dome starts clipping.
+      radius: Number(options.sky?.radius ?? this.options.far * 0.92),
+      sunDirection: options.sunPosition ?? this.sunDirection,
+    });
+    if (options.sunPosition) {
+      this.sunDirection
+        .set(
+          Number(options.sunPosition.x ?? 0),
+          Number(options.sunPosition.y ?? 1),
+          Number(options.sunPosition.z ?? 0),
+        )
+        .normalize();
+    }
+    dome.userData.setSunDirection(this.sunDirection);
+    this.skyDome = dome;
+    this.add(dome, 'sky');
+    // A shader dome and a `scene.background` would both draw; the dome
+    // wins because it has clouds.
+    this.scene.background = null;
+    return dome;
+  }
+
+  /** Drop whatever sky object is installed, if any. */
+  #removeSkyRoot() {
     const previous = this.namedRoots.get('sky');
     if (previous) {
       disposeObject3D(previous);
       this.namedRoots.delete('sky');
     }
+    this.skyDome = null;
+  }
+
+  /** Add the visible sky dome under a dedicated root. */
+  #installSkyDome(options) {
+    this.#removeSkyRoot();
     const sky = new Sky();
     sky.scale.setScalar(this.options.far * 0.9);
     const sun = options.sunPosition ?? { x: 0.4, y: 0.22, z: -1 };
-    sky.material.uniforms.sunPosition.value
-      .set(sun.x, sun.y, sun.z)
-      .normalize();
+    this.sunDirection.set(sun.x, sun.y, sun.z).normalize();
+    sky.material.uniforms.sunPosition.value.copy(this.sunDirection);
     sky.material.uniforms.turbidity.value = Number(options.turbidity ?? 6);
     sky.material.uniforms.rayleigh.value = Number(options.rayleigh ?? 2);
     sky.name = 'A3GameSky';
@@ -667,6 +841,7 @@ export class A3GameRuntimeHost {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.#releaseGeneratedEnvironment();
+    this.skyDome = null;
     if (this.scene) disposeObject3D(this.scene);
     this.scene = null;
     this.namedRoots.clear();
@@ -679,6 +854,10 @@ export class A3GameRuntimeHost {
   }
 
   #emitTick(delta) {
+    // The sky is host-owned scenery, so the host animates it. A game that
+    // had to remember to advance the cloud clock itself would forget, and
+    // a frozen cloud deck is worse than none.
+    this.skyDome?.userData?.update?.(delta);
     for (const listener of this.tickListeners) {
       listener(delta, this.elapsedSeconds);
     }

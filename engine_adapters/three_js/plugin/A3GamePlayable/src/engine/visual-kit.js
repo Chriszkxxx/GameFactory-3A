@@ -944,6 +944,32 @@ export function createContactShadow(options = {}) {
  */
 export function createRadialGradientTexture(options = {}) {
   const resolution = Number(options.resolution ?? 128);
+  // Headless fallback. The comment above says canvas work belongs in a
+  // factory so a module *loads* without a DOM — but a factory that throws
+  // when called is barely better, and scene dressing that needs a soft dot
+  // (cloud layers, contact shadows, particle sprites) is exactly what a
+  // headless world-building test builds. A `DataTexture` computes the same
+  // falloff arithmetically and needs nothing from the browser.
+  if (typeof document === 'undefined') {
+    const colour = new THREE.Color(options.color ?? '#000000');
+    const data = new Uint8Array(resolution * resolution * 4);
+    const half = resolution / 2;
+    for (let y = 0; y < resolution; y += 1) {
+      for (let x = 0; x < resolution; x += 1) {
+        const distance = Math.hypot(x - half, y - half) / half;
+        const alpha = Math.max(0, 1 - distance);
+        const index = (y * resolution + x) * 4;
+        data[index] = Math.round(colour.r * 255);
+        data[index + 1] = Math.round(colour.g * 255);
+        data[index + 2] = Math.round(colour.b * 255);
+        data[index + 3] = Math.round(alpha * 255);
+      }
+    }
+    const texture = new THREE.DataTexture(data, resolution, resolution);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.needsUpdate = true;
+    return texture;
+  }
   const canvas = document.createElement('canvas');
   canvas.width = resolution;
   canvas.height = resolution;
@@ -978,4 +1004,458 @@ export function createSeededRandom(seed = 1) {
     value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * Outdoor scene dressing
+ *
+ * A generated outdoor scene loses its realism in four specific places,
+ * and none of them is the geometry:
+ *
+ *   1. the sky is a flat colour, or the `Sky` shader — which is
+ *      physically correct and therefore completely cloudless, so it
+ *      reads as an empty studio dome;
+ *   2. the ground is one untextured plane, which removes every scale
+ *      and motion cue the player has;
+ *   3. the horizon is a hard line where the plane ends;
+ *   4. water, when there is any, is a blue plane.
+ *
+ * These four factories fix those four things. They are game-neutral,
+ * allocate no global state, and take their textures as arguments so the
+ * caller decides whether a staged photograph or a canvas fallback is
+ * used.
+ * ──────────────────────────────────────────────────────────────────── */
+
+/** Shared value-noise + fbm, used by the sky and the range silhouette. */
+const FBM_GLSL = /* glsl */ `
+  float a3Hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
+  float a3Noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(a3Hash(i + vec2(0.0, 0.0)), a3Hash(i + vec2(1.0, 0.0)), u.x),
+      mix(a3Hash(i + vec2(0.0, 1.0)), a3Hash(i + vec2(1.0, 1.0)), u.x),
+      u.y);
+  }
+  float a3Fbm(vec2 p) {
+    float total = 0.0;
+    float amplitude = 0.5;
+    for (int i = 0; i < 5; i++) {
+      total += amplitude * a3Noise(p);
+      p = p * 2.03 + 17.3;
+      amplitude *= 0.5;
+    }
+    return total;
+  }
+`;
+
+/**
+ * A stylised sky dome with a horizon gradient, a sun, and clouds.
+ *
+ * Why not `three/addons/objects/Sky.js`: it is a Preetham atmospheric
+ * model, so it is accurate and it has no clouds, no cloud shadowing and
+ * no artistic control beyond turbidity. An empty gradient is exactly
+ * what makes a generated outdoor scene read as a tech demo. This dome
+ * costs one draw call, produces drifting cumulus, and lets a game pick
+ * its palette — which is the difference between "the sky is blue" and
+ * "it is late afternoon in this world".
+ *
+ * The dome tracks the camera in `onBeforeRender`, so it can never be
+ * left behind or clipped by the far plane however far the player
+ * travels, and it is excluded from fog and from depth writes.
+ *
+ * @param {{radius?: number, zenith?: number|string, horizon?: number|string,
+ *          ground?: number|string, sunColor?: number|string,
+ *          sunDirection?: THREE.Vector3 | number[],
+ *          sunSize?: number, sunGlow?: number,
+ *          cloudCoverage?: number, cloudOpacity?: number,
+ *          cloudSpeed?: number, cloudScale?: number,
+ *          cloudColor?: number|string, cloudShadow?: number|string,
+ *          haze?: number}} [options]
+ * @returns {THREE.Mesh} with `userData.update(delta)` and
+ *          `userData.setSunDirection(vec3)`
+ */
+export function createSkyGradient(options = {}) {
+  const radius = Number(options.radius ?? 4000);
+  const sun = readVector3(options.sunDirection, [0.35, 0.22, -1]).normalize();
+  const uniforms = {
+    uZenith: { value: new THREE.Color(options.zenith ?? 0x2a6fc4) },
+    uHorizon: { value: new THREE.Color(options.horizon ?? 0xbcd7ee) },
+    uGround: { value: new THREE.Color(options.ground ?? 0x6b6558) },
+    uSunColor: { value: new THREE.Color(options.sunColor ?? 0xfff2d0) },
+    uCloudColor: { value: new THREE.Color(options.cloudColor ?? 0xffffff) },
+    uCloudShadow: { value: new THREE.Color(options.cloudShadow ?? 0x8a9bb0) },
+    uSunDirection: { value: sun.clone() },
+    uSunSize: { value: Number(options.sunSize ?? 0.004) },
+    uSunGlow: { value: Number(options.sunGlow ?? 220) },
+    uCloudCoverage: { value: Number(options.cloudCoverage ?? 0.48) },
+    uCloudOpacity: { value: Number(options.cloudOpacity ?? 0.9) },
+    uCloudScale: { value: Number(options.cloudScale ?? 1.6) },
+    uCloudSpeed: { value: Number(options.cloudSpeed ?? 0.006) },
+    uHaze: { value: Number(options.haze ?? 0.35) },
+    uTime: { value: 0 },
+  };
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    side: THREE.BackSide,
+    depthWrite: false,
+    depthTest: false,
+    vertexShader: /* glsl */ `
+      varying vec3 vDirection;
+      void main() {
+        vDirection = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vDirection;
+      uniform vec3 uZenith, uHorizon, uGround, uSunColor;
+      uniform vec3 uCloudColor, uCloudShadow, uSunDirection;
+      uniform float uSunSize, uSunGlow, uCloudCoverage, uCloudOpacity;
+      uniform float uCloudScale, uCloudSpeed, uHaze, uTime;
+      ${FBM_GLSL}
+      void main() {
+        vec3 dir = normalize(vDirection);
+        float height = dir.y;
+
+        // Horizon gradient. The 0.42 exponent keeps the bright band low
+        // and thin, which is what a real sky does and a linear mix does not.
+        vec3 sky = mix(uHorizon, uZenith, pow(clamp(height, 0.0, 1.0), 0.42));
+        sky = mix(sky, uGround, smoothstep(0.0, -0.10, height));
+
+        float sunDot = clamp(dot(dir, normalize(uSunDirection)), 0.0, 1.0);
+        // Forward scattering: the whole sky warms towards the sun, most
+        // strongly near the horizon. Skipping this is why a gradient sky
+        // looks like a painted backdrop.
+        sky += uSunColor * pow(sunDot, 6.0) * uHaze *
+               (1.0 - smoothstep(0.0, 0.6, height));
+        sky += uSunColor * pow(sunDot, uSunGlow) * 0.9;
+        float disc = smoothstep(1.0 - uSunSize, 1.0 - uSunSize * 0.25, sunDot);
+        sky += uSunColor * disc * 6.0;
+
+        // Clouds live on a virtual plane above the camera, so the
+        // projection stretches them towards the horizon exactly as a real
+        // cloud deck does.
+        float above = max(height, 0.035);
+        vec2 plane = dir.xz / above * uCloudScale;
+        vec2 drift = vec2(uTime * uCloudSpeed * 60.0, uTime * uCloudSpeed * 22.0);
+        float shape = a3Fbm(plane * 0.09 + drift);
+        float detail = a3Fbm(plane * 0.31 - drift * 1.7);
+        float density = shape * 0.78 + detail * 0.22;
+        float cover = smoothstep(uCloudCoverage, uCloudCoverage + 0.22, density);
+        cover *= smoothstep(0.015, 0.22, height) * uCloudOpacity;
+        // One fbm sample offset towards the sun is enough to read as
+        // self-shadowing, and it is what gives the deck volume.
+        float lit = smoothstep(0.35, 0.75,
+          a3Fbm((plane + normalize(uSunDirection).xz * 6.0) * 0.09 + drift));
+        vec3 cloud = mix(uCloudShadow, uCloudColor, lit);
+        cloud += uSunColor * pow(sunDot, 24.0) * 0.6;
+
+        vec3 color = mix(sky, cloud, cover);
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+  });
+
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 32), material);
+  mesh.name = 'A3GameSkyGradient';
+  mesh.frustumCulled = false;
+  // Drawn first, with depth test off, so nothing in the scene can be
+  // hidden behind it regardless of the far plane.
+  mesh.renderOrder = -1000;
+  mesh.onBeforeRender = (renderer, scene, camera) => {
+    mesh.position.copy(camera.position);
+  };
+  mesh.userData.update = (delta) => {
+    uniforms.uTime.value += Number(delta) || 0;
+  };
+  mesh.userData.setSunDirection = (direction) => {
+    uniforms.uSunDirection.value.copy(
+      readVector3(direction, [0.35, 0.22, -1]),
+    ).normalize();
+  };
+  mesh.userData.uniforms = uniforms;
+  return mesh;
+}
+
+/**
+ * Configure an imported texture for tiling over a large surface.
+ *
+ * Four settings decide whether a ground texture helps or hurts, and
+ * three of them are wrong by default: `wrapS/wrapT` clamp (so `repeat`
+ * does nothing but stretch the last pixel), `anisotropy` is 1 (so the
+ * surface turns to mush at grazing angles, which is *every* angle on a
+ * ground plane), and `colorSpace` is not sRGB on a colour map.
+ *
+ * @param {THREE.Texture} texture
+ * @param {{repeat?: number | number[], colorSpace?: string,
+ *          anisotropy?: number, rotation?: number,
+ *          renderer?: THREE.WebGLRenderer, srgb?: boolean}} [options]
+ * @returns {THREE.Texture} the same texture, configured
+ */
+export function createTilingTexture(texture, options = {}) {
+  if (!texture) return texture;
+  const repeat = Array.isArray(options.repeat)
+    ? options.repeat
+    : [Number(options.repeat ?? 1), Number(options.repeat ?? 1)];
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeat[0], repeat[1]);
+  if (options.rotation !== undefined) {
+    texture.center.set(0.5, 0.5);
+    texture.rotation = Number(options.rotation);
+  }
+  texture.colorSpace =
+    options.colorSpace ??
+    (options.srgb === false ? THREE.NoColorSpace : THREE.SRGBColorSpace);
+  const cap = options.renderer?.capabilities?.getMaxAnisotropy?.() ?? 8;
+  texture.anisotropy = Math.min(Number(options.anisotropy ?? 8), cap);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * A reflective water plane with scrolling normals.
+ *
+ * `three/addons/objects/Water.js` needs a reflection render target, i.e.
+ * a second scene pass, which is the wrong trade for a lake that fills a
+ * tenth of the screen. A near-mirror `MeshStandardMaterial` reflecting
+ * `scene.environment` gives the sky back for free, and two normal-map
+ * layers scrolling at different speeds and scales supply the movement.
+ *
+ * @param {{size?: number | number[], normalMap?: THREE.Texture,
+ *          color?: number|string, opacity?: number, roughness?: number,
+ *          metalness?: number, flowSpeed?: number, normalScale?: number,
+ *          repeat?: number, segments?: number, waveHeight?: number,
+ *          renderer?: THREE.WebGLRenderer}} [options]
+ * @returns {THREE.Mesh} in the XZ plane, with `userData.update(delta)`
+ */
+export function createWaterSurface(options = {}) {
+  const size = Array.isArray(options.size)
+    ? options.size
+    : [Number(options.size ?? 60), Number(options.size ?? 60)];
+  const segments = Math.max(1, Math.trunc(Number(options.segments ?? 64)));
+  const normalMap = options.normalMap ?? null;
+  if (normalMap) {
+    createTilingTexture(normalMap, {
+      repeat: Number(options.repeat ?? 8),
+      srgb: false,
+      renderer: options.renderer,
+    });
+  }
+  const material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(options.color ?? 0x1f4f63),
+    roughness: Number(options.roughness ?? 0.06),
+    metalness: Number(options.metalness ?? 0.35),
+    transparent: true,
+    opacity: Number(options.opacity ?? 0.9),
+    normalMap,
+    envMapIntensity: 1.4,
+  });
+  if (normalMap) {
+    const scale = Number(options.normalScale ?? 0.35);
+    material.normalScale.set(scale, scale);
+  }
+  const geometry = new THREE.PlaneGeometry(size[0], size[1], segments, segments);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.receiveShadow = true;
+  mesh.name = 'A3GameWater';
+
+  // A vertex ripple on top of the normal scroll: the normal map alone
+  // leaves a dead-flat silhouette where the water meets the shore.
+  const waveHeight = Number(options.waveHeight ?? 0.06);
+  const rest = geometry.attributes.position.array.slice();
+  const speed = Number(options.flowSpeed ?? 0.03);
+  let elapsed = 0;
+  mesh.userData.update = (delta) => {
+    elapsed += Number(delta) || 0;
+    // Read the map off the material rather than the closure: a game that
+    // stages its water normals *after* building the lake — which is the
+    // normal order, because assets load asynchronously — would otherwise
+    // get a still surface with a moving nothing.
+    const scrolling = material.normalMap;
+    if (scrolling) {
+      scrolling.offset.set(elapsed * speed, elapsed * speed * 0.6);
+    }
+    if (waveHeight <= 0) return;
+    const position = geometry.attributes.position;
+    for (let i = 0; i < position.count; i += 1) {
+      const x = rest[i * 3];
+      const y = rest[i * 3 + 1];
+      position.array[i * 3 + 2] =
+        Math.sin(x * 0.35 + elapsed * 1.1) * waveHeight +
+        Math.sin(y * 0.51 - elapsed * 0.8) * waveHeight * 0.7;
+    }
+    position.needsUpdate = true;
+    geometry.computeVertexNormals();
+  };
+  return mesh;
+}
+
+/**
+ * A silhouetted mountain range closing the horizon.
+ *
+ * The hard edge where a ground plane stops is the single most obvious
+ * "this is a demo" tell in an outdoor scene, and fog alone does not fix
+ * it: fog fades the ground into the sky and leaves nothing behind it.
+ * A ring of noise-driven peaks, fog-affected and unlit, closes the
+ * horizon for one draw call and no shadow cost.
+ *
+ * @param {{radius?: number, height?: number, segments?: number,
+ *          color?: number|string, topColor?: number|string,
+ *          seed?: number, roughness?: number, baseY?: number}} [options]
+ * @returns {THREE.Mesh}
+ */
+export function createDistantRange(options = {}) {
+  const radius = Number(options.radius ?? 320);
+  const height = Number(options.height ?? 70);
+  const segments = Math.max(16, Math.trunc(Number(options.segments ?? 96)));
+  const random = createSeededRandom(Number(options.seed ?? 7));
+  const baseY = Number(options.baseY ?? -2);
+  const jitter = Number(options.roughness ?? 0.55);
+
+  // Two overlaid sine series with random phases: cheap, seamless around
+  // the ring (integer frequencies), and never produces the regular
+  // sawtooth a single frequency gives.
+  const waves = Array.from({ length: 5 }, (_, index) => ({
+    frequency: 2 + index * 3,
+    phase: random() * Math.PI * 2,
+    amplitude: 1 / (index + 1.4),
+  }));
+  const peakAt = (angle) => {
+    let value = 0;
+    let total = 0;
+    for (const wave of waves) {
+      value += Math.sin(angle * wave.frequency + wave.phase) * wave.amplitude;
+      total += wave.amplitude;
+    }
+    return 0.45 + (value / total) * 0.5 * (1 + jitter * (random() - 0.5) * 0.2);
+  };
+
+  const positions = [];
+  const colors = [];
+  const base = new THREE.Color(options.color ?? 0x4a5a6e);
+  const top = new THREE.Color(options.topColor ?? 0x8fa4bc);
+  const push = (angle, y, blend) => {
+    positions.push(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+    const color = base.clone().lerp(top, blend);
+    colors.push(color.r, color.g, color.b);
+  };
+
+  for (let i = 0; i < segments; i += 1) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    const h0 = baseY + height * peakAt(a0);
+    const h1 = baseY + height * peakAt(a1);
+    // Two triangles per segment, wound so the inside of the ring is front.
+    push(a0, baseY, 0);
+    push(a1, baseY, 0);
+    push(a1, h1, 1);
+    push(a0, baseY, 0);
+    push(a1, h1, 1);
+    push(a0, h0, 1);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(positions, 3),
+  );
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide,
+      fog: true,
+      depthWrite: true,
+    }),
+  );
+  mesh.name = 'A3GameDistantRange';
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -900;
+  return mesh;
+}
+
+/**
+ * A drifting sprite cloud layer, for parallax the sky shader cannot give.
+ *
+ * The dome's clouds are painted at infinity, so they never move relative
+ * to the player. A handful of soft billboards a few hundred metres up do
+ * move, and that parallax is what tells the eye the sky has depth.
+ *
+ * @param {{count?: number, radius?: number, height?: number,
+ *          size?: number | number[], texture?: THREE.Texture,
+ *          color?: number|string, opacity?: number, speed?: number,
+ *          seed?: number}} [options]
+ * @returns {THREE.Group} with `userData.update(delta)`
+ */
+export function createCloudLayer(options = {}) {
+  const count = Math.max(0, Math.trunc(Number(options.count ?? 18)));
+  const radius = Number(options.radius ?? 420);
+  const height = Number(options.height ?? 150);
+  const sizeRange = Array.isArray(options.size)
+    ? options.size
+    : [Number(options.size ?? 120) * 0.6, Number(options.size ?? 120)];
+  const random = createSeededRandom(Number(options.seed ?? 31));
+  const texture =
+    options.texture ?? createRadialGradientTexture({ resolution: 128, color: '#ffffff' });
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    color: new THREE.Color(options.color ?? 0xffffff),
+    transparent: true,
+    opacity: Number(options.opacity ?? 0.34),
+    depthWrite: false,
+    fog: false,
+  });
+
+  const group = new THREE.Group();
+  group.name = 'A3GameCloudLayer';
+  group.renderOrder = -800;
+  const speed = Number(options.speed ?? 1.6);
+  for (let i = 0; i < count; i += 1) {
+    const sprite = new THREE.Sprite(material.clone());
+    const angle = random() * Math.PI * 2;
+    const distance = radius * (0.45 + random() * 0.55);
+    const scale = sizeRange[0] + random() * (sizeRange[1] - sizeRange[0]);
+    sprite.position.set(
+      Math.cos(angle) * distance,
+      height * (0.75 + random() * 0.5),
+      Math.sin(angle) * distance,
+    );
+    sprite.scale.set(scale, scale * (0.32 + random() * 0.18), 1);
+    sprite.material.opacity *= 0.6 + random() * 0.7;
+    sprite.userData.speed = speed * (0.6 + random() * 0.8);
+    group.add(sprite);
+  }
+  group.userData.update = (delta) => {
+    const step = Number(delta) || 0;
+    for (const sprite of group.children) {
+      sprite.position.x += sprite.userData.speed * step;
+      if (sprite.position.x > radius) sprite.position.x = -radius;
+    }
+  };
+  return group;
+}
+
+/** Read a loose vector-ish value into a `THREE.Vector3`. */
+function readVector3(value, fallback = [0, 0, 0]) {
+  if (value?.isVector3) return value.clone();
+  if (Array.isArray(value) && value.length >= 3) {
+    return new THREE.Vector3(Number(value[0]), Number(value[1]), Number(value[2]));
+  }
+  if (value && typeof value === 'object' && 'x' in value) {
+    return new THREE.Vector3(
+      Number(value.x ?? 0),
+      Number(value.y ?? 0),
+      Number(value.z ?? 0),
+    );
+  }
+  return new THREE.Vector3(fallback[0], fallback[1], fallback[2]);
 }
