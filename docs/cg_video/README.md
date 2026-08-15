@@ -51,7 +51,8 @@ VideoGenerationInput(
 )
 ```
 
-The four currently defined modes are:
+The four currently defined modes are shared task capabilities. A backend only
+implements the subset its underlying model actually supports:
 
 | Mode | Required images | Meaning |
 |---|---|---|
@@ -62,6 +63,16 @@ The four currently defined modes are:
 
 The input type validates the exact image combination for each mode. Image order
 is preserved for reference generation.
+
+| Backend | `text_to_video` | `first_frame_to_video` | `first_last_frame_to_video` | `reference_to_video` |
+|---|---:|---:|---:|---:|
+| Seedance 2.0 | yes | yes | yes | yes |
+| MiniMax H3 (`local`) | yes | yes | yes | yes |
+| MiniMax Hailuo 2.3 (`api`) | yes | yes | no | no |
+
+Selecting `--backend` chooses the model implementation; `mode` is then sent to
+that model. An unsupported pair fails explicitly and is never silently rerouted
+to a different provider.
 
 ## Input boundary
 
@@ -190,6 +201,23 @@ metadata and summaries without loading a model or contacting a provider:
 python test/harness/smoke.py --kind cg_video
 ```
 
+Real API and local-checkpoint generation has one test entry point. Backend and
+runtime selection must be explicit; see the backend pages below for complete
+commands and optional settings:
+
+```bash
+CG_VIDEO_BACKEND=minimax-h3 \
+MINIMAX_H3_RUNTIME=local \
+CG_VIDEO_CKPT=Comfy-Org/MiniMax-H3 \
+CG_VIDEO_TEST_TASKS=/absolute/path/to/cg_tasks.jsonl \
+python test/test_cg_video_gen.py
+```
+
+The test validates the selected task set before provider access or checkpoint
+loading. Set `CG_VIDEO_TEST_TASK_ID=<task_id>` to reproduce one line from a
+larger JSONL without editing the file.
+
 ## Backends
 
 - [Seedance](seedance.md) — Volcengine Ark cloud API.
+- [MiniMax H3 / Hailuo 2.3](minimax_h3.md) — one backend for the cloud API and local ComfyUI INT8 checkpoints.

@@ -213,27 +213,51 @@ testing and batch runs.
 
 ## Testing
 
-Free structural validation:
+Run the free operator contract check first:
 
 ```bash
-python test/harness/smoke.py --kind cg_video
+python test/harness/smoke.py --kind cg_video --backend seedance
 ```
 
-The real integration test is disabled by default and must be explicitly opted
-in. Start with text-to-video only:
+All real CG-video generation uses `test/test_cg_video_gen.py`. Put one or more
+tasks in a local JSONL file; image paths may be absolute or repository-relative:
+
+```json
+{"task_id":"seedance_i2v_001","mode":"first_frame_to_video","prompt":"The character turns toward the camera.","duration_sec":5,"seed":42,"first_frame_path":"/data/first.png"}
+```
+
+Then explicitly select Seedance and provide the task file. This command can
+spend API credits unless the identical response already exists in
+`AAAGF_API_CACHE`:
 
 ```bash
 export ARK_API_KEY="your-api-key"
-export AAAGF_RUN_SEEDANCE_LIVE=1
-export SEEDANCE_LIVE_MODES="text_to_video"
-export SEEDANCE_RESOLUTION="480p"
-export SEEDANCE_GENERATE_AUDIO=0
-python -m unittest test.test_api_cg_video -v
+export CG_VIDEO_BACKEND=seedance
+export CG_VIDEO_TEST_TASKS=/absolute/path/to/cg_tasks.jsonl
+export CG_VIDEO_TEST_OUT_DIR=/absolute/path/to/output
+export AAAGF_API_CACHE=/absolute/path/to/api_cache
+python test/test_cg_video_gen.py
 ```
 
-To test image modes, additionally set absolute input paths as described in
-`test/test_api_cg_video.py`. Identical requests reuse the response cache unless
-`AAAGF_SEEDANCE_DISABLE_CACHE=1` is deliberately set.
+The test preflights every task before contacting the provider. To reproduce
+only one task from a larger JSONL without editing it, set:
+
+```bash
+export CG_VIDEO_TEST_TASK_ID=seedance_i2v_001
+```
+
+Optional runtime settings mirror the pipeline runner:
+
+```bash
+export SEEDANCE_MODEL=doubao-seedance-2-0-260128
+export SEEDANCE_RESOLUTION=720p
+export SEEDANCE_RATIO=16:9
+export SEEDANCE_GENERATE_AUDIO=1
+export SEEDANCE_WATERMARK=0
+export SEEDANCE_TASK_TIMEOUT=1800
+export SEEDANCE_POLL_INTERVAL=3
+export SEEDANCE_MAX_RETRIES=3
+```
 
 Do not enable the paid test in CI or run every mode merely to validate local
 code changes. Use the harness first, then make one intentional provider call.

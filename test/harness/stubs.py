@@ -788,6 +788,7 @@ STUB_BACKENDS: dict[str, dict[str, Any]] = {
     },
     "cg_video": {
         "seedance": StubVideoModel,
+        "minimax-h3": StubVideoModel,
     },
     "audio": {
         "local": StubQwen3TTSModel,

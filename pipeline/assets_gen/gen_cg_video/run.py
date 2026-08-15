@@ -1,9 +1,8 @@
 """
 pipeline/assets_gen/gen_cg_video/run.py
 
-CG video generation runner.  The first backend is Seedance; ``--backend`` is
-kept from day one so LTX can fill the same model slot later without changing the
-operator or task schema.
+CG video generation runner. Seedance and the hybrid MiniMax H3 backend fill the
+same model slot without changing the operator or task schema.
 """
 from __future__ import annotations
 
@@ -25,6 +24,7 @@ DEFAULT_TASKS = paths.collect_jsonl(TASK_KIND)
 # backend -> (default checkpoint/model id, environment override)
 BACKENDS: dict[str, tuple[str, str]] = {
     "seedance": (DEFAULT_CKPT, "SEEDANCE_MODEL"),
+    "minimax-h3": ("MiniMax-Hailuo-2.3", "MINIMAX_VIDEO_MODEL"),
 }
 
 
@@ -52,6 +52,20 @@ def load_model(
             device=device,
             **backend_kwargs,
         )
+
+    if backend == "minimax-h3":
+        from models.gen_cg_video.minimax_h3_model import MiniMaxH3Model
+
+        model = MiniMaxH3Model(
+            model_path=ckpt,
+            device=device,
+            **backend_kwargs,
+        )
+        print(
+            f"[run] Using MiniMaxH3Model ({model.runtime}), "
+            f"model={model.model_path}"
+        )
+        return model
     raise ValueError(f"Unknown backend {backend!r}. Known: {sorted(BACKENDS)}")
 
 
@@ -81,10 +95,13 @@ def run_from_jsonl(
     tasks_path: str,
     operator,
     game_filter: str | None = None,
+    task_filter: str | None = None,
 ) -> list[dict]:
     """Run every selected task from a standard AAAGameForge JSONL file."""
     results = []
     for task, game_id in paths.iter_tasks(tasks_path, game_filter=game_filter):
+        if task_filter and task.get("task_id") != task_filter:
+            continue
         print(
             f"[run] game={game_id}  task_id={task.get('task_id', '?')}  "
             f"mode={task.get('mode', 'text_to_video')}"
@@ -117,7 +134,8 @@ def main() -> None:
     parser.add_argument(
         "--ckpt",
         default=None,
-        help="Model version id. Precedence: flag > environment > backend default",
+        help="Local weights/HF repo id or cloud model version. "
+             "Precedence: flag > environment > backend default",
     )
     parser.add_argument(
         "--cache-dir",
@@ -127,7 +145,11 @@ def main() -> None:
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--poll-interval", type=float, default=3.0)
     parser.add_argument("--max-retries", type=int, default=3)
-    parser.add_argument("--resolution", default="720p")
+    parser.add_argument(
+        "--resolution",
+        default=None,
+        help="Cloud output resolution; defaults to 720p (Seedance) or 768P (MiniMax)",
+    )
     parser.add_argument("--ratio", default="16:9")
     parser.add_argument(
         "--generate-audio",
@@ -139,6 +161,71 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         default=False,
     )
+    parser.add_argument(
+        "--prompt-optimizer",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="MiniMax: enable provider prompt optimization",
+    )
+    parser.add_argument(
+        "--fast-pretreatment",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="MiniMax: reduce prompt optimization latency",
+    )
+    parser.add_argument(
+        "--minimax-runtime",
+        choices=("auto", "api", "local"),
+        default=os.environ.get("MINIMAX_H3_RUNTIME", "auto"),
+        help="MiniMax H3 execution route; auto treats Hailuo ids as API and paths/HF ids as local",
+    )
+    parser.add_argument(
+        "--comfyui-path",
+        default=os.environ.get("COMFYUI_PATH"),
+        help="MiniMax H3 local: ComfyUI source directory",
+    )
+    parser.add_argument(
+        "--minimax-hf-revision",
+        default=os.environ.get("MINIMAX_H3_HF_REVISION"),
+        help="Optional revision of the Comfy-Org/MiniMax-H3 weight repository",
+    )
+    parser.add_argument(
+        "--hf-cache-dir",
+        default=os.environ.get("HUGGINGFACE_HUB_CACHE"),
+        help="Hugging Face snapshot cache for local model ids",
+    )
+    parser.add_argument(
+        "--local-files-only",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Do not contact Hugging Face; require already cached snapshots",
+    )
+    parser.add_argument(
+        "--sampler-mode",
+        choices=("res_multistep", "euler"),
+        default="res_multistep",
+        help="MiniMax H3 native ComfyUI sampler",
+    )
+    parser.add_argument(
+        "--minimax-steps",
+        type=int,
+        default=20,
+        help="MiniMax H3 native ComfyUI sampling steps",
+    )
+    parser.add_argument(
+        "--minimax-scheduler",
+        default="simple",
+        help="MiniMax H3 native ComfyUI scheduler (official default: simple)",
+    )
+    parser.add_argument(
+        "--ref-image-size",
+        choices=("match", "max"),
+        default="match",
+        help="MiniMax H3 local R2V reference resolution policy",
+    )
+    parser.add_argument("--fps", type=float, default=None, help="Local video frame rate")
+    parser.add_argument("--height", type=int, default=None, help="Local video height")
+    parser.add_argument("--width", type=int, default=None, help="Local video width")
     parser.add_argument(
         "--game",
         default=None,
@@ -184,19 +271,46 @@ def main() -> None:
 
     run_id = paths.new_run_id() if args.run_id == "auto" else args.run_id
     ckpt = resolve_ckpt(args.backend, args.ckpt)
+    if args.backend == "seedance":
+        backend_kwargs = {
+            "cache_dir": args.cache_dir,
+            "timeout": args.timeout,
+            "poll_interval": args.poll_interval,
+            "max_retries": args.max_retries,
+            "resolution": args.resolution or "720p",
+            "ratio": args.ratio,
+            "generate_audio": args.generate_audio,
+            "watermark": args.watermark,
+            "verbose": True,
+        }
+    else:
+        backend_kwargs = {
+            "runtime": args.minimax_runtime,
+            "comfyui_path": args.comfyui_path,
+            "hf_cache_dir": args.hf_cache_dir,
+            "hf_revision": args.minimax_hf_revision,
+            "local_files_only": args.local_files_only,
+            "width": args.width or 864,
+            "height": args.height or 480,
+            "fps": args.fps or 24.0,
+            "steps": args.minimax_steps,
+            "scheduler": args.minimax_scheduler,
+            "sampler_mode": args.sampler_mode,
+            "ref_image_size": args.ref_image_size,
+            "cache_dir": args.cache_dir,
+            "timeout": args.timeout,
+            "poll_interval": args.poll_interval,
+            "max_retries": args.max_retries,
+            "resolution": args.resolution or "768P",
+            "prompt_optimizer": args.prompt_optimizer,
+            "fast_pretreatment": args.fast_pretreatment,
+            "verbose": True,
+        }
     model = load_model(
         ckpt,
         device=args.device,
         backend=args.backend,
-        cache_dir=args.cache_dir,
-        timeout=args.timeout,
-        poll_interval=args.poll_interval,
-        max_retries=args.max_retries,
-        resolution=args.resolution,
-        ratio=args.ratio,
-        generate_audio=args.generate_audio,
-        watermark=args.watermark,
-        verbose=True,
+        **backend_kwargs,
     )
     operator = make_operator(
         model,
