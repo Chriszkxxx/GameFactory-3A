@@ -1,5 +1,5 @@
 #!/bin/bash
-# docs/trellis2_install.sh
+# scripts/asset_env_setup/3d_object/trellis2_install.sh
 # TRELLIS.2 environment setup.
 # o-voxel source is already checked in at:
 #   models/gen_3d_object/trellis_utils/trellis_2_utils/o_voxel_src/
@@ -9,7 +9,7 @@ set -e
 
 # Resolve repo root relative to this script's location
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 TRELLIS_DIR="$REPO_ROOT/models/gen_3d_object/trellis_utils/trellis_2_utils"
 EIGEN_DIR="$TRELLIS_DIR/o-voxel/third_party/eigen"
 

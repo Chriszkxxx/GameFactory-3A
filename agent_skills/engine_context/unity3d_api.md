@@ -291,10 +291,9 @@ project (commonly exit code 199). The transport returns
 tail in that case, so callers fail fast with the external prerequisite rather
 than claiming that import, compilation, or build succeeded.
 
-The files under `scripts/unity/` are compatibility launchers only. They do not
-implement import, material repair, scene loading, compilation, or runtime
-behavior. `scripts/unity/import_asset.sh import-batch ...` and the Windows
-equivalent dispatch the top-level `import-batch` public client command. Use
+Use `scripts/engine_install/unity/` for Unity project creation, game
+generation, asset import, and runtime launch commands. The top-level
+`import-batch` public client command imports batches of assets. Use
 `generate-game` for the complete pipeline so one Editor session owns plugin
 installation, asset import, material remapping, scene composition, compile,
 build, and optional Play Mode.
@@ -345,7 +344,7 @@ mesh, and `vfx_particle` for meshes instanced by a particle system.
 Treat the JSON import report as the result contract. Check `ok`, `assetPath`,
 `prefabPath`, triangle and material counts, bound textures, bounds, and warnings
 before referencing the prefab. GLB import requires `com.unity.cloud.gltfast`;
-the full project setup is in `scripts/installing/engine_import_setup.md`.
+the full project setup is in `scripts/engine_install/README.md`.
 Generated projects own concrete gameplay implementation. Optional Arena
 Fighter, FPS, and Racing examples are read-only references and are not runtime
 dependencies or success criteria.

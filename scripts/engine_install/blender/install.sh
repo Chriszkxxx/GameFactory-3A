@@ -1,5 +1,5 @@
 #!/bin/bash
-# scripts/installing/blender_install.sh
+# scripts/engine_install/blender/install.sh
 # Sudo-free Blender for engine_adapters/blender/ — the importers, the preview
 # renderer, and the game/mechanic pipeline.
 #
@@ -7,12 +7,12 @@
 # libraries the host does not ship. Nothing is installed system-wide.
 #
 # The reasoning, the failure signatures and the GPU notes live in
-# scripts/installing/blender_setup.md. This script is that document executed.
+# scripts/engine_install/blender/README.md. This script is that document executed.
 #
 # Usage:
-#   bash scripts/installing/blender_install.sh                   # into $HOME/.aaagf
-#   AAAGF_TOOLS_DIR=/big/disk/.aaagf bash scripts/installing/blender_install.sh
-#   bash scripts/installing/blender_install.sh --xvfb            # + virtual display
+#   bash scripts/engine_install/blender/install.sh                   # into $HOME/.aaagf
+#   AAAGF_TOOLS_DIR=/big/disk/.aaagf bash scripts/engine_install/blender/install.sh
+#   bash scripts/engine_install/blender/install.sh --xvfb            # + virtual display
 #
 # Re-running is safe: each step skips work that is already done.
 
@@ -79,7 +79,7 @@ fi
 echo "[4/4] Writing $ENV_SCRIPT"
 cat > "$ENV_SCRIPT" <<EOF
 #!/usr/bin/env bash
-# Written by scripts/installing/blender_install.sh. Source, do not execute.
+# Written by scripts/engine_install/blender/install.sh. Source, do not execute.
 #
 #   source "$ENV_SCRIPT"
 #   "\$BLENDER" --background --factory-startup --python script.py -- --arg
@@ -128,5 +128,5 @@ Assets are optional: with no BLENDER_ASSET_ROOT a run logs one
 byte-identical gameplay. Grey boxes are not a broken install.
 
 Why each variable exists, and what each failure looks like:
-scripts/installing/blender_setup.md
+scripts/engine_install/blender/README.md
 EOF

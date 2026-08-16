@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Source this file before real Linux motion runs:
-#   source scripts/installing/gen_motion/runtime_env.sh
+#   source scripts/asset_env_setup/gen_motion/runtime_env.sh
 
 export AAAGF_RUNTIME_ROOT="${AAAGF_RUNTIME_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/aaagameforge}"
 export AAAGF_CACHE_ROOT="${AAAGF_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME}/.cache}/aaagameforge}"

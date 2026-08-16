@@ -1,67 +1,103 @@
-# agent_skills/asset_qa — reviewing imported and generated 3D content
+# `agent_skills/asset_qa` — asset generation and visual QA
 
-Skills for a **vision-capable** agent, covering the questions about a
-3D asset that no amount of code can answer alone — plus the motion-chain
-playbook an agent needs before generating or importing animated characters.
+This directory contains the asset-generation and quality-assurance Skills used
+by a vision-capable coding agent. Use it after the game plan identifies an asset
+need and before declaring that generated or imported content is ready to ship.
 
-| File | Question | Answered by |
+`agent_skills/asset_qa/` covers the parts of asset work that require visual or
+runtime judgement: whether a mesh faces the right direction, has plausible
+scale, fits the requested style, or produces a usable animation in-game. File
+parsing and structural checks alone cannot answer these questions.
+
+## Skill map
+
+| Asset task | Skill | Use it for |
 |---|---|---|
-| `imported_asset_orientation.md` | Which way does this model face, and how big is it meant to be? | Looking at rendered views |
-| `generated_asset_review.md` | Is this generated mesh fit to ship? | Looking at rendered views |
-| `motion_gen_skills.md` | How do I rig, generate/fetch motion, retarget and import an animated character? | Pipeline + Blender/UE reports, then a short visual check |
+| Image preparation and T-pose generation | `agent_skills/asset_qa/image/SKILL.md` | Single-object reconstruction inputs, character T-pose images, alpha preparation, and image QA |
+| 3D object generation and review | `agent_skills/asset_qa/3d_object/SKILL.md` | Props, avatars, weapons, mesh quality, provenance, and ship-readiness |
+| Imported asset orientation | `agent_skills/asset_qa/3d_object/orientation_review.md` | Forward axis, scale, ground contact, attachment points, and engine import review |
+| 3D scene generation | `agent_skills/asset_qa/3d_scene/SKILL.md` | Scene generation or assembly, layout, environment quality, and scene-level review |
+| Motion | `agent_skills/asset_qa/motion/SKILL.md` | Rigging, generation/fetch, retargeting, import, and in-game motion review |
 
-Orientation and mesh review are driven by one adapter operation:
+Read the selected engine contract from `agent_skills/engine_context/` before
+importing an approved asset or scene. The engine documents define formats,
+coordinate conventions, public APIs, project structure, and runtime validation.
 
-```python
-report = three.preview.orientation_report("<asset_id>")
-report["payload"]["contact_sheet"]   # one labelled image, five views
-```
+## Relationship to `agent_skills/code_gen/`
 
-It renders on the CPU with `numpy` and `Pillow` — no GPU, no display, no
-browser — so a review costs about two seconds per asset and runs anywhere
-the rest of the pipeline runs.
+Asset QA and code generation are separate but connected stages:
 
-Motion generation is a different path: see `motion_gen_skills.md` for the
-`gen_motion` pipeline, format quirks, auto bone mapping, Mixamo fallback, and
-the Blender / UE5 `--kind motion` importers. Prefer the operator; if a retarget
-capability is missing, agents may extend `operators/gen_motion/funcs/`. Use
-`inspect_fbx` / Blender import reports for the structural half; use a short
-play of the clip for the rest.
+- `agent_skills/asset_qa/` decides whether planned assets are visually and
+  structurally suitable for integration.
+- `agent_skills/code_gen/` tells the agent how to turn approved assets into
+  gameplay mechanics and UI. Use
+  `agent_skills/code_gen/mechanic/game_generation.md` for game behavior and
+  `agent_skills/code_gen/ui/game_ui_generation.md` for HUD, menus, and player
+  interaction surfaces.
+- The selected document under `agent_skills/engine_context/` connects both
+  stages to UE5, Blender, Unity, or three.js.
 
-## Why these are skills and not code
+Do not fix an asset's orientation or scale by scattering compensating rotations
+inside gameplay code. Record validated asset metadata in the engine’s documented
+asset flow, then let the runtime apply it consistently.
 
-Everything a program can decide about an asset has already been decided
-before these skills run: the adapter validates the format, reads the node
-hierarchy, counts triangles, measures the bounding box, and narrows the
-facing axis to the two signs of the shallow horizontal axis. For motion, the
-pipeline can already prove that an FBX has an armature, keyframes and a
-measurable pose change.
+## Environment setup map
 
-What is left is genuinely undecidable without sight. A model facing +Z and
-the same model facing -Z have identical files in every respect a parser
-can reach. A mesh whose unseen back reconstructed as a smear has a
-perfectly valid node tree. A retarget whose left/right chains are swapped
-still reports `pose_animated=true`. These are the questions a vision model
-(or a human scrubbing a preview) should be asked.
+Use the task-specific installer below before the relevant generation route.
+`cloud_api_install.sh` at the `asset_env_setup/` root is the common implementation;
+new agent workflows should invoke the task-specific entry point rather than the
+shared script directly.
 
-## Where the answers go
+| Asset task | Canonical setup command | Additional setup |
+|---|---|---|
+| Image / T-pose | No repository-wide installer currently required | See `scripts/asset_env_setup/image/README.md` and `asset_qa/image/SKILL.md` |
+| 3D object | `bash scripts/asset_env_setup/3d_object/cloud_api_install.sh` | Local TRELLIS.2: `bash scripts/asset_env_setup/3d_object/trellis2_install.sh` |
+| 3D scene | No repository-wide installer currently required | See `scripts/asset_env_setup/3d_scene/README.md` and use the selected engine asset library where appropriate |
+| Motion | `bash scripts/asset_env_setup/gen_motion/install.sh` | Then `source scripts/asset_env_setup/gen_motion/runtime_env.sh` |
+| Audio | `bash scripts/asset_env_setup/audio/cloud_api_install.sh` | Local checkpoints follow `asset_qa/audio/SKILL.md` |
+| CG video | `bash scripts/asset_env_setup/cg_video/cloud_api_install.sh` | Local MiniMax H3: `bash scripts/asset_env_setup/cg_video/minimax_h3_install.sh` |
 
-Into the artifact record, and from there into
-`public/assets/manifest.json`:
+## Review workflow
 
-```python
-three.assets.set_orientation(
-    "<asset_id>", forward_axis="+z", scale_hint_metres=1.8,
-    verified_by="agent_vision", notes="...",
-)
-```
+1. Start from the approved game plan and its stated style, role, and acceptance
+   criteria for the asset.
+2. Generate or obtain the asset through the selected route. Prefer reliable
+   closed-source/cloud APIs for mature asset types such as 3D objects when
+   allowed by cost and privacy constraints. For immature routes such as motion
+   or 3D scenes, prefer suitable licensed assets from the selected engine's
+   asset library when they provide a better shippable result.
+3. Run the task-specific structural checks and the selected Skill’s visual QA.
+4. Import the asset using the selected `agent_skills/engine_context/` contract.
+5. Run the asset in the target game, exercise relevant player actions, and
+   review a low-resolution capture for orientation, attachment, animation,
+   clipping, scale, material, VFX, lighting, and style issues.
+6. Iterate until the asset meets its planned acceptance criteria. Keep source
+   and licence/provenance information with externally sourced assets.
 
-The runtime applies whatever is recorded and leaves an unrecorded asset
-exactly as authored, so annotating an asset can never make an
-already-correct game worse. Recording the fact once beats correcting it in
-every game that uses the asset — which is also why fixing a rotation
-inside gameplay code is explicitly a mistake.
+## Where generated results and tests live
 
-For motion clips, also keep `*_motion_source.json` (licence / origin) next
-to the FBX, and refuse to ship Bandai Namco / other non-commercial sources
-into a product build.
+- All generated game results belong under `test_data/outputs/`, organized by
+  game, run, task kind, and task id. Use `pipeline/common/paths.py`; never
+  hand-construct output paths.
+- `test_data/outputs/mechanic/` and `test_data/outputs/ui/` are obsolete empty
+  directories and are intentionally removed. Mechanics and UI now belong to
+  their game/run/task output hierarchy.
+- `test/` contains runnable, current-use test and smoke scripts. Agents should
+  use the relevant test to verify that generated assets, game code, or adapter
+  flows can actually run; a written file alone is not evidence of success.
+- `third_party/` stores installation packages or checked-out dependencies for
+  assets and engines. Treat its contents as external dependencies: do not
+  modify, redistribute, or assume a package is installed without checking its
+  own licence and setup instructions.
+
+## Why visual QA is required
+
+The adapter can validate format, hierarchy, triangle count, bounding box, and
+animation structure. It cannot determine whether a symmetric mesh faces the
+correct way, whether an unseen reconstruction is usable, whether wheel or weapon
+attachments are positioned correctly, or whether an animation looks natural.
+A vision model or human review of rendered previews and gameplay capture is
+therefore required before a visual asset is accepted.
+
+For motion clips, retain the source/licence metadata next to the motion asset
+and do not ship non-commercial sources in a product build.

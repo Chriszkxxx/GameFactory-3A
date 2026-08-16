@@ -121,7 +121,7 @@ class MoMaskModel:
             raise RuntimeError(
                 "MoMask runtime is incomplete.\n  - "
                 + "\n  - ".join(missing)
-                + "\nRun scripts/installing/gen_motion/install.sh first."
+                + "\nRun scripts/asset_env_setup/gen_motion/install.sh first."
             )
         self.model_path = str(root)
         self.python_bin = str(python_bin)

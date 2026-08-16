@@ -1,264 +1,175 @@
-# AAAGameForge
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/61446541-7aa0-46f3-9023-496f90678372" alt="A3GameForge" width="240" />
+</p>
 
-**AAAGameForge** is an open framework for AI-driven 3A game content generation and evaluation.
+# A3GameForge
 
-It covers the full production pipeline — 3D assets, scenes, motion, CG video, mechanics, and UI — and doubles as the evaluation harness for 3A game generation.
+**A3GameForge turns a game requirement into production-ready game assets and engine-ready game code with a coding agent.**
 
-> For asset generation, use the task runner's public API in
-> `pipeline/assets_gen/<task>/run.py`: call `load_*()` to load/reuse models,
-> `make_operator()` to wire them, then `generate(inp, operator)` for one asset.
-> The lower-level `operator.run(inp)` API expects injected models. `eval.py` only
-> evaluates existing artifacts.
+> **A3GameForge is a comprehensive open-source 3A game-generation skill and asset framework.** It covers image, 3D asset, motion, audio, and CG-video generation, and supports game construction with **UE5, Blender, Unity, and three.js**.
+
+[中文文档](README_zh.md)
 
 ---
 
-## Directory layout
+## Game demos
 
-```
-.
-├── models/                   # Model wrappers (one file per model)
-│   ├── gen_3d_object/        # TRELLIS.2, Hunyuan3D-2.1, TripoSG, ...
-│   ├── gen_3d_scene/         # Hunyuan-WorldPlay2, FlashWorld, FantasyWorld
-│   ├── gen_motion/           # MoMask, MDM, MLD, T2M-GPT, MotionGPT
-│   ├── gen_cg_video/         # LTX, HunyuanVideo, Wan, Mochi, CogVideoX, ...
-│   ├── gen_audio/            # Character voice, dialogue, game SFX, ambience
-│   ├── reasoning/            # LLMs / VLMs (Claude, GPT, Qwen-VL, ...)
-│   ├── tools/                # Depth, RMBG, segmentation, ...
-│   └── unified_model/        # Composite / multimodal models
-│
-├── operators/                # Low-level task logic with injected, loaded models
-│   ├── process_input/        # ├── operator.py
-│   ├── gen_3d_object/        # ├── funcs/    ← decoupled steps
-│   ├── gen_3d_scene/         # └── metrics/  ← per-task evaluation
-│   ├── gen_motion/
-│   ├── gen_cg_video/
-│   ├── gen_audio/
-│   ├── gen_mechanic/         # code-gen agent system:
-│   │   ├── agent/            #   ├── agent/    ← wraps a code agent (Claude Code / Codex)
-│   │   ├── prompts/          #   ├── prompts/  ← system + task prompt templates
-│   │   └── skills/           #   └── skills/   ← agent-callable engine skills
-│   └── gen_ui/               # same agent/ · prompts/ · skills/ layout
-│
-├── engine_adapters/          # Engine reference code (fed to LLM as context)
-│   ├── ue5/ · unity3d/ · blender/ · three_js/   ← implemented in a separate repo, to be migrated
-│
-├── agent_skills/             # Reference context + guidelines for agents (docs only)
-│   ├── setting_overview.md   #   start here — what lives where
-│   ├── develop_harness/      #   contracts for the models/ · operators/ · pipeline/ chain
-│   └── engine_context/       #   per-engine API notes fed to code-gen agents
-│
-├── third_party/              # Cloned code-agents (Codex, Claude Code, Aider, …)
-│
-├── pipeline/                 # `run.generate()` generation entry + Benchmark evaluation
-│   ├── common/paths.py       # ← single source of truth for every input/output path
-│   ├── assets_gen/           # Asset generation
-│   │   ├── gen_3d_object/    {run.py, eval.py}
-│   │   ├── gen_tpose_image/  {run.py, eval.py}
-│   │   ├── gen_3d_scene/     {run.py, eval.py}
-│   │   ├── gen_motion/       {run.py, eval.py}
-│   │   ├── gen_cg_video/     {run.py, eval.py}
-│   │   └── gen_audio/        {run.py, eval.py}  ← voice / dialogue / game SFX
-│   ├── mechanic/             {run.py, eval.py}  ← mechanic code generation
-│   ├── ui/                   {run.py, eval.py}  ← front-end / HUD generation
-│   └── full_pipeline/        {run.py, eval.py}  ← end-to-end vertical slice
-│
-├── test_data/
-│   ├── test_samples/         # Benchmark test set — one dir per game project
-│   │   ├── gameA_cyberpunk_shooter/
-│   │   │   ├── general_requirement.txt
-│   │   │   ├── 3D_object/  · tpose/    · 3D_scene/  · motion/
-│   │   │   ├── cg_video/   · mechanic/ · ui/        · pipeline/
-│   │   ├── 3D_object_gen_collect.jsonl    ← cross-game aggregate
-│   │   ├── ...
-│   │   └── pipeline_collect.jsonl
-│   └── outputs/              # Single fixed output root — mirrors test_samples/
-│       └── <game_id>/<run_id>/
-│           ├── assets/{3d_object,tpose,3d_scene,motion,cg_video}/<task_id>/
-│           ├── mechanic/<task_id>/ · ui/<task_id>/ · pipeline/<task_id>/
-│           └── eval/<task_kind>/<task_id>/
-│
-├── scripts/installing/         # Per-capability setup (including gen_motion/)
-├── test/                     # Integration tests + test/harness/ (stub models, CPU smoke test)
-└── docs/
-```
+<!--
+Video insertion rule:
+- Upload each video to a GitHub issue or pull request, then copy its
+  github.com/user-attachments/assets/... URL into a VIDEO_URL slot below.
+- Keep each landscape video at width="420". Two videos fit on one desktop row;
+  videos 3 and 4 begin the second row.
+- Use 16:9 MP4, ideally 20–60 seconds. Add a one-line caption below each row if
+  the clip's gameplay objective is not obvious.
+-->
 
-## Task mapping
+### UE5
 
-| Task              | Model dir             | Operator          | Pipeline runner                        |
-|-------------------|-----------------------|-------------------|----------------------------------------|
-| 3D object         | `gen_3d_object`       | `gen_3d_object`   | `pipeline/assets_gen/gen_3d_object`    |
-| T-pose image      | `gen_image`           | `gen_tpose_image` | `pipeline/assets_gen/gen_tpose_image`  |
-| 3D scene          | `gen_3d_scene`        | `gen_3d_scene`    | `pipeline/assets_gen/gen_3d_scene`     |
-| Motion / retarget | `gen_motion`          | `gen_motion`      | `pipeline/assets_gen/gen_motion`       |
-| CG video          | `gen_cg_video`        | `gen_cg_video`    | `pipeline/assets_gen/gen_cg_video`     |
-| Audio             | `gen_audio`           | `gen_audio`       | `pipeline/assets_gen/gen_audio`        |
-| Mechanic          | `reasoning`           | `gen_mechanic`    | `pipeline/mechanic`                    |
-| UI                | `reasoning`           | `gen_ui`          | `pipeline/ui`                          |
-| Full slice        | (all of the above)    | (all of the above)| `pipeline/full_pipeline`               |
+<p align="center">
+  <video src="VIDEO_URL_UE5_01" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_UE5_02" width="420" controls muted playsinline></video>
+</p>
+<p align="center">
+  <video src="VIDEO_URL_UE5_03" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_UE5_04" width="420" controls muted playsinline></video>
+</p>
 
+### Blender
 
-## Code generation (Layer B/C) — agent system
+<p align="center">
+  <video src="VIDEO_URL_BLENDER_01" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_BLENDER_02" width="420" controls muted playsinline></video>
+</p>
+<p align="center">
+  <video src="VIDEO_URL_BLENDER_03" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_BLENDER_04" width="420" controls muted playsinline></video>
+</p>
 
-Unlike asset operators (single `model.infer()` call), **code generation** (`gen_mechanic`,
-`gen_ui`) is a multi-turn agent loop and lives under the operator as a self-contained
-agent system, inspired by [GameCraft-Bench](https://github.com/FreedomIntelligence/gamecraft-bench):
+### Unity
 
-- `operators/<task>/agent/`   — wraps a code agent (Claude Code / Codex); injects context, retries/repairs on build failure
-- `operators/<task>/prompts/` — system + task prompt templates
-- `operators/<task>/skills/`  — agent-callable skills teaching engine build / headless-launch / screenshot / replay
-- `engine_adapters/`          — engine reference projects (UE5 / Unity3D) fed to the agent as context
+<p align="center">
+  <video src="VIDEO_URL_UNITY_01" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_UNITY_02" width="420" controls muted playsinline></video>
+</p>
+<p align="center">
+  <video src="VIDEO_URL_UNITY_03" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_UNITY_04" width="420" controls muted playsinline></video>
+</p>
 
-`pipeline/mechanic/run.py` organizes the requirement → assembles context (spec + engine_adapters + skills)
-→ launches the code agent (interactive dialog for debug, or non-interactive for benchmark)
-→ writes the generated project into that game's run directory. `eval.py` then runs the verifier
-(build_check gate → trace replay → hidden-rubric multimodal judge).
+### three.js
 
-## Outputs — one directory per generated game project
+<p align="center">
+  <video src="VIDEO_URL_THREE_JS_01" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_THREE_JS_02" width="420" controls muted playsinline></video>
+</p>
+<p align="center">
+  <video src="VIDEO_URL_THREE_JS_03" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_THREE_JS_04" width="420" controls muted playsinline></video>
+</p>
 
-All artifacts land under one fixed root (`test_data/outputs/`), right next to the
-test set, organized **per game project** so the output tree mirrors
-`test_samples/`. An artifact is uniquely addressed by
-`(game_id, run_id, task_kind, task_id)`:
+## CG-video demos
 
-```
-test_data/outputs/
-└── gameA_cyberpunk_shooter/               # one dir per game project
-    ├── latest -> default/                 # symlink to the most recent run
-    └── <run_id>/                          # "default", or a timestamp via `--run-id auto`
-        ├── run_meta.json                  # ckpts · seeds · git sha · argv
-        ├── assets/
-        │   ├── 3d_object/<task_id>/       # model.glb · meta.json
-        │   ├── tpose/<task_id>/           # tpose_fg.png · tpose.png · meta.json
-        │   └── {3d_scene,motion,cg_video,audio}/<task_id>/
-        ├── mechanic/<task_id>/            # engine project · demo_outputs/*.json · launch.sh
-        ├── ui/<task_id>/                  # UI code · screenshots/
-        ├── pipeline/<task_id>/            # end-to-end vertical slice
-        └── eval/
-            ├── <task_kind>/<task_id>/     # metrics.json · build.log · judge_log.json · reward.txt
-            └── summary.json
-```
+<p align="center">
+  <video src="VIDEO_URL_CG_01" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_CG_02" width="420" controls muted playsinline></video>
+</p>
+<p align="center">
+  <video src="VIDEO_URL_CG_03" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_CG_04" width="420" controls muted playsinline></video>
+</p>
 
-Never hand-build these paths — always go through `pipeline/common/paths.py`:
+---
 
-```python
-from pipeline.common import paths
-out_dir = paths.task_output_dir("gameA_cyberpunk_shooter", "3d_object", "cyberpunk_sword_001")
-```
-
-Relocate the whole tree without touching code:
-`export AAAGF_OUTPUT_ROOT=/data/scratch/aaagf_outputs`.
-See `test_data/outputs/README.md` for the full rationale, and
-`--out-dir` for the legacy flat-output escape hatch.
-
-## Running
-
-```bash
-# every task of every game, into <game>/default/
-python pipeline/assets_gen/gen_3d_object/run.py
-
-# one game project, into a fresh timestamped run dir
-python pipeline/assets_gen/gen_3d_object/run.py --game gameA_cyberpunk_shooter --run-id auto
-```
-
-## Developing a new asset-generation link
-
-`agent_skills/develop_harness/` holds the contracts for the three layers; the
-runnable counterpart lives in `test/harness/` and needs no GPU. Read
-`develop_harness/README.md` first, then:
-
-```bash
-pip install pillow numpy scipy    # the harness needs nothing else
-
-python test/harness/smoke.py                 # run every chain with stub models
-python test/harness/smoke.py --kind tpose --keep
-```
-
-| Doc | Layer |
-|-----|-------|
-| `develop_harness/model_require.md` | `models/` — one wrapper per model |
-| `develop_harness/operatar_require.md` | `operators/` — task dict → artifacts |
-| `develop_harness/pipeline_require.md` | `pipeline/` — CLI, batching, scoring |
-
-## Humanoid motion
-
-The shared `motion` task supports four stages:
-
-| `task_type` | Input | Output |
-|---|---|---|
-| `rig` | static humanoid GLB | Puppeteer `rig.txt`, skeleton and OBJ |
-| `text_to_motion` | text prompt | MoMask BVH, joints and preview |
-| `retarget` | BVH/FBX + GLB + Puppeteer rig | two FBXs, mapping and metadata |
-| `humanoid` | static humanoid GLB + prompt | all three stages in sequence |
-
-Puppeteer, MoMask and Blender retargeting use isolated Python environments.
-Native Linux with an NVIDIA CUDA GPU is the recommended runtime. Windows users
-can run the same Linux setup through WSL2; native Windows is not currently
-validated for the complete Puppeteer chain. The retarget stage is CPU-only.
-Install an NVIDIA driver, Git and Miniforge/Conda before running the setup
-script. The installer targets Linux x86-64 and CUDA 11.8 and keeps Puppeteer,
-MoMask and Blender retargeting in three isolated Conda environments.
-
-Third-party repositories, weights and caches stay outside Git. By default the
-installer follows the XDG conventions:
+## Quick start: generate a game with a coding agent
 
 ```text
-runtime sources and weights:  ${XDG_DATA_HOME:-$HOME/.local/share}/aaagameforge
-download and build caches:    ${XDG_CACHE_HOME:-$HOME/.cache}/aaagameforge
+1. Open a coding agent, such as Codex, Claude Code, or another compatible agent.
+2. cd A3GameForge
+3. Give the agent your game requirement and ask it to read agent_skills/setting_overview.md first.
 ```
 
-Both roots can be redirected to any sufficiently large Linux filesystem:
+`agent_skills/setting_overview.md` is the entry point for an agent that uses
+A3GameForge to generate assets, gameplay, UI, and an engine-specific game.
+It routes the agent to the selected asset skill and engine API context.
 
-```bash
-export AAAGF_RUNTIME_ROOT=/data/aaagameforge
-export AAAGF_CACHE_ROOT=/data/aaagameforge-cache
+### Contributing to A3GameForge itself
 
-bash scripts/installing/gen_motion/install.sh "$AAAGF_RUNTIME_ROOT"
+This is a separate path from generating a game. Contributors adding or changing
+model wrappers, operators, or pipeline runners should start with
+[`agent_skills/develop_harness/README.md`](agent_skills/develop_harness/README.md)
+and use its CPU-only smoke harness before requiring model weights or a GPU.
 
-source scripts/installing/gen_motion/runtime_env.sh
+---
+
+## What A3GameForge provides
+
+| Capability | What it produces | Primary pipeline area |
+|---|---|---|
+| Image and T-pose preparation | source images and character-ready inputs | `pipeline/assets_gen/gen_tpose_image/` |
+| 3D object generation | props, avatars, weapons, and reusable meshes | `pipeline/assets_gen/gen_3d_object/` |
+| 3D scene generation | reconstructed interiors or assembled environments | `pipeline/assets_gen/gen_3d_scene/` |
+| Motion | rigs, generated motion, retargeted animation clips | `pipeline/assets_gen/gen_motion/` |
+| Audio | dialogue, sound effects, ambience, and WAV assets | `pipeline/assets_gen/gen_audio/` |
+| CG video | text-, frame-, and reference-conditioned MP4 clips | `pipeline/assets_gen/gen_cg_video/` |
+| Gameplay generation | engine-native mechanics and runtime behavior | `pipeline/mechanic/` |
+| UI generation | HUDs, menus, screens, and interaction flows | `pipeline/ui/` |
+| Full game slice | coordinated assets, gameplay, UI, and evaluation | `pipeline/full_pipeline/` |
+
+### Supported game-construction engines
+
+| Engine | Agent context | Reference implementation |
+|---|---|---|
+| UE5 | `agent_skills/engine_context/ue5_api.md` | `engine_adapters/ue5/` |
+| Blender | `agent_skills/engine_context/blender_api.md` | `engine_adapters/blender/` |
+| Unity | `agent_skills/engine_context/unity3d_api.md` | `engine_adapters/unity3d/` |
+| three.js | `agent_skills/engine_context/three_js_api.md` | `engine_adapters/three_js/` |
+
+---
+
+## Repository layout
+
+```text
+A3GameForge/
+├── agent_skills/               # Agent-readable workflows, QA skills, and engine API context
+│   ├── setting_overview.md     # Start here for game-generation agents
+│   ├── asset_qa/               # Asset generation and visual QA skills
+│   ├── code_gen/               # Skills that integrate approved assets into gameplay and UI
+│   ├── develop_harness/        # Contributor contracts for models → operators → pipeline
+│   ├── engine_context/         # UE5, Blender, Unity, three.js, and browser API context
+│   └── reference/              # Moved task notes and backend references
+├── engine_adapters/            # Engine reference code and public adapter APIs
+├── models/                     # Local-model and cloud-model wrappers
+├── operators/                  # Task logic that composes loaded models
+├── pipeline/                   # Generation, evaluation, and full-pipeline entry points
+│   ├── assets_gen/             # Image, 3D, scene, motion, audio, and CG-video tasks
+│   ├── mechanic/               # Gameplay code generation
+│   ├── ui/                     # UI code generation
+│   └── full_pipeline/          # End-to-end game-slice orchestration
+├── scripts/                    # Environment setup, engine launchers, and import helpers
+│   ├── asset_env_setup/        # Per-asset environment setup
+│   ├── engine_install/         # UE5, Blender, Unity, and three.js launch/setup scripts
+│   ├── gen_motion/             # Motion runtime, pinned sources, and weight setup
+│   └── cloud_api_install.sh    # Shared implementation behind task-specific cloud API installers
+├── test/                       # Runnable current-use scripts for contract, integration, and smoke checks
+├── test_data/                  # Sample requirements; generated game results live in outputs/
+└── third_party/                # External asset/engine installation packages and checked-out dependencies
 ```
 
-The installer downloads the selected Puppeteer and HumanML3D weights by
-default. Use `--skip-weights` when preparing environments only, then run
-`scripts/installing/gen_motion/download_weights.py` later from the MoMask
-environment.
+Generated artifacts are organized by game, run, task kind, and task id under
+`test_data/outputs/`. Agents and contributors should use
+`pipeline/common/paths.py` rather than constructing output paths manually.
 
-```bash
-conda run -n aaagf-momask python \
-  scripts/installing/gen_motion/download_weights.py
+---
+
+## Citation
+
+```bibtex
+@misc{a3gameforge,
+  title        = {A3GameForge: Open-Source 3A Game Generation Skills and Asset Framework},
+  author       = {},
+  year         = {2026},
+  howpublished = {\url{https://github.com/OpenDCAI/AAAGameForge}},
+  note         = {Open-source software repository}
+}
 ```
-
-Set `AAAGF_CONDA_BIN` when `conda` is not on `PATH`. Set
-`AAAGF_CUDA_ARCH_LIST` only when the build host cannot auto-detect its GPU. On
-WSL2, prefer a path on the distribution's Linux filesystem for build caches;
-`AAAGF_RUNTIME_ROOT` may point to a larger mounted data volume.
-
-Run the complete chain:
-
-```bash
-conda run -n aaagf-momask python pipeline/assets_gen/gen_motion/run.py \
-  --task-type humanoid \
-  --target-glb /path/to/tpose_character.glb \
-  --prompt "A person walks forward and waves." --in-place \
-  --game gameA_cyberpunk_shooter
-```
-
-Retarget-only calls remain compatible. Omit `--mapping` to infer one from the
-source and target skeleton topologies. MoMask produces 20 FPS motion;
-Puppeteer and MoMask run serially with batch size one, while retargeting is
-CPU-only.
-
-Generated artifacts follow the repository path convention:
-`test_data/outputs/<game>/<run>/assets/motion/<task_id>/`. This generated tree
-is ignored by Git. Do not put large generated files in the repository-root
-`assets/` directory, which is intentionally tracked for project assets.
-
-Real integration tests use `AAAGF_PUPPETEER_MODEL_PATH`,
-`AAAGF_PUPPETEER_PYTHON`, `AAAGF_MOMASK_MODEL_PATH`,
-`AAAGF_MOMASK_PYTHON`, `AAAGF_RETARGET_BPY_PYTHON`, and an external target
-GLB. They skip when the external runtime is not configured.
-
-## Status
-
-Skeleton — `gen_3d_object`, `gen_tpose_image`, Puppeteer rigging, MoMask
-text-to-motion and Puppeteer-targeted retargeting are wired end to end under
-the single `gen_motion` task.

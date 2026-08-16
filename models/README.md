@@ -16,12 +16,12 @@ classification, response cache, submit → poll → download) lives in
 | Slot | Class | File | Kind | Needs |
 |------|-------|------|------|-------|
 | `gen_3d_object` | `Trellis2Model` | `gen_3d_object/trellis_2_model.py` | local weights | GPU + the o-voxel extension |
-| `gen_3d_object` | `TripoModel` | `gen_3d_object/tripo_model.py` | cloud API | `$TRIPO_API_KEY` + `scripts/installing/cloud_api_install.sh` |
-| `gen_3d_object` | `MeshyModel` | `gen_3d_object/meshy_model.py` | cloud API | `$MESHY_API_KEY` + `scripts/installing/cloud_api_install.sh` |
+| `gen_3d_object` | `TripoModel` | `gen_3d_object/tripo_model.py` | cloud API | `$TRIPO_API_KEY` + `scripts/asset_env_setup/3d_object/cloud_api_install.sh` |
+| `gen_3d_object` | `MeshyModel` | `gen_3d_object/meshy_model.py` | cloud API | `$MESHY_API_KEY` + `scripts/asset_env_setup/3d_object/cloud_api_install.sh` |
 | `gen_3d_scene` | `WorldMirrorModel` | `gen_3d_scene/world_mirror_model.py` | local weights | GPU |
 | `gen_3d_scene` | `WorldPlayModel` | `gen_3d_scene/world_play_model.py` | local weights | GPU + a checkout of HY-WorldPlay |
-| `gen_cg_video` | `SeedanceModel` | `gen_cg_video/seedance_model.py` | cloud API | `$ARK_API_KEY` + `scripts/installing/cloud_api_install.sh` |
-| `gen_cg_video` | `MiniMaxH3Model` | `gen_cg_video/minimax_h3_model.py` | cloud API + local pruned INT8 | `$MINIMAX_API_KEY` or `scripts/installing/minimax_h3_install.sh` |
+| `gen_cg_video` | `SeedanceModel` | `gen_cg_video/seedance_model.py` | cloud API | `$ARK_API_KEY` + `scripts/asset_env_setup/cg_video/cloud_api_install.sh` |
+| `gen_cg_video` | `MiniMaxH3Model` | `gen_cg_video/minimax_h3_model.py` | cloud API + local pruned INT8 | `$MINIMAX_API_KEY` or `scripts/asset_env_setup/cg_video/minimax_h3_install.sh` |
 | `gen_image` | `QwenEditModel` | `gen_image/qwen_edit_model.py` | local weights | GPU |
 | `gen_motion` | `PuppeteerModel` | `gen_motion/puppeteer_model.py` | external source + local weights | CUDA rigging runtime |
 | `gen_motion` | `MoMaskModel` | `gen_motion/momask_model.py` | external source + local weights | CPU or CUDA generation runtime |

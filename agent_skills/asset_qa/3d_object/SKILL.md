@@ -9,6 +9,21 @@ of them is visible in five orthographic views. Run this immediately after
 `Gen3DObjectOperator.run_art_plan`, on the sheet at
 `result["preview_sheet"]`.
 
+## Environment setup
+
+Choose the environment based on the 3D generation backend:
+
+```bash
+# Cloud 3D backends such as Tripo and Meshy
+bash scripts/asset_env_setup/3d_object/cloud_api_install.sh
+
+# Optional local TRELLIS.2 runtime
+bash scripts/asset_env_setup/3d_object/trellis2_install.sh
+```
+
+Use only the selected route. Keep API keys in environment variables and large
+local checkpoints outside source control or under `third_party/`.
+
 ## The Five Checks
 
 **1. Is it the right thing?** Compare the sheet against the concept image

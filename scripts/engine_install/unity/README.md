@@ -44,7 +44,7 @@ For a complete generated game, provide one JSON job containing canonical
 output descriptors and the generated scene specification:
 
 ```bash
-scripts/unity/generate_game.sh \
+scripts/engine_install/unity/generate_game.sh \
     --unity-root /path/to/Unity \
     --project /path/to/generated/pipeline/fps_pipeline_001/unity_project/MyGame \
     --job-file /path/to/generated_game.json
@@ -64,7 +64,7 @@ The job must use descriptors that resolve through canonical
 ### create-project
 
 ```bash
-scripts/unity/create_project.sh \
+scripts/engine_install/unity/create_project.sh \
     --unity-root /path/to/Unity \
     --project-path /path/to/generated/pipeline/fps_pipeline_001/unity_project/MyGame \
     --dry-run
@@ -73,7 +73,7 @@ scripts/unity/create_project.sh \
 ### import-asset
 
 ```bash
-scripts/unity/import_asset.sh \
+scripts/engine_install/unity/import_asset.sh \
     --unity-root /path/to/Unity \
     --project /path/to/generated/pipeline/fps_pipeline_001/unity_project/MyGame \
     --game-id my_game \
@@ -94,7 +94,7 @@ arbitrary source paths. `--artifact-key` is required when the task's
 ### run
 
 ```bash
-scripts/unity/run.sh \
+scripts/engine_install/unity/run.sh \
     --unity-root /path/to/Unity \
     --project /path/to/generated/pipeline/fps_pipeline_001/unity_project/MyGame \
     --scene Assets/Scenes/Main.unity \
@@ -119,7 +119,7 @@ array of canonical descriptors (the same fields accepted by `import-asset`):
 Then run:
 
 ```bash
-scripts/unity/import_asset.sh import-batch \
+scripts/engine_install/unity/import_asset.sh import-batch \
     --unity-root /path/to/Unity \
     --project /path/to/generated/pipeline/fps_pipeline_001/unity_project/MyGame \
     --batch-file /path/to/assets.json

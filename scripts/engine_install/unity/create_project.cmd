@@ -2,7 +2,7 @@
 REM Thin wrapper for a3game-unity create-project
 setlocal
 set SCRIPT_DIR=%~dp0
-set REPO_ROOT=%SCRIPT_DIR%..\..
+set REPO_ROOT=%SCRIPT_DIR%..\..\..
 set PYTHONPATH=%REPO_ROOT%;%PYTHONPATH%
 set PYTHON=%A3GAME_PYTHON%
 if "%PYTHON%"=="" set PYTHON=python

@@ -1,5 +1,5 @@
 #!/bin/bash
-# scripts/installing/cloud_api_install.sh
+# Shared implementation for task-specific cloud API installers.
 # Environment for the closed-source ("cloud API") model wrappers:
 #   models/gen_3d_object/tripo_model.py
 #   models/gen_3d_object/meshy_model.py
@@ -11,9 +11,10 @@
 # These wrappers run anywhere Python runs: no GPU, no weights, no compiled
 # extensions. The whole dependency is an HTTP client.
 #
-# Usage:
-#   bash scripts/installing/cloud_api_install.sh          # into the active env
-#   bash scripts/installing/cloud_api_install.sh --conda  # create a fresh env
+# This is the shared implementation. Invoke a task-specific wrapper instead:
+#   bash scripts/asset_env_setup/3d_object/cloud_api_install.sh
+#   bash scripts/asset_env_setup/audio/cloud_api_install.sh --conda
+#   bash scripts/asset_env_setup/cg_video/cloud_api_install.sh
 
 set -e
 

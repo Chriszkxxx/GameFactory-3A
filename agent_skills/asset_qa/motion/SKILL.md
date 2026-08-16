@@ -306,13 +306,13 @@ Run these after `inspect_fbx` / Blender import report `ok=True`:
 ## 6. Runtime Environment
 
 ```bash
-source scripts/installing/gen_motion/runtime_env.sh
+source scripts/asset_env_setup/gen_motion/runtime_env.sh
 # expects conda envs (or overrides):
 #   AAAGF_PUPPETEER_PYTHON, AAAGF_MOMASK_PYTHON, AAAGF_RETARGET_BPY_PYTHON
 #   AAAGF_PUPPETEER_MODEL_PATH, AAAGF_MOMASK_MODEL_PATH
 ```
 
-Install: `scripts/installing/gen_motion/install.sh`.
+Install: `scripts/asset_env_setup/gen_motion/install.sh`.
 
 Tests::
 

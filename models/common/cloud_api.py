@@ -146,7 +146,7 @@ def _requests():
     except ImportError as e:  # pragma: no cover - environment dependent
         raise ImportError(
             "Cloud-API model wrappers need the `requests` package:\n"
-            "    bash scripts/installing/cloud_api_install.sh\n"
+            "    bash scripts/asset_env_setup/cloud_api_install.sh\n"
             "    # or simply: python -m pip install requests\n"
             "(only needed for the API backends; the local-weight models and "
             "test/harness/smoke.py do not import it.)"

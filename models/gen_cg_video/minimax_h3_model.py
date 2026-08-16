@@ -8,7 +8,7 @@ References:
 Local prerequisites:
     ComfyUI native MiniMax H3 nodes, CUDA PyTorch and the official quantized
     component weights.
-    Install with ``bash scripts/installing/minimax_h3_install.sh``.
+    Install with ``bash scripts/asset_env_setup/cg_video/minimax_h3_install.sh``.
 
 CONTRACT DEVIATIONS (only the ``runtime="api"`` route; the local route follows
                      model_require.md directly; see
@@ -121,14 +121,14 @@ class _ComfyMiniMaxRuntime:
         if not comfyui_path.is_dir():
             raise FileNotFoundError(
                 f"ComfyUI source was not found at {comfyui_path}. Run "
-                "scripts/installing/minimax_h3_install.sh or set COMFYUI_PATH."
+                "scripts/asset_env_setup/cg_video/minimax_h3_install.sh or set COMFYUI_PATH."
             )
         native_nodes = comfyui_path / "comfy_extras/nodes_minimax_h3.py"
         if not native_nodes.is_file():
             raise FileNotFoundError(
                 f"{comfyui_path} does not contain native MiniMax H3 nodes. "
                 "Install a current ComfyUI release with "
-                "scripts/installing/minimax_h3_install.sh."
+                "scripts/asset_env_setup/cg_video/minimax_h3_install.sh."
             )
 
         value = str(comfyui_path.resolve())
@@ -157,7 +157,7 @@ class _ComfyMiniMaxRuntime:
             raise RuntimeError(
                 "The local MiniMax H3 runtime is incomplete. Install current "
                 "ComfyUI and its requirements with "
-                "scripts/installing/minimax_h3_install.sh."
+                "scripts/asset_env_setup/cg_video/minimax_h3_install.sh."
             ) from exc
 
         self.torch = torch
@@ -554,7 +554,7 @@ class MiniMaxH3Model:
         except ImportError as exc:
             raise RuntimeError(
                 "huggingface_hub is required to download MiniMax H3 weights; "
-                "run scripts/installing/minimax_h3_install.sh"
+                "run scripts/asset_env_setup/cg_video/minimax_h3_install.sh"
             ) from exc
         kwargs: dict[str, Any] = {
             "repo_id": repo_id,

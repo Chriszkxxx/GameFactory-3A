@@ -9,7 +9,7 @@ REPO_ROOT="${AAAGF_REPO_ROOT:-$(cd -- "${SCRIPT_DIR}/../../.." && pwd)}"
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/installing/gen_motion/install.sh [RUNTIME_ROOT] [OPTIONS]
+Usage: bash scripts/asset_env_setup/gen_motion/install.sh [RUNTIME_ROOT] [OPTIONS]
 
 Clone pinned Puppeteer and MoMask sources, create three isolated Conda
 environments, install their dependencies, and download the selected weights.
@@ -224,7 +224,7 @@ Retarget Python:  $("${CONDA_BIN}" run -n aaagf-retarget-bpy python -c 'import s
 Before a real run:
   export AAAGF_RUNTIME_ROOT="${RUNTIME_ROOT}"
   export AAAGF_CACHE_ROOT="${CACHE_ROOT}"
-  source "${REPO_ROOT}/scripts/installing/gen_motion/runtime_env.sh"
+  source "${REPO_ROOT}/scripts/asset_env_setup/gen_motion/runtime_env.sh"
 EOF
 
 if [[ "${DOWNLOAD_WEIGHTS}" -eq 0 ]]; then
@@ -232,6 +232,6 @@ if [[ "${DOWNLOAD_WEIGHTS}" -eq 0 ]]; then
 
 Weights were skipped. Download them later with:
   "${CONDA_BIN}" run -n aaagf-momask python \
-    "${REPO_ROOT}/scripts/installing/gen_motion/download_weights.py"
+    "${REPO_ROOT}/scripts/asset_env_setup/gen_motion/download_weights.py"
 EOF
 fi

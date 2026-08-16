@@ -3,7 +3,7 @@ REM Thin wrapper for the public a3game-unity asset commands.
 REM Dispatch import-batch before adding the default import-asset command.
 setlocal
 set SCRIPT_DIR=%~dp0
-set REPO_ROOT=%SCRIPT_DIR%..\..
+set REPO_ROOT=%SCRIPT_DIR%..\..\..
 set PYTHONPATH=%REPO_ROOT%;%PYTHONPATH%
 set PYTHON=%A3GAME_PYTHON%
 if "%PYTHON%"=="" set PYTHON=python

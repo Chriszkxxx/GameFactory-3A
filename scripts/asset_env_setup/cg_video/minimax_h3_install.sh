@@ -5,7 +5,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 COMFYUI_PATH="${COMFYUI_PATH:-$REPO_ROOT/.models/src/ComfyUI}"
 # Verified with ComfyUI 0.31.0. Override when intentionally testing a newer
 # native MiniMax H3 revision.
