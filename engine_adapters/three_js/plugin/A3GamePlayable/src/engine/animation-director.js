@@ -73,6 +73,46 @@ export class A3GameAnimationDirector {
   }
 
   /**
+   * Map a state to the first clip name that exists.
+   *
+   * Necessary because the same gameplay state has to survive three
+   * different sources of motion. An auto-rigged generated character has an
+   * `aim` clip; the CC0 `robot_expressive` avatar has fourteen clips and
+   * none of them is called that. Mapping a single name means the state
+   * silently plays nothing on one of the two, and "nothing" for an enemy's
+   * attack state is a shooter standing at attention while it kills you.
+   *
+   * @param {string} state
+   * @param {string[]} candidates in order of preference
+   * @returns {string} the clip that was bound, or `''`
+   */
+  mapStateChain(state, candidates = []) {
+    for (const candidate of candidates) {
+      if (this.mapState(state, candidate)) {
+        return this.stateToClip.get(String(state)) ?? '';
+      }
+    }
+    return '';
+  }
+
+  /**
+   * Map several states, each with its own preference list.
+   *
+   * @param {Record<string, string[]>} mapping
+   * @returns {{bound: Record<string, string>, missing: string[]}}
+   */
+  mapStateChains(mapping = {}) {
+    const bound = {};
+    const missing = [];
+    for (const [state, candidates] of Object.entries(mapping)) {
+      const clip = this.mapStateChain(state, candidates);
+      if (clip) bound[state] = clip;
+      else missing.push(state);
+    }
+    return { bound, missing };
+  }
+
+  /**
    * Crossfade to a mapped state.
    *
    * @param {string} state

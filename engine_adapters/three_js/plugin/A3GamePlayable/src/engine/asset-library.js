@@ -16,7 +16,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { orientModel, prepareModel } from './visual-kit.js';
+import { createTilingTexture, orientModel, prepareModel } from './visual-kit.js';
 
 export class A3GameAssetLibrary {
   /**
@@ -333,6 +333,134 @@ export class A3GameAssetLibrary {
       }
     });
     return binding;
+  }
+
+  /**
+   * Load a staged texture, or return `null` when it was never imported.
+   *
+   * The texture counterpart of `tryInstantiate`, and it exists for the
+   * same reason: a game must run before its art arrives. It also applies
+   * the three settings that are wrong by default on any tiling surface
+   * map — clamped wrapping, anisotropy 1, and the colour space.
+   *
+   * @param {string | string[]} reference
+   * @param {{repeat?: number | number[], srgb?: boolean,
+   *          anisotropy?: number, colorSpace?: string,
+   *          rotation?: number}} [options]
+   * @returns {Promise<THREE.Texture | null>}
+   */
+  async tryLoadTexture(reference, options = {}) {
+    if (!this.has(reference)) return null;
+    try {
+      const loaded = await this.loadArtifact(reference);
+      if (!loaded?.texture) return null;
+      // Cloned so two surfaces can tile the same file at different
+      // densities; the image data itself stays shared.
+      const texture = options.clone === false
+        ? loaded.texture
+        : loaded.texture.clone();
+      texture.needsUpdate = true;
+      return createTilingTexture(texture, {
+        renderer: this.renderer,
+        ...options,
+      });
+    } catch (error) {
+      this.warnings.push(
+        `Staged texture ${String(reference)} failed to load: ` +
+          String(error?.message ?? error),
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Install a staged equirectangular image as the scene's lighting.
+   *
+   * This is the highest-value single call in the framework. An imported
+   * HDRI supplies, in one texture, every highlight and every bounce that
+   * a procedural preset can only approximate — and unlike the presets it
+   * also carries the *colour* of a real time of day, which is most of
+   * what makes a scene read as a place rather than a render.
+   *
+   * The manifest entry may carry a `sun` hint (`{elevation, azimuth}` in
+   * degrees), written by `operators/gen_3d_scene/funcs/scene_assets.py`
+   * from the HDRI's own sun position. When it does, the host's sun
+   * direction is aligned to it, so a `DirectionalLight` placed with
+   * `host.getSunPosition()` casts shadows in the direction the reflected
+   * sky says the light comes from. Getting that wrong is the most
+   * common lighting bug in an imported-HDRI scene.
+   *
+   * @param {object} host an `A3GameRuntimeHost`
+   * @param {string | string[]} reference environment artifact or asset id
+   * @param {{background?: boolean, backgroundReference?: string | string[],
+   *          environmentIntensity?: number, backgroundIntensity?: number,
+   *          backgroundBlurriness?: number,
+   *          rotationDegrees?: number}} [options]
+   * @returns {Promise<{entry: object, texture: THREE.Texture,
+   *                    sunDirection: THREE.Vector3 | null} | null>}
+   */
+  async applyEnvironment(host, reference, options = {}) {
+    if (!host?.setEnvironment) {
+      throw new TypeError('applyEnvironment needs an A3GameRuntimeHost');
+    }
+    if (!this.has(reference)) return null;
+    let loaded;
+    try {
+      loaded = await this.loadArtifact(reference);
+    } catch (error) {
+      this.warnings.push(
+        `Staged environment ${String(reference)} failed to load: ` +
+          String(error?.message ?? error),
+      );
+      return null;
+    }
+    if (!loaded?.texture) return null;
+    loaded.texture.mapping = THREE.EquirectangularReflectionMapping;
+
+    const settings = {
+      environmentTexture: loaded.texture,
+      environmentIntensity: options.environmentIntensity ?? 1,
+    };
+    if (options.background !== false) {
+      // A separate, usually cheaper, image may back the sky — a 1k HDRI
+      // is the right size for lighting and visibly soft as a backdrop.
+      const backdrop = options.backgroundReference
+        ? await this.tryLoadTexture(options.backgroundReference, {
+            srgb: true,
+            clone: false,
+          })
+        : loaded.texture;
+      if (backdrop) settings.backgroundTexture = backdrop;
+      if (options.backgroundIntensity !== undefined) {
+        settings.backgroundIntensity = options.backgroundIntensity;
+      }
+      if (options.backgroundBlurriness !== undefined) {
+        settings.backgroundBlurriness = options.backgroundBlurriness;
+      }
+    }
+    if (options.rotationDegrees !== undefined) {
+      settings.environmentRotationDegrees = options.rotationDegrees;
+      settings.backgroundRotationDegrees = options.rotationDegrees;
+    }
+
+    let sunDirection = null;
+    const sun = loaded.entry?.sun;
+    if (sun && Number.isFinite(Number(sun.elevation))) {
+      const elevation = THREE.MathUtils.degToRad(Number(sun.elevation));
+      const azimuth = THREE.MathUtils.degToRad(Number(sun.azimuth ?? 180));
+      sunDirection = new THREE.Vector3(
+        Math.cos(elevation) * Math.sin(azimuth),
+        Math.sin(elevation),
+        Math.cos(elevation) * Math.cos(azimuth),
+      ).normalize();
+      settings.sunPosition = {
+        x: sunDirection.x,
+        y: sunDirection.y,
+        z: sunDirection.z,
+      };
+    }
+    host.setEnvironment(settings);
+    return { entry: loaded.entry, texture: loaded.texture, sunDirection };
   }
 
   /** Release every cached GPU resource held by the library. */

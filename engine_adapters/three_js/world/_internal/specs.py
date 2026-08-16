@@ -20,6 +20,10 @@ SUPPORTED_LIGHT_TYPES = (
     "RectAreaLight",
 )
 SUPPORTED_FOG_TYPES = ("none", "Fog", "FogExp2")
+#: Must match ``A3GameEnvironmentPreset`` in ``engine/runtime-host.js``.
+#: Validated here so a typo fails when the world is published, not as a
+#: silently unlit scene in the browser.
+SUPPORTED_ENVIRONMENT_PRESETS = ("room", "sky", "gradient", "none")
 SUPPORTED_CAMERA_TYPES = (
     "PerspectiveCamera",
     "OrthographicCamera",
@@ -362,9 +366,29 @@ class CameraSpec:
 
 @dataclass(frozen=True)
 class EnvironmentSpec:
+    #: Procedural image-based lighting: "room", "sky", "gradient", "none".
+    #:
+    #: A world that sets neither this nor ``environment_artifact_id`` has
+    #: no environment map, and every PBR material in it reflects nothing —
+    #: which is the difference between a scene that looks lit and one that
+    #: looks like flat plastic. "gradient" is the outdoor default because
+    #: it is the only preset with clouds.
+    preset: str = ""
+    #: Direction *towards* the sun, ``{"x","y","z"}``. Also drives the
+    #: visible sun in the "sky" and "gradient" presets, so a
+    #: DirectionalLight placed from it agrees with the painted sky.
+    sun: dict[str, Any] = field(default_factory=dict)
+    #: Palette and cloud settings for the "gradient" preset — see
+    #: ``createSkyGradient`` in ``engine/visual-kit.js``.
+    sky: dict[str, Any] = field(default_factory=dict)
     background: str = "#101014"
     environment_artifact_id: str = ""
+    #: Equirectangular image used as the visible backdrop, when it should
+    #: differ from the one used for lighting.
+    background_artifact_id: str = ""
+    environment_intensity: float = 1.0
     background_intensity: float = 1.0
+    background_blurriness: float = 0.0
     tone_mapping: str = "NeutralToneMapping"
     tone_mapping_exposure: float = 1.0
     shadows: bool = True
@@ -389,13 +413,32 @@ class EnvironmentSpec:
                 f"Unsupported fog type {fog_type!r}; supported: "
                 f"{supported}"
             )
+        preset = str(payload.get("preset") or "").strip().lower()
+        if preset and preset not in SUPPORTED_ENVIRONMENT_PRESETS:
+            supported = ", ".join(SUPPORTED_ENVIRONMENT_PRESETS)
+            raise ValueError(
+                f"Unsupported environment preset {preset!r}; supported: "
+                f"{supported}"
+            )
         return cls(
+            preset=preset,
+            sun=dict(payload.get("sun") or {}),
+            sky=dict(payload.get("sky") or {}),
             background=str(payload.get("background") or "#101014"),
             environment_artifact_id=str(
                 payload.get("environment_artifact_id") or ""
             ),
+            background_artifact_id=str(
+                payload.get("background_artifact_id") or ""
+            ),
+            environment_intensity=float(
+                payload.get("environment_intensity", 1.0)
+            ),
             background_intensity=float(
                 payload.get("background_intensity", 1.0)
+            ),
+            background_blurriness=float(
+                payload.get("background_blurriness", 0.0)
             ),
             tone_mapping=str(
                 payload.get("tone_mapping")
@@ -415,9 +458,15 @@ class EnvironmentSpec:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "preset": self.preset,
+            "sun": dict(self.sun),
+            "sky": dict(self.sky),
             "background": self.background,
             "environment_artifact_id": self.environment_artifact_id,
+            "background_artifact_id": self.background_artifact_id,
+            "environment_intensity": self.environment_intensity,
             "background_intensity": self.background_intensity,
+            "background_blurriness": self.background_blurriness,
             "tone_mapping": self.tone_mapping,
             "tone_mapping_exposure": self.tone_mapping_exposure,
             "shadows": self.shadows,
@@ -515,9 +564,11 @@ class WorldSpec:
                     resolved.add(behavior.artifact_id)
         if self.environment.environment_artifact_id:
             resolved.add(self.environment.environment_artifact_id)
-        ground_artifact = str(
-            self.environment.ground.get("artifact_id") or ""
-        )
-        if ground_artifact:
-            resolved.add(ground_artifact)
+        if self.environment.background_artifact_id:
+            resolved.add(self.environment.background_artifact_id)
+        for key in ("artifact_id", "texture_artifact_id",
+                    "normal_artifact_id", "roughness_artifact_id"):
+            reference = str(self.environment.ground.get(key) or "")
+            if reference:
+                resolved.add(reference)
         return sorted(resolved)

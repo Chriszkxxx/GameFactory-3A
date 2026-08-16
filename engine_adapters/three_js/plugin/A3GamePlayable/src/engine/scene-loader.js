@@ -9,6 +9,7 @@
  */
 
 import * as THREE from 'three';
+import { createTilingTexture } from './visual-kit.js';
 
 const LIGHT_FACTORIES = {
   AmbientLight: (spec) =>
@@ -147,10 +148,33 @@ export class A3GameSceneLoader {
     };
   }
 
+  /**
+   * Install background, image-based lighting, fog and ground.
+   *
+   * Order matters and used not to be honoured: a *preset* has to be
+   * applied before an imported HDRI, because the preset may install a
+   * visible sky object and the HDRI's backdrop must be able to replace
+   * it. The two are complementary rather than exclusive — a world can
+   * take its reflections from a photograph and still keep a shader sky
+   * with drifting clouds behind the action.
+   */
   async #applyEnvironment(environment) {
-    const artifactId = String(
-      environment.environment_artifact_id ?? '',
-    );
+    const artifactId = String(environment.environment_artifact_id ?? '');
+    const backgroundId = String(environment.background_artifact_id ?? '');
+    const sun = environment.sun ?? null;
+
+    const preset = String(environment.preset ?? '').toLowerCase();
+    if (preset) {
+      this.host.setEnvironment({
+        preset,
+        sky: environment.sky ?? {},
+        sunPosition: sun ?? undefined,
+        // `background` is applied below; letting the preset also set it
+        // here would make the last writer win non-deterministically.
+        showSky: environment.show_sky !== false,
+      });
+    }
+
     let environmentTexture;
     if (artifactId) {
       const loaded = await this.assets
@@ -164,10 +188,31 @@ export class A3GameSceneLoader {
         );
       }
     }
+    let backgroundTexture;
+    if (backgroundId) {
+      backgroundTexture = await this.assets.tryLoadTexture(backgroundId, {
+        clone: false,
+      });
+      if (!backgroundTexture) {
+        this.warnings.push(
+          `Background artifact ${backgroundId} did not resolve to a ` +
+            'texture; the sky falls back to the preset or the colour',
+        );
+      }
+    }
     this.host.setEnvironment({
-      background: environment.background,
+      // A preset that installed a sky owns the backdrop, so a solid
+      // colour must not overwrite it.
+      background:
+        preset && environment.show_sky !== false && !backgroundTexture
+          ? undefined
+          : environment.background,
       environmentTexture,
+      backgroundTexture,
+      environmentIntensity: environment.environment_intensity,
       backgroundIntensity: environment.background_intensity,
+      backgroundBlurriness: environment.background_blurriness,
+      sunPosition: sun ?? undefined,
       toneMapping: environment.tone_mapping,
       toneMappingExposure: environment.tone_mapping_exposure,
     });
@@ -195,20 +240,42 @@ export class A3GameSceneLoader {
         metalness: Number(ground.metalness ?? 0.05),
         side: THREE.DoubleSide,
       });
-      if (ground.texture_url) {
+      const repeat = Number(ground.texture_repeat ?? 64);
+      // A staged texture is preferred over a raw URL: it survives
+      // re-staging, carries its licence, and goes through the tiling
+      // helper that sets anisotropy — without which a ground plane is a
+      // blurry smear at every angle the player actually looks from.
+      if (ground.texture_artifact_id) {
+        material.map = await this.assets.tryLoadTexture(
+          ground.texture_artifact_id,
+          { repeat },
+        );
+      } else if (ground.texture_url) {
         const texture = await this.assets.textureLoader.loadAsync(
           ground.texture_url,
         );
-        const repeat = Number(ground.texture_repeat ??64);
-        texture.wrapS = THREE.RepeatWrapping;
-        texture.wrapT = THREE.RepeatWrapping;
-        texture.repeat.set(repeat, repeat);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.anisotropy = 8;
+        createTilingTexture(texture, {
+          repeat,
+          renderer: this.host.renderer,
+        });
         material.map = texture;
       }
+      if (ground.normal_artifact_id) {
+        material.normalMap = await this.assets.tryLoadTexture(
+          ground.normal_artifact_id,
+          { repeat, srgb: false },
+        );
+      }
+      if (ground.roughness_artifact_id) {
+        material.roughnessMap = await this.assets.tryLoadTexture(
+          ground.roughness_artifact_id,
+          { repeat, srgb: false },
+        );
+      }
+      // Enough segments for a lit plane to receive a gradient rather than
+      // one flat value, and few enough to cost nothing.
       mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(size, size),
+        new THREE.PlaneGeometry(size, size, 32, 32),
         material,
       );
       mesh.rotation.x = -Math.PI / 2;

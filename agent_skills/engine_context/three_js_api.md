@@ -52,7 +52,8 @@ Agents, generated code, Pipeline code, and platform Serving code must not:
 - run arbitrary Node or npm commands through private transports;
 - modify the adapter-owned `A3GamePlayable` framework;
 - deep-import `@a3game/playable/src/...` paths;
-- depend on optional Arena Fighter, FPS, or Racing example packages;
+- depend on optional Arena Fighter, FPS, Racing, or Explorer example
+  packages;
 - hard-code asset URLs, `dist/` paths, or `public/` paths;
 - construct generated-output paths manually.
 
@@ -303,6 +304,247 @@ supported when the runtime configures the matching decoder.
 - `three.animation.validate_compatibility` - Checks whether motion clips
   can drive a target avatar skeleton and whether retargeting is required.
 
+Staged motion lands in `public/assets/imported/motions/` and appears in
+the manifest as `type: "motion"`. A motion artifact carries clips and
+usually a skeleton but **no renderable body**, so it is not something
+`instantiate()` can return — `A3GameMotionLibrary` is what resolves it at
+runtime.
+
+Convert a retargeted FBX to glTF before staging it: `fbx` loads in the
+browser but validates with a warning, and `glb` is the runtime format. The
+generation chain that produces the clip in the first place — Puppeteer rig,
+MoMask or a licensed clip, Blender `world_delta` retarget, `inspect_fbx`
+verification — is documented in
+`agent_skills/asset_qa/motion_gen_skills.md`.
+
+### Motion On A Generated Character
+
+This is the single most consequential difference between a downloaded
+character and a generated one, and it is invisible from the call site.
+`assets.tryInstantiate` is correct for the first and silently wrong for the
+second: image-to-3D produces **one fused body**, so its manifest entry
+reports `animations: []` and `skinned: false`. A game that swaps its
+procedural body for such a model ends up with a good-looking character that
+never moves — strictly worse than the capsule it replaced, because the
+primitive limbs that *were* being posed went away with the swap.
+
+There are exactly three ways a character can move, and `createAnimatedActor`
+tries them in order:
+
+| Route | `motionSource` | When it applies |
+|---|---|---|
+| The model's own clips | `clips` | A CC0 character, or a generated one re-exported by `gen_motion` |
+| Imported motion, retargeted by bone name | `imported_motion` | `type: 'motion'` artifacts have been staged |
+| A skeleton the rigging pipeline produced | `rigged_asset` | The asset is skinned and its bones carry canonical names |
+| A fitted skeleton plus authored clips | `auto_rig` | A static generated humanoid with no rig |
+| Nothing usable | `none` | The mesh is not shaped like a standing figure |
+
+### The `rigged_asset` Route
+
+This is the route to prefer, and the one to produce. `operators/gen_motion`
+runs Puppeteer, which predicts the skeleton *and* the skinning weights from the
+mesh — a real answer, where `autoRigHumanoid` is a browser-side approximation.
+What comes back is skinned and bound but has **no clips**, because rigging and
+animating are separate stages.
+
+Two things make that asset usable with no retargeting at all:
+
+1. **The exporter renames the predicted joints to `A3GameHumanoidBone` names.**
+   Puppeteer emits `joint0..jointN` in prediction order, which carries no
+   anatomy — `joint23` is a hip on one character and a finger on the next. The
+   labels are derived from topology: the root is the pelvis, the subtree
+   reaching highest is the spine, the two reaching lowest are the legs, and the
+   spine node where two chains branch sideways is the chest. Authored clips
+   address tracks as `` `${boneName}.quaternion` ``, so canonical names bind
+   directly.
+2. **The rest pose is identity rotations plus parent-to-child offsets**, which
+   is how `createHumanoidSkeleton` builds the template. A clip swings a thigh
+   about local X, and that only means "forward" when a bone's local axes
+   coincide with the world's at rest. Proportions may then differ freely between
+   characters, because a rotation is scale-invariant.
+
+`findRiggedHumanoid` performs the check and runs **before** the humanoid gate.
+That order matters: the gate reads a bounding-box aspect ratio, which says
+nothing about a model that already carries a labelled skeleton, and it rejects
+legitimate assets — an archer holding a bow measures wider than tall.
+
+```js
+const rigged = findRiggedHumanoid(object);  // null when not usable
+// -> { skeleton, bones: Map<name, Bone>, height, matched, missing }
+```
+
+`height` comes from the bound geometry, not from the topmost bone: a clip's
+stride and hip travel are fractions of the character's height, and the head
+bone sits inside the skull rather than on top of it.
+
+### Reconstruction Debris Sets The Bounding Box
+
+Worth knowing before concluding that a generated character has bad proportions.
+Three of the four characters in the sample projects measured *wider than tall*
+and were refused by the humanoid gate. The bodies were fine — welded, the
+largest component of one was 98% of the faces and measured a perfectly ordinary
+0.38 x 0.73 x 0.33. **Four stray faces**, left floating by the reconstruction,
+were setting the bounding box.
+
+Every proportion derived from that box is then wrong: `fitToHeight` scales the
+character so the *debris field* is 1.8 m, `ground: true` puts the lowest speck
+on the floor, and the gate reads 0.74 and reports "not a person". Deleting the
+specks is the fix; regenerating the asset is not.
+
+Two traps when doing that in Python: `trimesh.load(..., process=False)` leaves a
+glTF unwelded, so `split()` returns one component per face and says nothing
+about the shape; and `merge_vertices()` preserves UV and normal seams by
+default, which for a glTF means it merges almost nothing. Pass
+`merge_tex=True, merge_norm=True`.
+
+```js
+const actor = await createAnimatedActor(assets, 'arena_trooper', {
+  height: 1.8,
+  ground: true,   // place by the feet: a generated origin is arbitrary
+  states: ['idle', 'walk', 'run', 'aim', 'shoot', 'hit', 'death'],
+  defaultState: 'idle',
+});
+if (!actor || actor.motionSource === 'none') {
+  // Keep the procedural body. It moves, and this one does not.
+} else {
+  entity.setVisual(actor.object, actor.animations, {
+    animator: actor.animator, motionSource: actor.motionSource,
+  });
+}
+```
+
+`motionSource: 'none'` is a real answer that must be honoured. It is
+returned by `measureHumanoid` for a mesh wider than it is tall — the
+characteristic output of a reconstruction that inferred a ground plane —
+and rigging such a mesh produces a writhing lump rather than a fighter.
+Looking correct while frozen is a worse outcome than looking plain and
+moving.
+
+So hand the preference list to **`createAnimatedActor`**, not to
+`tryInstantiate`. `tryInstantiate` answers "is it staged" and stops at the
+first candidate; `createAnimatedActor` tries each in order and returns the
+first that ends up with clips, keeping a loaded-but-motionless one only as
+a last resort. Only the second question decides whether a swap is an
+improvement, and it cannot be answered before the rig is attempted.
+
+```js
+const actor = await createAnimatedActor(
+  assets, ['explorer_hero', 'explorer_ranger', 'robot_expressive'], { height: 1.8 });
+```
+
+- `A3GameHumanoidBone` / `A3GameMotionState` - the canonical bone and
+  state names. Left is `+x`, up is `+y`, forward is `-z`, and every bone
+  rests with an identity rotation, which is what makes one authored clip
+  valid for every character.
+- `createHumanoidSkeleton` - the template skeleton at a given height, as
+  fractions of that height rather than metres.
+- `measureHumanoid` - proportions, ground offset, horizontal centre, and
+  whether the mesh is a standing figure at all.
+- `autoRigHumanoid` - converts every mesh in a subtree into a
+  `SkinnedMesh` bound to one fitted skeleton, with weights from
+  distance to each bone's segment limited by that bone's influence
+  radius. A browser-side approximation of what `operators/gen_motion`
+  does properly with Puppeteer; it returns `null` for an
+  already-skinned model.
+- `createHumanoidClip` / `createHumanoidClipSet` /
+  `A3GAME_HUMANOID_CLIP_NAMES` - authored keyframe clips for `idle`,
+  `walk`, `run`, `jump`, `block`, `punch`, `kick`, `slash`, `hit`,
+  `death`, `aim`, `shoot`, `reload`, `draw`. Pass `hipsRest` from the
+  rig — a clip built against the template's rest position would throw
+  away the fitted skeleton's ground offset and horizontal centre on its
+  first frame.
+- `retargetClipToSkeleton` / `A3GameSourceBoneAliases` - renames a clip's
+  tracks onto another skeleton, resolving `mixamorig:` prefixes and
+  common library names. This is the *name* half of retargeting, which is
+  all a browser can do; reconciling rest poses and bone lengths needs the
+  source bind pose and belongs to `operators/gen_motion`.
+- `A3GameMotionLibrary` - `listMotions`, `loadClips`,
+  `loadForCharacter`, `available`, `warnings`. Renames clips to the state
+  they represent when the artifact declares one, because a game maps
+  states and `retargeted_003` names nothing.
+- `A3GameAnimationDirector.mapStateChain` / `mapStateChains` - bind a
+  state to the first clip name that exists. Necessary because the
+  authored set calls the shooting stance `aim` and the CC0
+  `robot_expressive` avatar has fourteen clips and none of them is
+  called that; a single name means one source silently plays nothing.
+
+## Visual Effects
+
+three.js ships no particle system: `Points` is a draw call and a point
+size, `Sprite` is one quad per object, and neither simulates or pools
+anything. A game that reaches for them directly ends up with one object
+per spark, a `requestAnimationFrame` of its own, and nothing disposed — so
+a firefight degrades the frame rate in proportion to how well it is going.
+
+The kit follows the two libraries that solved this for three.js already,
+without depending on either: **three.quarks** contributes the batched
+renderer, declarative systems, and render modes; **Three-VFX** contributes
+the parameter vocabulary (`size`, `colorStart`/`colorEnd`, `fadeSize`,
+`fadeOpacity`, `emitterShape`, `startPositionAsDirection`, `turbulence`,
+`friction`, `stretchBySpeed`, `blending`, `appearance`, `intensity`).
+Re-implementing it is what keeps a generated project buildable offline,
+and the parts that matter are a pooled CPU simulation feeding one
+instanced draw call.
+
+- `A3GameVfxDirector` / `createVfxDirector` - the batched owner of every
+  effect in a game: `register`, `registerAll`, `get`, `play`, `follow`,
+  `registerBeam`, `fireBeam`, `update`, `attachToHost`, `getState`,
+  `dispose`.
+- `A3GameParticleSystem` - one pooled effect, one draw call: `emit`,
+  `burst`, `start`, `stop`, `clear`, `update`, `attachToHost`,
+  `getState`, `dispose`, plus `emitterPosition` for a moving emitter.
+- `A3GameVfxPreset` - tuned definitions: `MUZZLE_FLASH`,
+  `BULLET_IMPACT`, `IMPACT_DUST`, `BLOOD_HIT`, `MELEE_IMPACT`,
+  `SHOCK_RING`, `BLOCK_SPARK`, `FOOT_DUST`, `LIGHT_ARROW_CORE`,
+  `LIGHT_ARROW_MOTES`, `LIGHT_ARROW_IMPACT`, `BLADE_SLASH`,
+  `PICKUP_SPARKLE`, `SMOKE_PLUME`, `EXPLOSION`, `TYRE_SMOKE`,
+  `SCRAPE_SPARK`, `BOOST_FLAME`. Each is a plain object, so tuning one
+  is a spread rather than a fork.
+- `A3GameBeamEffect` - pooled fading lines for tracers and laser sights.
+  A tracer is not a particle effect: it exists for two frames and has a
+  definite start and end.
+- `A3GameTrailRibbon` - a continuous surface through the positions a
+  projectile actually occupied. Particles alone cannot draw a streak,
+  because a spark stops moving the instant it is emitted and the eye sees
+  a dotted line.
+- `A3GameEmitterShape` (`POINT`, `BOX`, `SPHERE`, `CONE`, `DISK`,
+  `EDGE`), `A3GameParticleBlending` (`NORMAL`, `ADDITIVE`, `MULTIPLY`),
+  `A3GameParticleAppearance` (`DEFAULT`, `GRADIENT`, `CIRCULAR`, `RING`),
+  `A3GameParticleRenderMode` (`BILLBOARD`, `STRETCHED`, `MESH`).
+
+Choosing the right primitive:
+
+| Need | Primitive |
+|---|---|
+| A burst at a point (impact, muzzle, hit) | `play(name, { position, direction })` |
+| A stream that tracks something (trail, exhaust, smoke) | `follow(name, object3D, { rate })` |
+| An instantaneous line (tracer, laser) | `registerBeam` + `fireBeam` |
+| A continuous streak behind a projectile | `A3GameTrailRibbon` |
+
+Three placement rules decide whether an effect reads at all:
+
+1. **A burst points along the surface normal**, not along the shot.
+   Sparks that continue into the wall cannot be seen, which is why
+   `A3GameCollisionProbe.hitscan` now also returns a world-space
+   `normal`.
+2. **A tracer starts at the muzzle**, not at the camera: a line drawn
+   from the eye is inside the near plane and invisible.
+3. **A trail is not parented to what it follows.** A parented trail is
+   dragged along by the object, so the streak never forms — `follow()`
+   moves the *emitter* and leaves emitted particles in world space.
+
+Three properties are contractual, because they are what hand-rolled
+particle code gets wrong: one draw call per system; a **fixed** pool, so
+emission never allocates and a busy fight cannot leak; and no `document`,
+canvas, or GPU at construction time — the shape mask is computed in the
+fragment shader, so every class here can be constructed and stepped by a
+headless `vitest` test. Effects are decoration and must never be
+load-bearing: `play()` on an unregistered name returns `0` rather than
+throwing, so a missing effect can never be why a hit stops registering.
+
+Reference implementation of both halves:
+`engine_adapters/three_js/examples/motion-vfx-example/`.
+
 ## Bindings
 
 - `three.bindings.bind_pbr_material` - Stages a PBR texture set and
@@ -334,9 +576,19 @@ not a hand-built scene, is what `A3GameSceneLoader` consumes.
 Coordinates are right-handed, Y-up, metres; rotations are radians.
 
 - `world_id`, `name`, `project_id`, `metadata`;
-- `environment` - `background`, `environment_artifact_id`,
-  `background_intensity`, `tone_mapping`, `tone_mapping_exposure`,
-  `shadows`, `fog` (`type`/`color`/`near`/`far`/`density`), `ground`;
+- `environment` - `preset` (`room`/`sky`/`gradient`/`none`), `sun`
+  (`{x,y,z}`, also aims the painted sun), `sky` (palette and cloud
+  settings for the `gradient` preset — see `createSkyGradient`),
+  `background`, `environment_artifact_id`, `background_artifact_id`,
+  `environment_intensity`, `background_intensity`,
+  `background_blurriness`, `tone_mapping`, `tone_mapping_exposure`,
+  `shadows`, `fog` (`type`/`color`/`near`/`far`/`density`), `ground`
+  (`size`/`color`/`texture_artifact_id`/`normal_artifact_id`/
+  `roughness_artifact_id`/`texture_repeat`);
+  a `preset` and an imported HDRI are complementary, not exclusive: the
+  preset can keep the visible sky while the HDRI supplies the lighting.
+  An unknown `preset` is rejected when the world is published rather than
+  showing up as a silently unlit scene in the browser;
 - `camera` - `type`, `fov`, `near`, `far`, `position`, `target`,
   `controls`;
 - `lights[]` - `light_id`, `type`, `color`, `intensity`, `position`,
@@ -520,12 +772,22 @@ They are game-neutral.
   `remove`, `getRoot`, `usePerspectiveCamera`, `useOrthographicCamera`,
   `setFrustumHeight`, `attachOrbitControls`, `attachPointerLockControls`,
   `requestPointerLock`, `exitPointerLock`, `isPointerLocked`,
-  `detachControls`, `setEnvironment`, `setFog`, `raycastFromPointer`,
+  `detachControls`, `setEnvironment`, `setFog`, `getSunDirection`,
+  `getSunPosition`, `raycastFromPointer`,
   `raycast`, `captureFrame`, `getStats`, `dispose`.
+  `setEnvironment` also takes `backgroundTexture` (an equirectangular
+  image as the visible sky, with the mapping set for you),
+  `backgroundBlurriness`, `backgroundRotationDegrees`,
+  `environmentRotationDegrees` and `environmentIntensity`.
 - `A3GameEnvironmentPreset` - Procedural image-based lighting selected by
-  `setEnvironment({ preset })`: `ROOM` (interiors), `SKY` (a physical sky
-  that also becomes the backdrop), `NONE`. Generated on the GPU at boot,
-  so no `.hdr` is downloaded and no licence applies.
+  `setEnvironment({ preset })`: `ROOM` (interiors), `GRADIENT` (**the
+  outdoor default** — horizon gradient, sun, drifting clouds, and an
+  art-directable palette, convolved into the environment map so
+  reflections match the visible sky), `SKY` (the Preetham physical model:
+  correct, and therefore cloudless), `NONE`. Generated on the GPU at boot,
+  so no `.hdr` is downloaded and no licence applies. Whichever preset
+  paints a sky records where it put the sun, so `getSunPosition()` places
+  a `DirectionalLight` that agrees with it.
 - `disposeObject3D` - Recursively disposes geometries, materials, and
   textures.
 - **Visual kit** - the look-and-feel building blocks, all game-neutral:
@@ -533,17 +795,38 @@ They are game-neutral.
   gunmetal, plastic, rubber, cloth, leather, wood, stone, concrete,
   tarmac, grass, sand, glass, emissive), `createRoundedBox`,
   `createSunLight` (shadow camera fitted to a radius), `createFillLight`,
-  `createContactShadow`, `createRadialGradientTexture`,
+  `createContactShadow`, `createRadialGradientTexture` (falls back to a
+  `DataTexture` with no DOM, so headless world tests can build scenery),
   `createSeededRandom`, `createInstancedFromModel` (one draw call for many
-  copies of one generated body), plus the imported-model utilities
-  `prepareModel`,
+  copies of one generated body), the outdoor dressing set
+  `createSkyGradient`, `createDistantRange` (closes the hard edge where a
+  ground plane stops), `createCloudLayer` (parallax the dome cannot give),
+  `createWaterSurface` (near-mirror reflections of `scene.environment`,
+  no second render pass), `createTilingTexture` (fixes clamped
+  wrapping, anisotropy 1 and the colour space), and the procedural PBR
+  surface pair `createSurfaceTextures` / `createSurfaceMaterial` with
+  `A3GameSurfacePattern` (`CONCRETE`, `STEEL_PLATE`, `BLOCKWORK`,
+  `PAINTED_PANEL`) — colour, **normal** and roughness maps derived from one
+  shared height field, seamlessly tiling, computed into typed arrays so
+  they work headless. Reach for these on any large flat surface: the
+  realism of a floor or a wall is carried almost entirely by its normal
+  map, because a colour map alone cannot respond to a light the player
+  walks past, and a floor lit by a moving lamp stays visibly flat without
+  one. Deriving all three maps from the same height field is the point —
+  joints that are darker but not also recessed read as a printed pattern.
+  Plus the imported-model
+  utilities `prepareModel`,
   `orientModel`, `forwardAxisYaw`, `A3GameForwardAxis`,
   `A3GAME_RUNTIME_FORWARD_AXIS`, `fitToHeight`, `groundObject`, and
-  `measureObject`.
+  `measureObject`. Every factory that animates exposes
+  `userData.update(delta)`; only the sky dome is ticked by the host.
 - `A3GameAssetLibrary` - Loads the asset manifest and resolves artifacts;
   `load`, `has`, `findEntry`, `requireEntry`, `listByType`,
   `loadArtifact`, `instantiate`, `tryInstantiate`, `instantiateOrBuild`,
-  `applyMaterialBinding`, `dispose`.
+  `tryLoadTexture`, `applyEnvironment`, `applyMaterialBinding`, `dispose`.
+  `tryLoadTexture` and `applyEnvironment` return `null` rather than
+  throwing when nothing was staged, exactly like `tryInstantiate`,
+  because a game must run before its art arrives.
 - `A3GameSceneLoader` - Builds a scene from a published world scene
   graph; `loadWorld`, `buildWorld`, `getEntityObject`,
   `resolveSpawnTransform`, plus `collisionTargets` and `spawnPoints`.
@@ -555,13 +838,41 @@ They are game-neutral.
   `POINTER_LOCK` (default, first person), `DRAG` (third person, cursor
   stays usable), `ALWAYS` (debug and headless tests).
 - `A3GameAnimationDirector` - Wraps `AnimationMixer`; `addClip`,
-  `addClips`, `listClipNames`, `mapState`, `mapStates`, `play`,
-  `playOnce`, `stopAll`, `update`, `attachToHost`, `getState`,
-  `dispose`.
+  `addClips`, `listClipNames`, `mapState`, `mapStates`, `mapStateChain`,
+  `mapStateChains`, `play`, `playOnce`, `stopAll`, `update`,
+  `attachToHost`, `getState`, `dispose`.
+- **Motion kit** - `createAnimatedActor`, `findRiggedHumanoid`,
+  `A3GameMotionLibrary`, `autoRigHumanoid`, `createHumanoidSkeleton`,
+  `createHumanoidClip`, `createHumanoidClipSet`, `retargetClipToSkeleton`,
+  `measureHumanoid`, `A3GameHumanoidBone`, `A3GameMotionState`,
+  `A3GameSourceBoneAliases`, `A3GAME_HUMANOID_CLIP_NAMES`. See **Animation**
+  above: a generated character has no skeleton and no clips, and this is what
+  makes it move.
+- **Weapon orientation** - `measureWeapon`, `alignWeaponModel`,
+  `principalAxes`. A weapon's facing cannot come from the manifest:
+  `forward_axis` is a heuristic written for characters ("generated from a front
+  view, so it faces the camera") that is recorded for *every* artifact and can
+  only express quarter turns. Applied to a gun it is a coin flip whose losing
+  side points the barrel at the player's own face, and it cannot fix a mesh
+  authored at an angle — the staged pistol's barrel runs 31 degrees off +Z.
+  `alignWeaponModel` derives the barrel line from the first principal axis and
+  finds the muzzle end from the one feature every gun has: a stretch of **bare
+  barrel** that nothing hangs below, since grip, magazine and stock are all in
+  the lower silhouette. It refuses a mesh that is not weapon-shaped, because a
+  procedural box that points the right way beats an unrecognisable blob that
+  does not. Call it with `orient: false` on `tryInstantiate` so the manifest
+  heuristic does not fight it.
+- **VFX kit** - `createVfxDirector`, `A3GameVfxDirector`,
+  `A3GameParticleSystem`, `A3GameVfxPreset`, `A3GameBeamEffect`,
+  `A3GameTrailRibbon`, `A3GameEmitterShape`, `A3GameParticleBlending`,
+  `A3GameParticleAppearance`, `A3GameParticleRenderMode`. See **Visual
+  Effects** above.
 - `A3GameCollisionProbe` - Raycast and volume primitives that stand in
   for the physics engine three.js does not ship; `setTargets`,
   `addTarget`, `removeTarget`, `sampleGround`, `resolveMove`,
-  `stepCharacter`, `hitscan`, `overlapSphere`, `sweepSphere`.
+  `stepCharacter`, `hitscan`, `overlapSphere`, `sweepSphere`. `hitscan`
+  reports `hit`, `point`, `object`, `distance`, `entityId`, and a
+  world-space `normal` for impact effects.
 - `resolveEntityId` - Walks up an `Object3D` hierarchy for the nearest
   runtime entity id, which is how every probe names what it found.
 - `A3GameHudLayer` - DOM overlay HUD; `addText`, `addBar`, `addPanel`,
@@ -618,10 +929,14 @@ framework calls below, not by finding a model to load. In rough order of
 visible effect per line of code:
 
 1. **An environment map.** `host.setEnvironment({ preset: 'room' })` for
-   an interior, `{ preset: 'sky' }` for outdoors. Both are generated on
-   the GPU at boot — no `.hdr` download, no licence. Without one, every
+   an interior, `{ preset: 'gradient' }` for outdoors. Both are generated
+   on the GPU at boot — no `.hdr` download, no licence. Without one, every
    PBR material has nothing to reflect and reads as flat plastic however
    many lights are added. This is the single largest factor.
+   Prefer `gradient` over `sky` outdoors: `sky` is the Preetham model, so
+   it is physically correct and completely **cloudless**, and an empty
+   gradient overhead is the clearest single tell of a generated scene.
+   See *Sky, IBL and Outdoor Dressing* below.
 2. **Filmic tone mapping.** `toneMapping: 'ACESFilmicToneMapping'` with
    an exposure near 0.7 outdoors. The default clips highlights to white.
 3. **A fitted shadow camera.** `createSunLight({ radius })`. The stock
@@ -643,6 +958,212 @@ to face the right way. A generated mesh at the wrong scale reads as a
 toy; one facing the wrong way makes the character strafe for its entire
 walk cycle. Neither is a rendering problem, and no lighting change hides
 either.
+
+### Sky, IBL and Outdoor Dressing
+
+An outdoor scene loses its realism in four specific places, and none of
+them is the geometry. Fix them in this order.
+
+**1. The sky.** `preset: 'gradient'` installs a stylised dome — horizon
+gradient, sun disc and glow, and drifting fbm clouds — and convolves the
+*same* dome into the environment map, so what a car bonnet reflects is
+what the player sees above it. The host ticks the cloud clock itself.
+
+```js
+host.setEnvironment({
+  preset: 'gradient',
+  sunPosition: sunDirection,           // also aims the painted sun
+  sky: {
+    zenith: 0x2f6fbd, horizon: 0xd3e2ee, ground: 0x5d6a52,
+    sunColor: 0xfff0cf, sunSize: 0.006, sunGlow: 220,
+    cloudCoverage: 0.44,               // lower = more cloud
+    cloudOpacity: 0.92, cloudScale: 1.35, cloudSpeed: 0.008,
+    haze: 0.4,                         // forward scattering near the sun
+  },
+  toneMapping: 'ACESFilmicToneMapping',
+  toneMappingExposure: 0.78,
+});
+host.setFog({ type: 'Fog', color: 0xc2d7e4, near: 70, far: 240 });
+```
+
+Tint the fog to `sky.horizon`. Fog in any other colour puts a grey band
+in front of the sky instead of dissolving distance into it.
+
+**One sun direction, used four times** — the dome, the
+`DirectionalLight`, the environment map and the fog. `host.getSunPosition(d)`
+and `host.getSunDirection()` return what the installed sky actually
+painted, so a light can be placed from it instead of guessing. Shadows
+falling towards the light source is the most common lighting bug in a
+generated outdoor scene, and it has no other cause.
+
+**2. Real captured lighting.** A 1k HDRI supplies bounces no light rig
+reproduces — a forest floor throwing green up onto a character's chin.
+Keep the dome as the *visible* sky and import only the lighting:
+
+```js
+await assets.applyEnvironment(host, 'env_forest_sunrise', {
+  background: false,             // the gradient dome keeps the sky
+  environmentIntensity: 0.85,
+});
+```
+
+`applyEnvironment` also reads the entry's `sun: {elevation, azimuth}`
+hint and aligns `host.sunDirection` to it. To use a photograph *as* the
+backdrop instead, pass `background: true` (or a separate
+`backgroundReference`), and reach for `backgroundBlurriness` to keep
+sharp reflections without the player reading the JPEG artefacts.
+
+**3. Surfaces.** `assets.tryLoadTexture(ref, { repeat: 34 })` returns
+`null` when nothing was staged and otherwise fixes the three settings
+that are wrong by default: clamped wrapping (so `repeat` only stretches
+the last pixel), `anisotropy: 1` (so a ground plane is mush at every
+angle a player actually looks from), and the colour space. Multiply a
+photograph over existing vertex colours rather than replacing them — the
+height-and-slope palette is what makes the terrain read as terrain, and
+the texture is what gives a sense of speed.
+
+**4. The horizon and the water.**
+
+```js
+host.add(createDistantRange({ radius: 300, height: 96, color: 0x5c6f86,
+                              topColor: 0xa9bccf, seed: 91 }), 'environment');
+const clouds = createCloudLayer({ count: 16, radius: 260, height: 110 });
+host.onTick((d) => clouds.userData.update(d));
+
+const lake = createWaterSurface({ size: 55, normalMap, waveHeight: 0.07 });
+host.onTick((d) => lake.userData.update(d));
+```
+
+`createDistantRange` closes the hard edge where a ground plane stops —
+fog alone cannot, because it fades the ground into the sky and leaves
+nothing behind it. `createCloudLayer` parallaxes against the dome's
+clouds, which sit at infinity and never move. `createWaterSurface` is a
+near-mirror `MeshStandardMaterial` reflecting `scene.environment`, which
+costs nothing next to the `Water` addon's second render pass; assign
+`material.normalMap` whenever the texture arrives, including after
+construction.
+
+**Carve water into the height field, not on top of it.** Gameplay asks
+the terrain function where the floor is; a blue plane laid over an
+unchanged height field puts the shoreline in a different place for the
+player than for the physics.
+
+#### Acquiring the files
+
+`operators/gen_3d_scene/funcs/scene_assets.py` is a vetted catalogue of
+CC0/MIT equirectangular HDRIs, sky photographs, tiling ground textures,
+VFX sprites and open-source scene geometry, with a downloader and a
+stager that writes `manifest.json` entries the asset library already
+knows how to load.
+
+```bash
+python -m operators.gen_3d_scene.funcs.scene_assets \
+    --games game_archer_explorer --assets env_forest_sunrise tex_grass_ground
+```
+
+Licences travel into the manifest as `licence` and `attribution`.
+Anything CC-BY **must** display its credit — `scene_assets.attribution_lines(project)`
+returns exactly what a project owes. CC-BY-NC and bespoke licences
+(DamagedHelmet, Duck, Sponza) were rejected and are not in the
+catalogue.
+
+### Upgrading Appearance With Meshy or Tripo
+
+TRELLIS.2 reconstructs a shape from **one** view, so on a synthetic
+reference the silhouette is right and everything the camera could not see
+is guessed. In-game the guess reads as holes: a character missing the back
+of its hood, a pistol whose slide dissolves into the grip, trees with a
+bite out of the canopy. No lighting change hides an unclosed mesh.
+
+Meshy and Tripo are text-to-3D services with a multi-view prior and a
+texture pass, so for "make this prop look good" they are strictly better.
+`operators/gen_3d_scene/funcs/appearance_assets.py` holds the plan,
+generation, GLB optimisation and staging:
+
+```bash
+export MESHY_API_KEY=...        # or TRIPO_API_KEY, with --provider tripo
+python -m operators.gen_3d_scene.funcs.appearance_assets \
+    --games game_arcade_racer --workers 4
+```
+
+Entries re-generate an `asset_id` a game **already references**, so
+gameplay needs no change to benefit, and the existing `artifact_id` is
+kept so anything that resolved it keeps working. The previous mesh is
+saved beside it as `*.glb.trellis.bak`.
+
+Four things about this are worth carrying to the next job:
+
+* **Prompt for the whole object, and forbid what must not be in it.**
+  "single object", "complete", "standing upright", "no character", "no
+  hand". A bow prompt without the last one returns an archer about a
+  third of the time.
+* **Ask for the shell when the thing has moving parts.** A fused car
+  cannot steer or spin a wheel, so `racer_car_body` is prompted with "no
+  wheels, hollow open wheel arches" and `racer_wheel` is generated
+  separately. The shell carries the shape and the paint; the wheels go
+  inside the pivots the handling code already drives. Generate the shell
+  and the moving part as two assets — never one.
+* **Shrink the textures — but by how close the player gets.** Both
+  services return 2048² PBR sets, so one tree arrives as 9 MB and a
+  dressed forest is a 60 MB download before the first frame.
+  `appearance_assets.optimise()` resizes to `TEXTURE_BUDGET_BY_ROLE` and
+  stubs the all-black emissive map these services emit, which also removes
+  the self-lit look that `emissiveFactor: [1, 1, 1]` gives everything.
+  Two rules that a blanket "halve everything" gets wrong:
+  - **A first-person view model is not scenery.** It is 20 cm from the
+    camera and fills a quarter of the screen for the whole match, so
+    `weapon` and `vehicle` are budgeted at 1536 while `prop` is 1024.
+    Measured on the pistol at quality 92: 2048 costs 6.2 MB, 1536 costs
+    1.0 MB, 1024 costs 0.5 MB — so 1536 buys 2.25x the pixels of the 1024
+    that looked soft, for a megabyte.
+  - **Never be the one who introduces the loss.** A resize is a *second*
+    lossy generation, and that is what artifacts come from — the original
+    softness was quality 88 on top of a halved resolution, not JPEG as
+    such. So re-encode once, at 92, and preserve the source's format
+    class: keep a data map (normal, metallic-roughness, occlusion)
+    lossless only if the service sent it lossless. Converting Meshy's
+    already-JPEG normal map to PNG cannot undo the artifacts already in it
+    and cost 3.3x the bytes to prove it.
+* **Declare the height from the chassis, not from reality.** A generated
+  mesh arrives normalised into a unit box, so `scale_hint_metres` is the
+  only thing preventing every prop being one metre tall — and it must
+  match what the simulation assumes. The racer's wheel is authored at
+  0.68 m because that is twice the `TYRE_RADIUS` its pivot heights and its
+  rolling rate are built from, not because a tyre is that big.
+* **Do not declare a `forward_axis` you cannot know.** A text-to-3D car
+  arrives on an arbitrary axis — the staged shell came out lying along X —
+  so a declared forward axis is a guess, and a wrong guess is worse than
+  none: `orientModel` applies it, the game's own alignment then measures
+  the already-turned mesh and applies a second correction, and the two
+  compose into a third direction. Leave it empty and let exactly one thing
+  own the orientation.
+* **A cue that measured nothing must not get a vote.** Where orientation
+  *is* derived at runtime, score each cue by how much signal it found and
+  let the strongest decide. The racer's old rule — "the roof sits behind
+  the middle of the wheelbase" — is true of front-engined cars and
+  degenerate on the mid-engine shell the prompt asks for, where the roof
+  and body centroids agree to within 0.1 mm. It was deciding the car's
+  facing from that 0.1 mm. The nose-is-lower-than-the-tail cue measured
+  0.29 on the same mesh, and holds for saloons and supercars alike.
+
+**A character is the exception.** A raw generated humanoid has no
+skeleton, so it can only be auto-rigged, and `autoRigHumanoid` refuses a
+mesh whose height/width is under about 1.45. Prompt for a **relaxed
+A-pose with empty hands** — a figure reconstructed holding a bow measured
+0.78 and could never be rigged. Pass a candidate list and let the runtime
+decide:
+
+```js
+createAnimatedActor(assets, ['explorer_hero', 'explorer_ranger', 'robot_expressive'])
+```
+
+An array is tried **in order**, and the first candidate that ends up with
+clips wins; a loaded-but-motionless one is kept only as a last resort.
+That is deliberately different from `assets.findEntry`, which stops at
+the first staged candidate: for a prop "whatever was staged" is right,
+but for a character "the better-looking mesh, unless it cannot be made to
+move" is only answerable after trying to rig it, and a character that
+cannot move is worse than a plainer one that can.
 
 ### Sourcing Imported Models
 
@@ -709,6 +1230,12 @@ Generation is the wrong tool for anything that must **articulate**: the
 output is one fused body, so a car's wheels cannot spin and a chest's lid
 cannot open. Generate the shell, keep moving parts as primitives driven
 by gameplay, and swap only the visual.
+
+A humanoid is the one exception, and only because the runtime works around
+it: `autoRigHumanoid` fits a skeleton to a static generated body and skins
+it, so a generated character can play the authored clip set. That is an
+approximation of `operators/gen_motion`, not a replacement — and it refuses
+a mesh whose proportions are not a standing figure. See **Animation**.
 
 **Download it** — `operators/gen_3d_object/funcs/asset_pack.py`, a
 curated, licence-checked pack of three CC0 models:
@@ -779,6 +1306,17 @@ the orientation correction too.
 
 Also set `frustumCulled: false` on a skinned character: it is culled on
 its bind-pose bounds and otherwise blinks out at the screen edge.
+
+Pass `ground: true` for anything placed by its feet. A generated model's
+origin is wherever the reconstruction left it, and skipping this is why an
+imported character stands with its shins in the floor or floats above it.
+
+**A character needs one more step than a prop.** `tryInstantiate` answers
+"did a file exist"; a character also has to answer "can it move". Use
+`createAnimatedActor` for anything animated and branch on its
+`motionSource` — see **Animation**. Swapping in a clipless model destroys
+the procedural limbs the entity was posing, so the failure mode is a
+handsome statue rather than a visible error.
 
 Separate the gameplay transform from the drawn body — `entity.object`
 carries position, facing, and the hit volume; `entity.visual` is a child
@@ -852,8 +1390,92 @@ content, weapon, vehicle, combat rule, scoring rule, or game-specific
 input mapping.
 
 Generated projects own concrete gameplay implementation. The Arena
-Fighter, FPS, and Racing example packages are read-only references and
-are not dependencies or success criteria.
+Fighter, FPS, Racing, Explorer, and Motion/VFX example packages are
+read-only references and are not dependencies or success criteria.
+`motion-vfx-example` contains no game — only the two patterns every genre
+needs and that are easy to get wrong.
+
+### Choosing A Reference Example By Camera Perspective
+
+`engine_adapters/three_js/examples/` holds four playable references, and
+they are indexed by **camera perspective rather than by genre**, because
+the camera decides far more of a game's code than the genre does. Two
+shooters with different cameras share almost nothing; a racing game and an
+exploration RPG with the same camera share their entire input and camera
+layer. Read the one whose perspective matches the brief.
+
+| Perspective | Example | Owns the camera | Movement basis |
+| --- | --- | --- | --- |
+| First person | `fps-example` | The entity *is* the camera | Entity yaw, from the input frame |
+| Second person | `arena-fighter-example` | The match, not either fighter | The axis between the two fighters |
+| Third person, chase | `racing-example` | The vehicle's heading | Vehicle-relative |
+| Third person, orbit | `explorer-example` | The camera rig, which publishes yaw | **Camera-relative** |
+
+What each perspective obliges:
+
+- **First person** (`fps-example`). The camera is parented to the player
+  pivot, aiming comes from the input frame's yaw/pitch, and no character
+  is visible. Two consequences: attaching `PointerLockControls` *as well*
+  makes both the controls and `tick()` write the same camera every frame,
+  and the game needs a **view model**. That view model is the most closely
+  inspected asset in the project — it earns a larger texture budget
+  (`TEXTURE_BUDGET_BY_ROLE.weapon` is 1536, not 1024). See *Upgrading
+  Appearance With Meshy or Tripo*.
+- **Second person** (`arena-fighter-example`). Both fighters must stay
+  framed, so the camera belongs to the match and neither entity may move
+  it. Movement is locked to the axis between the two, which is what makes
+  a fighting game read as a duel rather than as two people in a field.
+- **Third person** (`racing-example`, `explorer-example`). The camera is
+  an independent object that trails its subject, so it needs **positional
+  lag** — without it, every small correction shakes the whole screen — and
+  movement must be **camera-relative**: pressing forward means "away from
+  the camera", never "along the character's facing". The two sub-cases
+  differ only in who owns the yaw, and that is not a detail: whoever owns
+  it must *publish* it, because two objects deriving it separately drift
+  apart within seconds.
+
+`explorer-example` is additionally the reference for **walking on
+non-flat ground**. Its `terrainHeight(x, z)` is a plain exported function
+used by the mesh builder, the character, the camera, every arrow and every
+prop placement. One function with many callers is the only arrangement in
+which the player cannot walk through a hill, and it is why the example has
+a `src/world.js` ahead of its `src/explorer.js`.
+
+### Name Modules After The Game, Not After The Framework
+
+Every generated game under `test_data/outputs/` names its modules for
+**what the thing is in that game**, and none of them contains an
+`entity.js` or a `factory.js`:
+
+| Role | arcade-racer | archer-explorer | fps-pistol-arena | sidescroll-brawler |
+| --- | --- | --- | --- | --- |
+| The controllable | `vehicle.js` | `explorer.js` | `player.js` | `fighter.js` |
+| The space | `track.js` | `world.js` | `arena.js` | `stage.js` |
+| The opposition | `rivals.js` | — | `enemy.js` | `ai.js` |
+| Other systems | — | `arrow.js`, `chest.js` | — | — |
+| Rules | `rules.js` | `rules.js` | `rules.js` | `rules.js` |
+| Boot + spawner + camera | `index.js` | `index.js` | `index.js` | `index.js` |
+
+Follow it, for two reasons that outlast taste:
+
+- **`factory.js` and `entity.js` name a framework interface, not a thing
+  in the game.** `A3GameEntityFactory` is one method; a file named after
+  it says nothing about what gets spawned, and every game would have an
+  identically-named file with completely different contents. The spawner
+  is small and exists only to hand the runtime one object, so it lives in
+  `index.js` beside the boot function it serves — which is also where a
+  reader looking for "how does this game start" will already be.
+- **A pattern should port without renaming.** An adapted module keeps its
+  name from example to game, so a diff stays readable and nobody has to
+  work out that `entity.js` and `fighter.js` are the same idea.
+
+Split a module out when the thing **outlives or ticks independently of**
+whatever created it — `arrow.js` exists because arrows outlive the shot and
+are stepped separately from the character. Do not split by which framework
+interface a class happens to implement.
+
+`explorer-example` mirrors `game_archer_explorer` module for module and is
+the current model; `arena-fighter-example` predates the convention.
 
 ## Web-Specific Obligations
 
@@ -909,6 +1531,15 @@ generated three.js games:
 13. **Testability over screenshots.** Assert `getRuntimeSnapshot()`,
     `hud.getState()`, and rule state; drive input through
     `globalThis.__A3GAME_RUNTIME__`.
+14. **A model with no clips is not an upgrade.** Generated characters
+    arrive with `animations: []` and no skeleton, and swapping one in
+    destroys the procedural limbs the entity was posing. Go through
+    `createAnimatedActor` and keep the procedural body when it reports
+    `motionSource: 'none'`.
+15. **Effects are batched or they are a leak.** One `Sprite` per spark is
+    one draw call per spark and a second render loop. Register effects on
+    an `A3GameVfxDirector`, which pools them, ticks them once, and frees
+    them in `dispose()`.
 
 ## Generated Test Pattern
 

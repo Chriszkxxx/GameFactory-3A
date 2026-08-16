@@ -56,6 +56,7 @@ export class A3GameCollisionProbe {
       move: new THREE.Vector3(),
       point: new THREE.Vector3(),
       box: new THREE.Box3(),
+      normalMatrix: new THREE.Matrix3(),
     };
   }
 
@@ -237,15 +238,32 @@ export class A3GameCollisionProbe {
         object: null,
         distance: Infinity,
         entityId: '',
+        normal: null,
       };
     }
     const hit = hits[0];
+    // The surface normal, in world space. `Raycaster` reports the face
+    // normal in the hit object's local space, which is not what an impact
+    // effect needs: sparks have to fly away from the wall as the wall is
+    // oriented in the world, and a rotated prop would otherwise scatter
+    // them sideways. Null for geometry without faces, for example a line
+    // or a bare marker.
+    let normal = null;
+    if (hit.face) {
+      normal = hit.face.normal
+        .clone()
+        .applyNormalMatrix(
+          this.#scratch.normalMatrix.getNormalMatrix(hit.object.matrixWorld),
+        )
+        .normalize();
+    }
     return {
       hit: true,
       point: hit.point.clone(),
       object: hit.object,
       distance: hit.distance,
       entityId: resolveEntityId(hit.object),
+      normal,
     };
   }
 
