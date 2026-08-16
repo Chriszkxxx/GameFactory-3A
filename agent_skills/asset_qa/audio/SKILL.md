@@ -19,8 +19,9 @@ Task dict / JSONL → GenAudioOperator → selected audio model → WAV + meta.j
 - Free smoke checks: `test/harness/`
 - Generated results: `test_data/outputs/<game_id>/<run_id>/assets/audio/<task_id>/`
 
-Use `pipeline/common/paths.py` for output locations. Do not revive the obsolete
-flat `test_data/outputs/mechanic/` or `test_data/outputs/ui/` directories.
+Use `pipeline/common/paths.py` for output locations. Mechanics and UI belong in
+that game's run directory, not in root-level `test_data/outputs/mechanic/` or
+`test_data/outputs/ui/` directories.
 
 ## Plan before generating
 

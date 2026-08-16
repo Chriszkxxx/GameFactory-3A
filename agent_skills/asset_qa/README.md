@@ -79,9 +79,11 @@ shared script directly.
 - All generated game results belong under `test_data/outputs/`, organized by
   game, run, task kind, and task id. Use `pipeline/common/paths.py`; never
   hand-construct output paths.
-- `test_data/outputs/mechanic/` and `test_data/outputs/ui/` are obsolete empty
-  directories and are intentionally removed. Mechanics and UI now belong to
-  their game/run/task output hierarchy.
+- Mechanics and UI belong under each game's run directory, for example
+  `test_data/outputs/gameA_cyberpunk_shooter/default/mechanic/<task_id>/` and
+  `test_data/outputs/gameA_cyberpunk_shooter/default/ui/<task_id>/`. Do not
+  create root-level `test_data/outputs/mechanic/` or `test_data/outputs/ui/`
+  directories.
 - `test/` contains runnable, current-use test and smoke scripts. Agents should
   use the relevant test to verify that generated assets, game code, or adapter
   flows can actually run; a written file alone is not evidence of success.

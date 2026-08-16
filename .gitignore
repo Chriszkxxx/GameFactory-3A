@@ -39,10 +39,10 @@ Thumbs.db
 !assets/**
 
 # Generated artifacts — keep the per-game skeleton and the README, ignore contents
-test_data/outputs/**
-!test_data/outputs/README.md
-!test_data/outputs/**/
-!test_data/outputs/**/.gitkeep
+# test_data/outputs/**
+# !test_data/outputs/README.md
+# !test_data/outputs/**/
+# !test_data/outputs/**/.gitkeep
 
 # Cloned code agents
 third_party/*/
