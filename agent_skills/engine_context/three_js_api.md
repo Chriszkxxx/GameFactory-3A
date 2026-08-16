@@ -52,7 +52,8 @@ Agents, generated code, Pipeline code, and platform Serving code must not:
 - run arbitrary Node or npm commands through private transports;
 - modify the adapter-owned `A3GamePlayable` framework;
 - deep-import `@a3game/playable/src/...` paths;
-- depend on optional Arena Fighter, FPS, or Racing example packages;
+- depend on optional Arena Fighter, FPS, Racing, or Explorer example
+  packages;
 - hard-code asset URLs, `dist/` paths, or `public/` paths;
 - construct generated-output paths manually.
 
@@ -801,8 +802,19 @@ They are game-neutral.
   `createSkyGradient`, `createDistantRange` (closes the hard edge where a
   ground plane stops), `createCloudLayer` (parallax the dome cannot give),
   `createWaterSurface` (near-mirror reflections of `scene.environment`,
-  no second render pass) and `createTilingTexture` (fixes clamped
-  wrapping, anisotropy 1 and the colour space), plus the imported-model
+  no second render pass), `createTilingTexture` (fixes clamped
+  wrapping, anisotropy 1 and the colour space), and the procedural PBR
+  surface pair `createSurfaceTextures` / `createSurfaceMaterial` with
+  `A3GameSurfacePattern` (`CONCRETE`, `STEEL_PLATE`, `BLOCKWORK`,
+  `PAINTED_PANEL`) — colour, **normal** and roughness maps derived from one
+  shared height field, seamlessly tiling, computed into typed arrays so
+  they work headless. Reach for these on any large flat surface: the
+  realism of a floor or a wall is carried almost entirely by its normal
+  map, because a colour map alone cannot respond to a light the player
+  walks past, and a floor lit by a moving lamp stays visibly flat without
+  one. Deriving all three maps from the same height field is the point —
+  joints that are darker but not also recessed read as a printed pattern.
+  Plus the imported-model
   utilities `prepareModel`,
   `orientModel`, `forwardAxisYaw`, `A3GameForwardAxis`,
   `A3GAME_RUNTIME_FORWARD_AXIS`, `fitToHeight`, `groundObject`, and
@@ -1091,18 +1103,48 @@ Four things about this are worth carrying to the next job:
   separately. The shell carries the shape and the paint; the wheels go
   inside the pivots the handling code already drives. Generate the shell
   and the moving part as two assets — never one.
-* **Shrink the textures.** Both services return 2048² PBR sets, so one
-  tree arrives as 9 MB and a dressed forest is a 60 MB download before
-  the first frame. `appearance_assets.optimise()` halves each axis (a 4x
-  saving, invisible on scenery at ten metres) and stubs the all-black
-  emissive map these services emit, which also removes the self-lit look
-  that `emissiveFactor: [1, 1, 1]` gives everything.
+* **Shrink the textures — but by how close the player gets.** Both
+  services return 2048² PBR sets, so one tree arrives as 9 MB and a
+  dressed forest is a 60 MB download before the first frame.
+  `appearance_assets.optimise()` resizes to `TEXTURE_BUDGET_BY_ROLE` and
+  stubs the all-black emissive map these services emit, which also removes
+  the self-lit look that `emissiveFactor: [1, 1, 1]` gives everything.
+  Two rules that a blanket "halve everything" gets wrong:
+  - **A first-person view model is not scenery.** It is 20 cm from the
+    camera and fills a quarter of the screen for the whole match, so
+    `weapon` and `vehicle` are budgeted at 1536 while `prop` is 1024.
+    Measured on the pistol at quality 92: 2048 costs 6.2 MB, 1536 costs
+    1.0 MB, 1024 costs 0.5 MB — so 1536 buys 2.25x the pixels of the 1024
+    that looked soft, for a megabyte.
+  - **Never be the one who introduces the loss.** A resize is a *second*
+    lossy generation, and that is what artifacts come from — the original
+    softness was quality 88 on top of a halved resolution, not JPEG as
+    such. So re-encode once, at 92, and preserve the source's format
+    class: keep a data map (normal, metallic-roughness, occlusion)
+    lossless only if the service sent it lossless. Converting Meshy's
+    already-JPEG normal map to PNG cannot undo the artifacts already in it
+    and cost 3.3x the bytes to prove it.
 * **Declare the height from the chassis, not from reality.** A generated
   mesh arrives normalised into a unit box, so `scale_hint_metres` is the
   only thing preventing every prop being one metre tall — and it must
   match what the simulation assumes. The racer's wheel is authored at
-  0.90 m because that is the diameter of the torus it replaces, not
-  because a tyre is that big.
+  0.68 m because that is twice the `TYRE_RADIUS` its pivot heights and its
+  rolling rate are built from, not because a tyre is that big.
+* **Do not declare a `forward_axis` you cannot know.** A text-to-3D car
+  arrives on an arbitrary axis — the staged shell came out lying along X —
+  so a declared forward axis is a guess, and a wrong guess is worse than
+  none: `orientModel` applies it, the game's own alignment then measures
+  the already-turned mesh and applies a second correction, and the two
+  compose into a third direction. Leave it empty and let exactly one thing
+  own the orientation.
+* **A cue that measured nothing must not get a vote.** Where orientation
+  *is* derived at runtime, score each cue by how much signal it found and
+  let the strongest decide. The racer's old rule — "the roof sits behind
+  the middle of the wheelbase" — is true of front-engined cars and
+  degenerate on the mid-engine shell the prompt asks for, where the roof
+  and body centroids agree to within 0.1 mm. It was deciding the car's
+  facing from that 0.1 mm. The nose-is-lower-than-the-tail cue measured
+  0.29 on the same mesh, and holds for saloons and supercars alike.
 
 **A character is the exception.** A raw generated humanoid has no
 skeleton, so it can only be auto-rigged, and `autoRigHumanoid` refuses a
@@ -1348,10 +1390,92 @@ content, weapon, vehicle, combat rule, scoring rule, or game-specific
 input mapping.
 
 Generated projects own concrete gameplay implementation. The Arena
-Fighter, FPS, Racing, and Motion/VFX example packages are read-only
-references and are not dependencies or success criteria.
+Fighter, FPS, Racing, Explorer, and Motion/VFX example packages are
+read-only references and are not dependencies or success criteria.
 `motion-vfx-example` contains no game — only the two patterns every genre
 needs and that are easy to get wrong.
+
+### Choosing A Reference Example By Camera Perspective
+
+`engine_adapters/three_js/examples/` holds four playable references, and
+they are indexed by **camera perspective rather than by genre**, because
+the camera decides far more of a game's code than the genre does. Two
+shooters with different cameras share almost nothing; a racing game and an
+exploration RPG with the same camera share their entire input and camera
+layer. Read the one whose perspective matches the brief.
+
+| Perspective | Example | Owns the camera | Movement basis |
+| --- | --- | --- | --- |
+| First person | `fps-example` | The entity *is* the camera | Entity yaw, from the input frame |
+| Second person | `arena-fighter-example` | The match, not either fighter | The axis between the two fighters |
+| Third person, chase | `racing-example` | The vehicle's heading | Vehicle-relative |
+| Third person, orbit | `explorer-example` | The camera rig, which publishes yaw | **Camera-relative** |
+
+What each perspective obliges:
+
+- **First person** (`fps-example`). The camera is parented to the player
+  pivot, aiming comes from the input frame's yaw/pitch, and no character
+  is visible. Two consequences: attaching `PointerLockControls` *as well*
+  makes both the controls and `tick()` write the same camera every frame,
+  and the game needs a **view model**. That view model is the most closely
+  inspected asset in the project — it earns a larger texture budget
+  (`TEXTURE_BUDGET_BY_ROLE.weapon` is 1536, not 1024). See *Upgrading
+  Appearance With Meshy or Tripo*.
+- **Second person** (`arena-fighter-example`). Both fighters must stay
+  framed, so the camera belongs to the match and neither entity may move
+  it. Movement is locked to the axis between the two, which is what makes
+  a fighting game read as a duel rather than as two people in a field.
+- **Third person** (`racing-example`, `explorer-example`). The camera is
+  an independent object that trails its subject, so it needs **positional
+  lag** — without it, every small correction shakes the whole screen — and
+  movement must be **camera-relative**: pressing forward means "away from
+  the camera", never "along the character's facing". The two sub-cases
+  differ only in who owns the yaw, and that is not a detail: whoever owns
+  it must *publish* it, because two objects deriving it separately drift
+  apart within seconds.
+
+`explorer-example` is additionally the reference for **walking on
+non-flat ground**. Its `terrainHeight(x, z)` is a plain exported function
+used by the mesh builder, the character, the camera, every arrow and every
+prop placement. One function with many callers is the only arrangement in
+which the player cannot walk through a hill, and it is why the example has
+a `src/world.js` ahead of its `src/explorer.js`.
+
+### Name Modules After The Game, Not After The Framework
+
+Every generated game under `test_data/outputs/` names its modules for
+**what the thing is in that game**, and none of them contains an
+`entity.js` or a `factory.js`:
+
+| Role | arcade-racer | archer-explorer | fps-pistol-arena | sidescroll-brawler |
+| --- | --- | --- | --- | --- |
+| The controllable | `vehicle.js` | `explorer.js` | `player.js` | `fighter.js` |
+| The space | `track.js` | `world.js` | `arena.js` | `stage.js` |
+| The opposition | `rivals.js` | — | `enemy.js` | `ai.js` |
+| Other systems | — | `arrow.js`, `chest.js` | — | — |
+| Rules | `rules.js` | `rules.js` | `rules.js` | `rules.js` |
+| Boot + spawner + camera | `index.js` | `index.js` | `index.js` | `index.js` |
+
+Follow it, for two reasons that outlast taste:
+
+- **`factory.js` and `entity.js` name a framework interface, not a thing
+  in the game.** `A3GameEntityFactory` is one method; a file named after
+  it says nothing about what gets spawned, and every game would have an
+  identically-named file with completely different contents. The spawner
+  is small and exists only to hand the runtime one object, so it lives in
+  `index.js` beside the boot function it serves — which is also where a
+  reader looking for "how does this game start" will already be.
+- **A pattern should port without renaming.** An adapted module keeps its
+  name from example to game, so a diff stays readable and nobody has to
+  work out that `entity.js` and `fighter.js` are the same idea.
+
+Split a module out when the thing **outlives or ticks independently of**
+whatever created it — `arrow.js` exists because arrows outlive the shot and
+are stepped separately from the character. Do not split by which framework
+interface a class happens to implement.
+
+`explorer-example` mirrors `game_archer_explorer` module for module and is
+the current model; `arena-fighter-example` predates the convention.
 
 ## Web-Specific Obligations
 

@@ -1183,6 +1183,303 @@ export function createSkyGradient(options = {}) {
 }
 
 /**
+ * Surface patterns `createSurfaceTextures` can build.
+ *
+ * @enum {string}
+ */
+export const A3GameSurfacePattern = Object.freeze({
+  /** Poured concrete slabs with expansion joints and worn speckle. */
+  CONCRETE: 'concrete',
+  /** Steel tread plate: raised diamonds, panel seams, bolt heads. */
+  STEEL_PLATE: 'steel_plate',
+  /** Stacked concrete blockwork with recessed mortar courses. */
+  BLOCKWORK: 'blockwork',
+  /** Flat painted sheet metal with panel lines and wear streaks. */
+  PAINTED_PANEL: 'painted_panel',
+});
+
+/**
+ * Build a tiling PBR texture set procedurally: colour, normal, roughness.
+ *
+ * This exists because the realism of a large surface is carried almost
+ * entirely by its **normal map**, and a generated project has no textures
+ * to import. A single colour map — even a good one — cannot respond to a
+ * moving light, so a floor lit by a lamp the player walks past stays
+ * visibly flat. That is the difference between "a grey plane" and "a
+ * concrete floor", and no amount of colour detail substitutes for it.
+ *
+ * All three maps are derived from **one height field**, which is the point:
+ * a normal map that disagrees with the colour map reads as a printed
+ * pattern rather than as relief. Joints are darker *and* recessed *and*
+ * rougher, because that is what a real joint is.
+ *
+ * Everything is computed into typed arrays rather than drawn into a
+ * canvas, so this works identically in a browser and in a headless test,
+ * and the noise is built on a wrapping lattice so the result tiles without
+ * a seam.
+ *
+ * @param {{pattern?: string, size?: number, repeat?: number | number[],
+ *          color?: THREE.ColorRepresentation,
+ *          jointColor?: THREE.ColorRepresentation,
+ *          roughness?: number | number[], normalStrength?: number,
+ *          cells?: number, seed?: number, contrast?: number,
+ *          renderer?: THREE.WebGLRenderer, anisotropy?: number}} [options]
+ * @returns {{map: THREE.DataTexture, normalMap: THREE.DataTexture,
+ *            roughnessMap: THREE.DataTexture, height: Float32Array,
+ *            size: number, dispose: () => void}}
+ */
+export function createSurfaceTextures(options = {}) {
+  const pattern = String(options.pattern ?? A3GameSurfacePattern.CONCRETE);
+  const size = Math.max(32, Math.floor(Number(options.size ?? 512)));
+  const cells = Math.max(1, Math.floor(Number(options.cells ?? 2)));
+  const contrast = Number(options.contrast ?? 1);
+  const normalStrength = Number(options.normalStrength ?? 1);
+  const roughRange = Array.isArray(options.roughness)
+    ? options.roughness
+    : [Number(options.roughness ?? 0.82) - 0.1, Number(options.roughness ?? 0.82) + 0.1];
+  const base = new THREE.Color(options.color ?? 0x9a9a95);
+  const joint = new THREE.Color(options.jointColor ?? 0x4c4c49);
+
+  // Tileable value noise. The lattice index wraps at `period`, so the
+  // right edge samples the same corners as the left one and the texture
+  // can be repeated without a seam — the single most common flaw in a
+  // procedurally generated tiling texture.
+  const random = createSeededRandom(Number(options.seed ?? 7));
+  const lattices = [];
+  for (let octave = 0; octave < 4; octave += 1) {
+    const period = 4 << octave;
+    const values = new Float32Array(period * period);
+    for (let index = 0; index < values.length; index += 1) values[index] = random();
+    lattices.push({ period, values });
+  }
+  const smooth = (t) => t * t * (3 - 2 * t);
+  const sampleNoise = (u, v) => {
+    let total = 0;
+    let amplitude = 1;
+    let sum = 0;
+    for (const { period, values } of lattices) {
+      const x = u * period;
+      const y = v * period;
+      const x0 = Math.floor(x);
+      const y0 = Math.floor(y);
+      const fx = smooth(x - x0);
+      const fy = smooth(y - y0);
+      const ix = ((x0 % period) + period) % period;
+      const iy = ((y0 % period) + period) % period;
+      const jx = (ix + 1) % period;
+      const jy = (iy + 1) % period;
+      const a = values[iy * period + ix];
+      const b = values[iy * period + jx];
+      const c = values[jy * period + ix];
+      const d = values[jy * period + jx];
+      total +=
+        amplitude *
+        ((a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy);
+      sum += amplitude;
+      amplitude *= 0.5;
+    }
+    return total / sum;
+  };
+
+  const height = new Float32Array(size * size);
+  const tint = new Float32Array(size * size);
+  const wear = new Float32Array(size * size);
+  const cell = size / cells;
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const index = y * size + x;
+      const u = x / size;
+      const v = y / size;
+      const grain = sampleNoise(u, v);
+      const fine = sampleNoise(u * 4, v * 4);
+      let h = 0.5 + (grain - 0.5) * 0.35 * contrast;
+      let mix = grain;
+      let rough = 0;
+
+      if (pattern === A3GameSurfacePattern.CONCRETE) {
+        // Expansion joints: a narrow recess on a slab grid, plus a
+        // shallow crown across each slab so it does not read as a decal.
+        const jx = Math.min(x % cell, cell - (x % cell));
+        const jy = Math.min(y % cell, cell - (y % cell));
+        const joints = Math.min(jx, jy);
+        const groove = 1 - Math.min(1, joints / (size * 0.012));
+        h -= groove * 0.55;
+        mix = Math.max(mix, groove);
+        rough += groove * 0.12;
+        // Aggregate pitting: small dark pocks, which is what stops a
+        // concrete floor looking like painted card.
+        const pit = fine > 0.72 ? (fine - 0.72) / 0.28 : 0;
+        h -= pit * 0.18;
+        rough += pit * 0.08;
+      } else if (pattern === A3GameSurfacePattern.STEEL_PLATE) {
+        // Raised tread: two offset diagonal bars per cell.
+        const px = ((x % cell) / cell) * 2 - 1;
+        const py = ((y % cell) / cell) * 2 - 1;
+        const bar = Math.min(
+          Math.abs(px + py) < 0.42 ? 1 : 0,
+          1,
+        ) * (Math.abs(px - py) < 0.86 ? 1 : 0);
+        const barB =
+          (Math.abs(px - py) < 0.42 ? 1 : 0) * (Math.abs(px + py) < 0.86 ? 1 : 0);
+        const tread = Math.max(bar, barB);
+        h += tread * 0.45;
+        mix = Math.min(mix, 1 - tread * 0.6);
+        rough -= tread * 0.16;
+        // Panel seam every four cells, and a bolt at its corners.
+        const seam =
+          (x % (cell * 4) < size * 0.006 ? 1 : 0) ||
+          (y % (cell * 4) < size * 0.006 ? 1 : 0)
+            ? 1
+            : 0;
+        h -= seam * 0.35;
+        mix = Math.max(mix, seam * 0.8);
+      } else if (pattern === A3GameSurfacePattern.BLOCKWORK) {
+        // Staggered courses: every other row is offset by half a block,
+        // which is what makes it read as masonry rather than as a grid.
+        const course = Math.floor(y / cell);
+        const offset = course % 2 === 0 ? 0 : cell / 2;
+        const bx = (x + offset) % cell;
+        const by = y % cell;
+        const mortar =
+          Math.min(bx, cell - bx) < size * 0.008 ||
+          Math.min(by, cell - by) < size * 0.008
+            ? 1
+            : 0;
+        h -= mortar * 0.7;
+        mix = Math.max(mix, mortar);
+        rough += mortar * 0.14;
+        // Per-block colour variation, so no two blocks match.
+        const blockNoise = sampleNoise(
+          (Math.floor((x + offset) / cell) + 0.5) / cells,
+          (course + 0.5) / cells,
+        );
+        if (!mortar) h += (blockNoise - 0.5) * 0.12;
+      } else {
+        // PAINTED_PANEL: broad panels, faint vertical wear streaks.
+        const seamX = x % (cell * 2) < size * 0.005 ? 1 : 0;
+        h -= seamX * 0.4;
+        mix = Math.max(mix, seamX * 0.7);
+        const streak = sampleNoise(u * 24, v * 0.6);
+        h += (streak - 0.5) * 0.08;
+        rough += Math.max(0, streak - 0.6) * 0.2;
+      }
+
+      height[index] = Math.min(1, Math.max(0, h));
+      tint[index] = Math.min(1, Math.max(0, mix));
+      wear[index] = rough;
+    }
+  }
+
+  // Colour and roughness, read off the same height field.
+  const colourData = new Uint8Array(size * size * 4);
+  const roughData = new Uint8Array(size * size * 4);
+  const shade = new THREE.Color();
+  for (let index = 0; index < height.length; index += 1) {
+    shade.copy(base).lerp(joint, tint[index] * 0.85);
+    // Ambient occlusion baked into the albedo: recesses are darker, which
+    // survives even when a renderer's shadows do not reach them.
+    const cavity = 0.72 + height[index] * 0.38;
+    const offset = index * 4;
+    colourData[offset] = Math.min(255, Math.round(shade.r * cavity * 255));
+    colourData[offset + 1] = Math.min(255, Math.round(shade.g * cavity * 255));
+    colourData[offset + 2] = Math.min(255, Math.round(shade.b * cavity * 255));
+    colourData[offset + 3] = 255;
+    const rough = Math.min(
+      1,
+      Math.max(
+        0,
+        roughRange[0] +
+          (roughRange[1] - roughRange[0]) * (1 - height[index]) +
+          wear[index],
+      ),
+    );
+    const encoded = Math.round(rough * 255);
+    roughData[offset] = encoded;
+    roughData[offset + 1] = encoded;
+    roughData[offset + 2] = encoded;
+    roughData[offset + 3] = 255;
+  }
+
+  // Normals by central difference on the height field, wrapping at the
+  // edges so the normal map tiles as seamlessly as the colour map.
+  const normalData = new Uint8Array(size * size * 4);
+  const at = (x, y) => height[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * normalStrength * size * 0.02;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * normalStrength * size * 0.02;
+      const length = Math.sqrt(dx * dx + dy * dy + 1);
+      const offset = (y * size + x) * 4;
+      normalData[offset] = Math.round(((-dx / length) * 0.5 + 0.5) * 255);
+      normalData[offset + 1] = Math.round(((-dy / length) * 0.5 + 0.5) * 255);
+      normalData[offset + 2] = Math.round((1 / length) * 0.5 * 255 + 127.5);
+      normalData[offset + 3] = 255;
+    }
+  }
+
+  const build = (data, srgb) => {
+    const texture = new THREE.DataTexture(data, size, size);
+    texture.needsUpdate = true;
+    return createTilingTexture(texture, {
+      repeat: options.repeat ?? 1,
+      srgb,
+      anisotropy: options.anisotropy ?? 8,
+      renderer: options.renderer,
+    });
+  };
+
+  const map = build(colourData, true);
+  // Normal and roughness are data, not colour. Tagging either sRGB
+  // silently bends every normal and every gloss value in the scene.
+  const normalMap = build(normalData, false);
+  const roughnessMap = build(roughData, false);
+
+  return {
+    map,
+    normalMap,
+    roughnessMap,
+    height,
+    size,
+    dispose() {
+      map.dispose();
+      normalMap.dispose();
+      roughnessMap.dispose();
+    },
+  };
+}
+
+/**
+ * Build a `MeshStandardMaterial` on a procedural PBR surface set.
+ *
+ * @param {{pattern?: string, repeat?: number | number[],
+ *          color?: THREE.ColorRepresentation, metalness?: number,
+ *          normalScale?: number, envMapIntensity?: number,
+ *          material?: object}} [options] also accepts everything
+ *          `createSurfaceTextures` takes
+ * @returns {THREE.MeshStandardMaterial} with `userData.surface` holding the
+ *          texture set, so a caller can dispose it.
+ */
+export function createSurfaceMaterial(options = {}) {
+  const surface = createSurfaceTextures(options);
+  const scale = Number(options.normalScale ?? 1);
+  const material = new THREE.MeshStandardMaterial({
+    map: surface.map,
+    normalMap: surface.normalMap,
+    roughnessMap: surface.roughnessMap,
+    // `roughness` multiplies `roughnessMap`, so it has to be 1 or the map
+    // is scaled down to nothing and the surface goes uniformly glossy.
+    roughness: 1,
+    metalness: Number(options.metalness ?? 0.04),
+    envMapIntensity: Number(options.envMapIntensity ?? 1),
+    ...(options.material ?? {}),
+  });
+  material.normalScale = new THREE.Vector2(scale, scale);
+  material.userData.surface = surface;
+  return material;
+}
+
+/**
  * Configure an imported texture for tiling over a large surface.
  *
  * Four settings decide whether a ground texture helps or hurts, and

@@ -204,17 +204,94 @@ APPEARANCE_PLAN: dict[str, dict[str, Any]] = {
         "role": "weapon",
         "subdir": "weapons",
         "asset_type": "prop",
-        "height_metres": 0.24,
-        "forward_axis": "+z",
+        # A pistol's *height*, grip to sight rib. The FPS rescales weapons by
+        # their measured barrel length anyway (see `modelLength` in
+        # player.js), so this only has to be plausible rather than exact.
+        "height_metres": 0.15,
+        # Blank on purpose: the FPS loads weapons with `orient: false` and
+        # derives facing from the vertices via `alignWeaponModel`, because a
+        # quarter-turn guess whose losing side points the barrel at the
+        # player's own face is not a guess worth making.
+        "forward_axis": "",
+        # Named, real, and *described*. The name alone carries most of the
+        # weight with a text-to-3D model, but naming without describing
+        # gives up control of the silhouette — and the silhouette is the
+        # whole reason to pick a Desert Eagle: the slab slide and the
+        # triangular shroud are recognisable at viewmodel distance where
+        # fine detail is not.
+        #
+        # The old prompt asked for a "sci-fi handgun ... glowing cyan energy
+        # cell", which is why it looked like a toy. Nothing about a made-up
+        # gun constrains the generator, so it invents, and invented
+        # mechanisms do not read as machined.
         "prompt": (
-            "A sci-fi semi-automatic handgun, matte gunmetal slide with "
-            "crisp panel seams, white ceramic accent plates, a glowing cyan "
-            "energy cell seated in the grip, squared trigger guard, front "
-            "and rear sights, one complete solid object, no hand, no "
-            "magazine floating loose, hard-surface game-ready asset"
+            "A Desert Eagle Mark XIX .50 AE semi-automatic pistol, large "
+            "slab-sided rectangular slide, prominent triangular barrel "
+            "shroud with a ventilated top rib, brushed stainless steel "
+            "finish, black checkered grip panels, squared trigger guard, "
+            "blade front sight and notched rear sight, ejection port on the "
+            "right side, single complete solid object, realistic modern "
+            "firearm, no hand, no holster, no ammunition, no loose "
+            "magazine, hard-surface game-ready asset"
         ),
         "symmetry_mode": "off",
-        "notes": "Viewmodel; fills a third of the screen, so it gets the weapon budget.",
+        "notes": (
+            "Viewmodel; 20 cm from the camera for the whole match, so it "
+            "gets the weapon texture budget (1536)."
+        ),
+    },
+    "arena_rifle": {
+        "game": "game_fps_pistol_arena",
+        "role": "weapon",
+        "subdir": "weapons",
+        "asset_type": "prop",
+        # Receiver to magazine floor.
+        "height_metres": 0.24,
+        "forward_axis": "",
+        # The curved magazine is doing the work here. It is the one feature
+        # that identifies an AK at a glance, so it is named first and the
+        # wood furniture second; both survive being seen small, which is
+        # the only test that matters for a viewmodel.
+        "prompt": (
+            "An AK-47 assault rifle, curved 30-round banana magazine, "
+            "orange-brown wooden handguard, wooden pistol grip and fixed "
+            "wooden stock, long gas tube above the barrel, slanted muzzle "
+            "brake, front sight post on the gas block, stamped steel "
+            "receiver with the charging handle on the right side, single "
+            "complete solid object, realistic modern firearm, no hand, no "
+            "sling, no bayonet, no ammunition, hard-surface game-ready asset"
+        ),
+        "symmetry_mode": "off",
+        "notes": (
+            "Fills the automatic slot. `player.js` already looked for this "
+            "id, so nothing in gameplay changes when it is staged."
+        ),
+    },
+    "arena_knife": {
+        "game": "game_fps_pistol_arena",
+        "role": "weapon",
+        "subdir": "weapons",
+        "asset_type": "prop",
+        # Tip to pommel: a 7-inch blade on a 5-inch handle.
+        "height_metres": 0.3,
+        "forward_axis": "",
+        # `alignWeaponModel` needs an elongated object to find an axis in,
+        # and a knife is the most elongated thing in the game, so it passes
+        # easily. What it must *not* have is a sheath: a blade inside a
+        # scabbard is one fused lump with no discernible edge.
+        "prompt": (
+            "A US Navy SEAL fixed-blade combat knife, clip-point blade with "
+            "a matte black non-reflective coating, partial saw serrations "
+            "along the spine near the base, brushed steel crossguard, black "
+            "textured rubber handle with deep finger grooves, lanyard hole "
+            "through the pommel, single complete solid object, realistic, "
+            "no sheath, no scabbard, no hand, hard-surface game-ready asset"
+        ),
+        "symmetry_mode": "off",
+        "notes": (
+            "Melee slot. No muzzle, no ammunition — see MELEE_PROFILE in "
+            "player.js, which reuses the hitscan path at 2.2 m."
+        ),
     },
     "arena_crate": {
         "game": "game_fps_pistol_arena",
@@ -256,7 +333,14 @@ APPEARANCE_PLAN: dict[str, dict[str, Any]] = {
         # tall, and this is the height that scales it to the 4.9 m x 2.15 m
         # footprint the game's chassis and wheelbase already assume.
         "height_metres": 1.28,
-        "forward_axis": "+z",
+        # Deliberately blank, not "+z". A text-to-3D car arrives on an
+        # arbitrary axis — this one came out lying along X — so any declared
+        # forward axis is a guess, and a wrong guess is worse than none:
+        # `orientModel` would apply it, `alignCarShell` would then measure
+        # the already-turned mesh and apply its own correction, and the two
+        # would compose into a car facing a third direction. Leaving it
+        # empty makes `alignCarShell` the single owner of car orientation.
+        "forward_axis": "",
         "prompt": (
             "A sleek arcade sports car body shell with no wheels, hollow "
             "open wheel arches, low wide mid-engine silhouette, glossy "
@@ -278,10 +362,14 @@ APPEARANCE_PLAN: dict[str, dict[str, Any]] = {
         "role": "prop",
         "subdir": "vehicles",
         "asset_type": "prop",
-        # Tyre diameter, matched to the torus wheel it replaces so the car
-        # does not end up on castors.
-        "height_metres": 0.9,
-        "forward_axis": "+z",
+        # Tyre diameter. Must equal 2 * TYRE_RADIUS in the game's
+        # vehicle.js, which is also what the pivot heights and the rolling
+        # rate are derived from. It was 0.9, matched to an oversized
+        # placeholder torus rather than to the car.
+        "height_metres": 0.68,
+        # A wheel is a disc about its axle; the game applies the one
+        # rotation it needs. Nothing here can be inferred from the mesh.
+        "forward_axis": "",
         "prompt": (
             "A single sports car wheel, wide black racing tyre with a "
             "shallow tread pattern and a glossy sidewall, five-spoke "
@@ -622,7 +710,10 @@ def optimise(
     path: Path,
     *,
     max_texture: int = 1024,
-    jpeg_quality: int = 88,
+    # 92, not 88. Both services already deliver JPEG, so a resize is a
+    # *second* lossy generation, and that is where visible artifacts come
+    # from. The extra quality costs about 15% of the bytes and removes it.
+    jpeg_quality: int = 92,
 ) -> dict[str, Any]:
     """Shrink a generated GLB's embedded textures, in place.
 
@@ -664,6 +755,7 @@ def optimise(
     # bufferView index -> replacement bytes.
     replacements: dict[int, bytes] = {}
     emissive_views: set[int] = set()
+    data_images = _non_colour_images(document)
     for index, image in enumerate(images):
         view_index = image.get("bufferView")
         if not isinstance(view_index, int):
@@ -702,8 +794,27 @@ def optimise(
             Image.LANCZOS,
         )
         buffer = io.BytesIO()
-        if resized.mode in ("RGBA", "LA", "P"):
-            resized.convert("RGBA").save(buffer, format="PNG", optimize=True)
+        # Preserve the *source's* format class rather than choosing one by
+        # slot. A normal, roughness or occlusion map is data — its channels
+        # are a vector or a scalar, and lossy compression mixes them into
+        # blotchy shading on anything glossy — so if the service sent it
+        # losslessly, keep it lossless.
+        #
+        # But Meshy and Tripo both send JPEG already, so for them the loss
+        # has *already* happened, and re-encoding to PNG cannot undo it: on
+        # the pistol that cost 3.3x the bytes and recovered nothing. What
+        # actually made the pistol look soft was a second lossy generation
+        # at quality 88 on top of a halved resolution. So the rule is not
+        # "never JPEG a data map", it is **never be the one who introduces
+        # the loss** — and when re-encoding is unavoidable, do it once and
+        # at high quality.
+        source_lossless = (picture.format or "").upper() in ("PNG", "BMP", "TIFF")
+        lossless = resized.mode in ("RGBA", "LA", "P") or (
+            source_lossless and index in data_images
+        )
+        if lossless:
+            mode = "RGBA" if resized.mode in ("RGBA", "LA", "P") else "RGB"
+            resized.convert(mode).save(buffer, format="PNG", optimize=True)
             image["mimeType"] = "image/png"
         else:
             resized.convert("RGB").save(
@@ -756,6 +867,35 @@ def _texture_image(document: dict[str, Any], texture_index: int) -> int | None:
     return None
 
 
+def _non_colour_images(document: dict[str, Any]) -> set[int]:
+    """Image indices bound to a slot that carries data rather than colour.
+
+    Normal, metallic-roughness and occlusion maps are sampled as numbers,
+    so they have to survive re-encoding exactly. Everything else — base
+    colour, emissive — is looked at, and can be compressed perceptually.
+
+    An image used by both kinds of slot counts as data: keeping a colour
+    map lossless costs bytes, while lossily compressing a normal map costs
+    correctness.
+    """
+
+    found: set[int] = set()
+    for material in document.get("materials") or []:
+        slots = [material.get("normalTexture"), material.get("occlusionTexture")]
+        pbr = material.get("pbrMetallicRoughness") or {}
+        slots.append(pbr.get("metallicRoughnessTexture"))
+        for slot in slots:
+            if not isinstance(slot, dict):
+                continue
+            texture_index = slot.get("index")
+            if not isinstance(texture_index, int):
+                continue
+            image_index = _texture_image(document, texture_index)
+            if isinstance(image_index, int):
+                found.add(image_index)
+    return found
+
+
 def _glb_has_skin(path: Path) -> bool:
     from models.common.glb_utils import glb_json_chunk
 
@@ -787,9 +927,20 @@ def _artifact_id(asset_id: str, klass: str) -> str:
 #: Embedded texture budget per role, longest edge in pixels. A viewmodel
 #: weapon fills a third of the screen and earns its detail; a tree does not.
 TEXTURE_BUDGET_BY_ROLE: dict[str, int] = {
+    # How close does the player's eye actually get? That is the only thing
+    # that decides a texture budget, and it varies by more than an order of
+    # magnitude across these roles. Measured on the pistol, at quality 92:
+    # 2048 costs 6.2 MB, 1536 costs 1.0 MB, 1024 costs 0.5 MB.
     "prop": 1024,
-    "weapon": 1024,
-    "vehicle": 1024,
+    # A first-person view model is 20 cm from the camera and fills a quarter
+    # of the screen for the entire match — it is the single most closely
+    # inspected asset in any of these games. 1024 at quality 88 was what
+    # made it look soft; 1536 at 92 is 2.25x the pixels for 1 MB, which is
+    # the right end of that curve to sit on.
+    "weapon": 1536,
+    # The chase camera sits a few metres behind the car and the paint is the
+    # showpiece, so it is worth more than scenery but far less than a gun.
+    "vehicle": 1536,
     "avatar": 1024,
 }
 

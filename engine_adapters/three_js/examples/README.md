@@ -3,12 +3,43 @@
 These packages are optional concrete examples built on the public
 `@a3game/playable` contract:
 
-| Package | Demonstrates |
-| --- | --- |
-| `arena-fighter-example` | Third-person movement, light/heavy attacks, arena rules, health HUD |
-| `fps-example` | Pointer-lock first-person movement, hitscan fire, reload, crosshair HUD |
-| `racing-example` | Arcade vehicle steering, boost, handbrake drift, lap and speed HUD |
-| `motion-vfx-example` | Getting motion onto a generated character, and batched particles, beams, and trails |
+| Package | Camera | Demonstrates |
+| --- | --- | --- |
+| `fps-example` | First person | Pointer-lock first-person movement, hitscan fire, reload, crosshair HUD |
+| `arena-fighter-example` | Second person | Facing-locked duel movement, light/heavy attacks, arena rules, health HUD |
+| `racing-example` | Third person (chase) | Arcade vehicle steering, boost, handbrake drift, lap and speed HUD |
+| `explorer-example` | Third person (orbit) | Camera-relative movement over a height field, follow camera, charged bow, stamina |
+| `motion-vfx-example` | — | Getting motion onto a generated character, and batched particles, beams, and trails |
+
+## Pick the example by camera, not by genre
+
+**The camera decides more of a game's code than its genre does.** Two
+shooters with different cameras share almost nothing; a racing game and an
+exploration RPG with the same camera share their whole input and camera
+layer. So when adapting these, start from the perspective the brief asks
+for:
+
+- **First person** — `fps-example`. The camera *is* the entity: it is
+  parented to the player pivot, aiming comes straight from the input
+  frame's yaw/pitch, and there is no character to see. A first-person game
+  needs a **view model** (the weapon in the corner of the screen), and that
+  view model is the most closely inspected asset in the whole project — it
+  gets the largest texture budget and full-resolution normal maps.
+- **Second person** — `arena-fighter-example`. Two fighters, a camera that
+  frames *both*, and movement locked to the axis between them. What makes
+  it its own case is that the camera is owned by the *match* rather than by
+  either player, so neither entity may move it.
+- **Third person** — `racing-example` (chase) or `explorer-example`
+  (orbit). The camera is an independent object that trails the subject, so
+  it needs lag, and movement must be **camera-relative**: pressing forward
+  means "away from the camera", never "along the character's facing". The
+  two sub-cases differ in who owns the yaw — a chase camera derives it from
+  the vehicle's heading, an orbit camera owns it and the character reads it.
+
+Everything else follows from that choice. `explorer-example` is also the
+one to read for **walking on non-flat ground**: its `terrainHeight` is a
+plain function used by both the visible mesh and every ground query, which
+is the only arrangement in which the player cannot walk through a hill.
 
 They are never installed automatically. Generated games should adapt the
 relevant patterns inside their own Gameplay Package rather than depending
@@ -21,21 +52,36 @@ wrong for a generated one, which has no skeleton and no clips, and one
 `Sprite` per spark is one draw call per spark. Read it before writing an
 entity that swaps in imported art or an effect of any kind.
 
-Each example owns its concrete entity classes, entity factory, rules, and
-HUD. `@a3game/playable` owns only normalized input, session, binding,
-entity, world, and observation contracts.
+Each example owns its concrete gameplay classes, its spawner, its rules,
+and its HUD. `@a3game/playable` owns only normalized input, session,
+binding, entity, world, and observation contracts.
 
 ## Reading order
 
-1. `src/entity.js` - how a concrete entity implements
+Each example names its modules after **what the thing is in that game** —
+the same vocabulary the generated games under `test_data/outputs/` use, so
+a pattern can be carried across without renaming it. There is no
+`entity.js` or `factory.js` in a generated game: the controllable thing is
+`vehicle.js` / `explorer.js` / `player.js` / `fighter.js`, the world is
+`track.js` / `world.js` / `arena.js` / `stage.js`, and the spawner sits in
+`index.js` next to the boot function it serves.
+
+1. `src/<world>.js` - the space the game happens in. Read this first when
+   the ground is not flat, because then it is a gameplay system rather than
+   scenery.
+2. `src/<subject>.js` - how the controllable thing implements
    `A3GameControllableEntity` and turns a normalized input frame into
    movement.
-2. `src/factory.js` - how an entity factory loads artifacts through
-   `A3GameAssetLibrary` and returns a controllable entity.
 3. `src/index.js` - how the game boots: world load, HUD, input router,
-   factory registration.
+   spawner registration, camera rig.
 4. `tests/` - how a generated game proves it works, using the local
    runtime bridge instead of screenshots.
+
+`explorer-example` mirrors `test_data/outputs/game_archer_explorer`
+module for module: `world.js`, `explorer.js`, `arrow.js`, `index.js`.
+
+`arena-fighter-example` predates this convention and still uses
+`entity.js` / `factory.js`; treat `explorer-example` as the model.
 
 ## Installing one as a starting point
 
