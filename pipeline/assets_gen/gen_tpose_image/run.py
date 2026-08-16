@@ -51,17 +51,47 @@ from pipeline.common import paths  # noqa: E402
 #: Registered task kind — keys into paths.TASK_* tables.
 TASK_KIND = "tpose"
 
-# Default checkpoints — HF repo ids, downloaded on first run.
-# Override via env vars or CLI flags.
-DEFAULT_GEN_CKPT  = "Qwen/Qwen-Image-Edit-2511"
+# Default model identifiers. The selected backend decides which one is used
+# when --gen-ckpt is omitted.
+DEFAULT_GEN_CKPT = "Qwen/Qwen-Image-Edit-2511"
+DEFAULT_SEEDREAM_MODEL = "doubao-seedream-5-0-260128"
 DEFAULT_MASK_CKPT = "briaai/RMBG-1.4"
 DEFAULT_TASKS = paths.collect_jsonl(TASK_KIND)
 
 
-def load_gen_model(ckpt: str, device: str = "cuda"):
-    from models.gen_image.qwen_edit_model import QwenEditModel
-    print(f"[run] Loading QwenEditModel from: {ckpt}")
-    return QwenEditModel(model_path=ckpt, device=device)
+def load_gen_model(
+    ckpt: str | None = None,
+    device: str = "cuda",
+    backend: str = "qwen_edit",
+    **model_kwargs,
+):
+    """Load the selected image-generation backend.
+
+    ``ckpt=None`` chooses a backend-specific default, preventing a Seedream run
+    from accidentally sending the Qwen HuggingFace repo id to the Ark API.
+    """
+    if backend == "seedream":
+        from models.gen_image.seedream_model import SeedreamModel
+        model_id = ckpt or DEFAULT_SEEDREAM_MODEL
+        print(f"[run] Loading SeedreamModel (API): {model_id}")
+        return SeedreamModel(
+            model_path=model_id,
+            device=device,
+            **model_kwargs,
+        )
+    if backend == "qwen_edit":
+        from models.gen_image.qwen_edit_model import QwenEditModel
+        model_id = ckpt or DEFAULT_GEN_CKPT
+        print(f"[run] Loading QwenEditModel from: {model_id}")
+        return QwenEditModel(
+            model_path=model_id,
+            device=device,
+            **model_kwargs,
+        )
+    raise ValueError(
+        f"unsupported image generation backend {backend!r}; "
+        "expected 'qwen_edit' or 'seedream'"
+    )
 
 
 def load_mask_model(ckpt: str, device: str = "cuda", model_type: str = "rmbg"):
@@ -119,7 +149,17 @@ def main():
     import os
 
     parser = argparse.ArgumentParser(description="Run T-pose generation.")
-    parser.add_argument("--gen-ckpt",  default=os.environ.get("QWEN_EDIT_CKPT", DEFAULT_GEN_CKPT))
+    parser.add_argument(
+        "--gen-backend",
+        default=os.environ.get("TPOSE_GEN_BACKEND", "qwen_edit"),
+        choices=["qwen_edit", "seedream"],
+        help="Image-gen backend: 'qwen_edit' (local) or 'seedream' (cloud API)",
+    )
+    parser.add_argument(
+        "--gen-ckpt",
+        default=None,
+        help="Model checkpoint/version; omitted selects the backend-specific env/default",
+    )
     parser.add_argument("--mask-ckpt", default=os.environ.get("RMBG_CKPT",       DEFAULT_MASK_CKPT))
     parser.add_argument("--mask-type", default="rmbg", choices=["rmbg", "depth"])
     parser.add_argument("--game",      default=None,
@@ -142,7 +182,16 @@ def main():
 
     run_id = paths.new_run_id() if args.run_id == "auto" else args.run_id
 
-    gen_model  = load_gen_model(args.gen_ckpt, device=args.device)
+    gen_ckpt = args.gen_ckpt
+    if gen_ckpt is None:
+        env_name = "SEEDREAM_MODEL" if args.gen_backend == "seedream" else "QWEN_EDIT_CKPT"
+        gen_ckpt = os.environ.get(env_name)
+
+    gen_model = load_gen_model(
+        gen_ckpt,
+        device=args.device,
+        backend=args.gen_backend,
+    )
     mask_model = load_mask_model(args.mask_ckpt, device=args.device, model_type=args.mask_type)
     operator = make_operator(gen_model, mask_model, output_dir=args.out_dir,
                              run_id=run_id, default_game_id=args.game)
