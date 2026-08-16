@@ -19,34 +19,34 @@
 ### UE5
 
 <p align="center">
-  <video src="VIDEO_URL_UE5_01" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_UE5_02" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_UE5_01" width="360" controls muted playsinline></video>
+  <video src="VIDEO_URL_UE5_02" width="360" controls muted playsinline></video>
 </p>
 <p align="center">
-  <video src="VIDEO_URL_UE5_03" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_UE5_04" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_UE5_03" width="360" controls muted playsinline></video>
+  <video src="VIDEO_URL_UE5_04" width="360" controls muted playsinline></video>
 </p>
 
 ### Blender
 
 <p align="center">
-  <video src="VIDEO_URL_BLENDER_01" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_BLENDER_02" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_BLENDER_01" width="360" controls muted playsinline></video>
+  <video src="VIDEO_URL_BLENDER_02" width="360" controls muted playsinline></video>
 </p>
 <p align="center">
-  <video src="VIDEO_URL_BLENDER_03" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_BLENDER_04" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_BLENDER_03" width="360" controls muted playsinline></video>
+  <video src="VIDEO_URL_BLENDER_04" width="360" controls muted playsinline></video>
 </p>
 
 ### Unity
 
 <p align="center">
-  <video src="VIDEO_URL_UNITY_01" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_UNITY_02" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_UNITY_01" width="360" controls muted playsinline></video>
+  <video src="VIDEO_URL_UNITY_02" width="360" controls muted playsinline></video>
 </p>
 <p align="center">
-  <video src="VIDEO_URL_UNITY_03" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_UNITY_04" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_UNITY_03" width="360" controls muted playsinline></video>
+  <video src="VIDEO_URL_UNITY_04" width="360" controls muted playsinline></video>
 </p>
 
 ### three.js
@@ -54,23 +54,23 @@
 下方演示依次展示对战游戏、RPG 探索游戏、第一人称射击（FPS）游戏和赛车游戏。
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/904ccddd-5a51-446e-aa38-bcb4ee8f4e9a" width="420" controls muted playsinline></video>
-  <video src="https://github.com/user-attachments/assets/6dc42e07-3b58-43e5-8005-cd83fbce1db4" width="420" controls muted playsinline></video>
+  <video src="https://github.com/user-attachments/assets/904ccddd-5a51-446e-aa38-bcb4ee8f4e9a" width="360" controls muted playsinline></video>
+  <video src="https://github.com/user-attachments/assets/6dc42e07-3b58-43e5-8005-cd83fbce1db4" width="360" controls muted playsinline></video>
 </p>
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/3b679c56-7fcd-42aa-985b-3c3cd4e05159" width="420" controls muted playsinline></video>
-  <video src="https://github.com/user-attachments/assets/12786f57-154c-4b74-b1a0-d68efd21ee50" width="420" controls muted playsinline></video>
+  <video src="https://github.com/user-attachments/assets/3b679c56-7fcd-42aa-985b-3c3cd4e05159" width="360" controls muted playsinline></video>
+  <video src="https://github.com/user-attachments/assets/12786f57-154c-4b74-b1a0-d68efd21ee50" width="360" controls muted playsinline></video>
 </p>
 
 ## CG 视频演示
 
 <p align="center">
-  <video src="VIDEO_URL_CG_01" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_CG_02" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_CG_01" width="360" controls muted playsinline></video>
+  <video src="VIDEO_URL_CG_02" width="360" controls muted playsinline></video>
 </p>
 <p align="center">
-  <video src="VIDEO_URL_CG_03" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_CG_04" width="420" controls muted playsinline></video>
+  <video src="VIDEO_URL_CG_03" width="360" controls muted playsinline></video>
+  <video src="VIDEO_URL_CG_04" width="360" controls muted playsinline></video>
 </p>
 
 ---
