@@ -17,11 +17,12 @@ test_data/outputs/
         ├── <task_kind>_results_summary.json
         │
         ├── assets/                   ← Layer A
+        │   ├── tpose/<task_id>/      ← T-pose PNG · meta.json
         │   ├── 3d_object/<task_id>/  ← model.glb · meta.json
-        │   ├── tpose/<task_id>/      ← tpose_fg.png · tpose.png · meta.json
         │   ├── 3d_scene/<task_id>/
         │   ├── motion/<task_id>/
-        │   ├── cg_video/<task_id>/
+        │   ├── audio/<task_id>/      ← WAV · meta.json
+        │   ├── cg_video/<task_id>/   ← video.mp4 · meta.json
         │   └── retarget/<task_id>/
         │
         ├── mechanic/<task_id>/       ← Layer B: engine project · demo_outputs/*.json · launch.sh
@@ -39,7 +40,7 @@ test_data/outputs/
 |---|---|
 | **`<game_id>` first** | The benchmark is authored per game project. Same first axis on both sides means eval can join inputs↔outputs by path, and a finished game project ships as one directory. |
 | **`<run_id>` second** | Keeps several attempts (different model, seed, prompt revision) side by side instead of overwriting. `latest` always points at the newest. |
-| **`assets` / `mechanic` / `ui` layer dirs** | Matches the Layer A/B/C split used throughout the repo. Asset kinds nest one level deeper because there are six of them. |
+| **`assets` / `mechanic` / `ui` layer dirs** | Matches the Layer A/B/C split used throughout the repo. Assets nest one level deeper by task type; mechanic and UI remain run-scoped game outputs, never root-level output directories. |
 | **one directory per `task_id`** | An artifact rarely travels alone (GLB + preview + textures + `meta.json`). A directory avoids filename mangling like `<game>__<taskid>_tpose_fg.png`. |
 | **`eval/` inside the run** | A score belongs to the exact run that produced it, never to "the game" in general. |
 | **`meta.json` per task** | Records source input, seed and model, so an artifact stays self-describing after it leaves the repo. |
