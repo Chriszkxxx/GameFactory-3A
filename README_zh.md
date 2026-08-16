@@ -14,13 +14,7 @@
 
 ## 游戏演示
 
-<!--
-视频插入规则：
-- 先将视频上传到 GitHub Issue 或 Pull Request，再把生成的
-  github.com/user-attachments/assets/... 链接替换到下方 VIDEO_URL 槽位。
-- 每条横版视频统一使用 width="420"；桌面端每行两个，第三、第四条放在下一行。
-- 建议使用 16:9 MP4、时长 20–60 秒；若玩法目标不明显，在每一行视频后补一行说明。
--->
+下方视频均由 Code Agent 基于 A3GameForge 提供的框架提示与资产调用策略生成。
 
 ### UE5
 
@@ -57,13 +51,15 @@
 
 ### three.js
 
+下方演示依次展示对战游戏、RPG 探索游戏、第一人称射击（FPS）游戏和赛车游戏。
+
 <p align="center">
-  <video src="VIDEO_URL_THREE_JS_01" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_THREE_JS_02" width="420" controls muted playsinline></video>
+  <video src="https://github.com/user-attachments/assets/904ccddd-5a51-446e-aa38-bcb4ee8f4e9a" width="420" controls muted playsinline></video>
+  <video src="https://github.com/user-attachments/assets/6dc42e07-3b58-43e5-8005-cd83fbce1db4" width="420" controls muted playsinline></video>
 </p>
 <p align="center">
-  <video src="VIDEO_URL_THREE_JS_03" width="420" controls muted playsinline></video>
-  <video src="VIDEO_URL_THREE_JS_04" width="420" controls muted playsinline></video>
+  <video src="https://github.com/user-attachments/assets/3b679c56-7fcd-42aa-985b-3c3cd4e05159" width="420" controls muted playsinline></video>
+  <video src="https://github.com/user-attachments/assets/12786f57-154c-4b74-b1a0-d68efd21ee50" width="420" controls muted playsinline></video>
 </p>
 
 ## CG 视频演示
@@ -87,6 +83,7 @@
 3. 告诉 Agent 你的游戏需求，并要求它先阅读 agent_skills/setting_overview.md。
 ```
 
+<p><strong><span style="color: #d1242f;">重要提示</span></strong><br>
 `agent_skills/setting_overview.md` 是使用 A3GameForge 生成资产、玩法、UI
 和特定引擎游戏时的入口文档。它会将 Agent 路由到对应的资产 Skill 和引擎
 API 上下文。
@@ -164,7 +161,7 @@ A3GameForge/
 ```bibtex
 @misc{a3gameforge,
   title        = {A3GameForge: Open-Source 3A Game Generation Skills and Asset Framework},
-  author       = {},
+  author       = {OpenDCAI},
   year         = {2026},
   howpublished = {\url{https://github.com/OpenDCAI/AAAGameForge}},
   note         = {Open-source software repository}
