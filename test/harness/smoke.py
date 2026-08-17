@@ -26,6 +26,7 @@ Usage:
     python test/harness/smoke.py --kind tpose
     python test/harness/smoke.py --keep             # inspect artifacts
     python test/harness/smoke.py --kind 3d_object --backend tripo   # API backend
+    python test/harness/smoke.py --kind tpose --backend seedream    # API backend
 """
 from __future__ import annotations
 
