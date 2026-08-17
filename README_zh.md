@@ -30,9 +30,15 @@
 
 <table>
   <tr>
-    <td width="33%"><video src="https://github.com/user-attachments/assets/71d29ac9-4e97-436c-be39-296e0da27808" width="100%" controls muted playsinline></video></td>
-    <td width="33%"><video src="https://github.com/user-attachments/assets/72980f17-a590-4c12-8ddf-4722cd7dd2ad" width="100%" controls muted playsinline></video></td>
-    <td width="33%"><video src="https://github.com/user-attachments/assets/13ebd326-a3b5-4c09-908f-82e620fa7b2c" width="100%" controls muted playsinline></video></td>
+    <td width="33%">
+      <img src="https://github.com/user-attachments/assets/71d29ac9-4e97-436c-be39-296e0da27808" width="100%" />
+    </td>
+    <td width="33%">
+      <img src="https://github.com/user-attachments/assets/72980f17-a590-4c12-8ddf-4722cd7dd2ad" width="100%" />
+    </td>
+    <td width="33%">
+      <img src="https://github.com/user-attachments/assets/13ebd326-a3b5-4c09-908f-82e620fa7b2c" width="100%" />
+    </td>
   </tr>
 </table>
 
