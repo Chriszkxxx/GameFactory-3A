@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/61446541-7aa0-46f3-9023-496f90678372" alt="A3GameForge" width="240" />
+  <img src="https://github.com/user-attachments/assets/104f765d-44aa-4880-8748-f6c02381e11d" alt="A3GameForge" width="256" />
 </p>
 
 # A3GameForge
@@ -20,25 +20,9 @@
 
 <table>
   <tr>
-    <td width="50%"><video src="VIDEO_URL_UE5_01" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_UE5_02" width="100%" controls muted playsinline></video></td>
-  </tr>
-  <tr>
-    <td width="50%"><video src="VIDEO_URL_UE5_03" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_UE5_04" width="100%" controls muted playsinline></video></td>
-  </tr>
-</table>
-
-### Blender
-
-<table>
-  <tr>
-    <td width="50%"><video src="VIDEO_URL_BLENDER_01" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_BLENDER_02" width="100%" controls muted playsinline></video></td>
-  </tr>
-  <tr>
-    <td width="50%"><video src="VIDEO_URL_BLENDER_03" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_BLENDER_04" width="100%" controls muted playsinline></video></td>
+    <td width="33%"><video src="VIDEO_URL_UE5_01" width="100%" controls muted playsinline></video></td>
+    <td width="33%"><video src="VIDEO_URL_UE5_02" width="100%" controls muted playsinline></video></td>
+    <td width="33%"><video src="VIDEO_URL_UE5_03" width="100%" controls muted playsinline></video></td>
   </tr>
 </table>
 
@@ -46,12 +30,28 @@
 
 <table>
   <tr>
-    <td width="50%"><video src="VIDEO_URL_UNITY_01" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_UNITY_02" width="100%" controls muted playsinline></video></td>
+    <td width="33%"><video src="VIDEO_URL_UNITY_01" width="100%" controls muted playsinline></video></td>
+    <td width="33%"><video src="VIDEO_URL_UNITY_02" width="100%" controls muted playsinline></video></td>
+    <td width="33%"><video src="VIDEO_URL_UNITY_03" width="100%" controls muted playsinline></video></td>
+  </tr>
+</table>
+
+### Blender
+
+<table>
+  <tr>
+    <td width="50%">
+      <video src="https://github.com/user-attachments/assets/0c686db2-2ae4-4d3e-9aeb-311bf8616267" width="100%" controls muted playsinline></video>
+    </td>
+    <td width="50%"><video src="VIDEO_URL_BLENDER_02" width="100%" controls muted playsinline></video></td>
   </tr>
   <tr>
-    <td width="50%"><video src="VIDEO_URL_UNITY_03" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_UNITY_04" width="100%" controls muted playsinline></video></td>
+    <td width="50%">
+      <video src="https://github.com/user-attachments/assets/0ae06144-28f1-459c-b418-10ef1dc59ae4" width="100%" controls muted playsinline></video>
+    </td>
+    <td width="50%">
+      <video src="https://github.com/user-attachments/assets/713db0bd-0393-445b-b3a1-39863e7df49a" width="100%" controls muted playsinline></video>
+    </td>
   </tr>
 </table>
 
