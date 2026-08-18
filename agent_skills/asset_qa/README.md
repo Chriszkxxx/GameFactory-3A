@@ -18,6 +18,7 @@ parsing and structural checks alone cannot answer these questions.
 | Imported asset orientation | `agent_skills/asset_qa/3d_object/orientation_review.md` | Forward axis, scale, ground contact, attachment points, and engine import review |
 | 3D scene generation | `agent_skills/asset_qa/3d_scene/SKILL.md` | Scene generation or assembly, layout, environment quality, and scene-level review |
 | Motion | `agent_skills/asset_qa/motion/SKILL.md` | Rigging, generation/fetch, retargeting, import, and in-game motion review |
+| CG video | `agent_skills/asset_qa/cg_video/SKILL.md` | CG prompt direction, backend selection, generation, artifact layout, and video QA |
 
 Read the selected engine contract from `agent_skills/engine_context/` before
 importing an approved asset or scene. The engine documents define formats,

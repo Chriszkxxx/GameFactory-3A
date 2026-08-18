@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.skills/game-cg-director/output.schema.json",
+  "title": "game-cg-director output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "mode",
+    "model",
+    "scene",
+    "duration_sec",
+    "aspect_ratio",
+    "prompt",
+    "meta"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{2,79}$"
+    },
+    "mode": {
+      "enum": [
+        "text_to_video",
+        "first_frame_to_video",
+        "first_last_frame_to_video",
+        "reference_to_video"
+      ]
+    },
+    "model": {"enum": ["h3", "seedance"]},
+    "scene": {"enum": ["opening", "cutscene", "ultimate", "promo"]},
+    "duration_sec": {"type": "number", "exclusiveMinimum": 0},
+    "aspect_ratio": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*:[1-9][0-9]*$"
+    },
+    "prompt": {"type": "string", "minLength": 1},
+    "seed": {"type": "integer", "minimum": 0},
+    "first_frame_path": {"$ref": "#/$defs/localPath"},
+    "last_frame_path": {"$ref": "#/$defs/localPath"},
+    "reference_image_paths": {"$ref": "#/$defs/pathArray"},
+    "reference_video_paths": {"$ref": "#/$defs/pathArray"},
+    "reference_audio_paths": {"$ref": "#/$defs/pathArray"},
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill", "defaults_applied"],
+      "properties": {
+        "skill": {"const": "game-cg-director"},
+        "defaults_applied": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "localPath": {"type": "string", "minLength": 1},
+    "pathArray": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/localPath"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"mode": {"const": "text_to_video"}},
+        "required": ["mode"]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {"required": ["first_frame_path"]},
+            {"required": ["last_frame_path"]},
+            {"required": ["reference_image_paths"]},
+            {"required": ["reference_video_paths"]},
+            {"required": ["reference_audio_paths"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"mode": {"const": "first_frame_to_video"}},
+        "required": ["mode"]
+      },
+      "then": {
+        "required": ["first_frame_path"],
+        "not": {
+          "anyOf": [
+            {"required": ["last_frame_path"]},
+            {"required": ["reference_image_paths"]},
+            {"required": ["reference_video_paths"]},
+            {"required": ["reference_audio_paths"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"mode": {"const": "first_last_frame_to_video"}},
+        "required": ["mode"]
+      },
+      "then": {
+        "required": ["first_frame_path", "last_frame_path"],
+        "not": {
+          "anyOf": [
+            {"required": ["reference_image_paths"]},
+            {"required": ["reference_video_paths"]},
+            {"required": ["reference_audio_paths"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"mode": {"const": "reference_to_video"}},
+        "required": ["mode"]
+      },
+      "then": {
+        "anyOf": [
+          {"required": ["reference_image_paths"]},
+          {"required": ["reference_video_paths"]},
+          {"required": ["reference_audio_paths"]}
+        ],
+        "not": {
+          "anyOf": [
+            {"required": ["first_frame_path"]},
+            {"required": ["last_frame_path"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "model": {"const": "h3"},
+          "mode": {
+            "enum": [
+              "text_to_video",
+              "first_frame_to_video",
+              "first_last_frame_to_video"
+            ]
+          }
+        },
+        "required": ["model", "mode"]
+      },
+      "then": {
+        "properties": {
+          "prompt": {
+            "pattern": "integrated_multimodal_description:[\\s\\S]+overall_soundscape:[\\s\\S]+non_diegetic_music:"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "model": {"const": "h3"},
+          "mode": {"const": "reference_to_video"}
+        },
+        "required": ["model", "mode"]
+      },
+      "then": {
+        "properties": {
+          "prompt": {
+            "pattern": "subject_definitions:[\\s\\S]+summary:[\\s\\S]+retention_analysis:[\\s\\S]+detailed_description:[\\s\\S]+overall_soundscape:[\\s\\S]+non_diegetic_music:"
+          }
+        }
+      }
+    }
+  ]
+}

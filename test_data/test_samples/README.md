@@ -32,6 +32,9 @@ test_samples/
 │   │   └── retarget_tasks.jsonl
 │   ├── cg_video/
 │   │   ├── requirement.txt
+│   │   ├── ref_images/               ← optional image references / keyframes
+│   │   ├── ref_videos/               ← optional video references
+│   │   ├── ref_audio/                ← optional audio references
 │   │   └── cg_tasks.jsonl
 │   ├── audio/
 │   │   ├── requirement.txt
