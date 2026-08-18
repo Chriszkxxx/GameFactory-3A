@@ -89,14 +89,14 @@ The demos below show a battle game, an RPG exploration game, a first-person shoo
 
 ## CG-video demos
 
-The demos below show an F1 racing-game opening, a mid-story cutscene for a
-fantasy exploration RPG, a promotional trailer for a counter-terrorism tactical
-FPS, and an ultimate-ability cinematic for a two-player fighting game.
+The demos below show an F1 racing-game opening, a mid-story fantasy-exploration
+RPG cutscene, a promotional trailer for a counter-terrorism tactical FPS, and an
+ultimate-ability cinematic for a two-player fighting game.
 
 > Generated locally at 720P with
-> [MiniMax H3](https://huggingface.co/Comfy-Org/MiniMax-H3) to balance quality
-> and cost. Optional higher local resolutions or cloud API models such as
-> Seedance may provide stronger results at higher cost.
+> [MiniMax H3](https://huggingface.co/Comfy-Org/MiniMax-H3). Optional higher
+> local resolutions or cloud API models such as Seedance may provide stronger
+> results at higher cost.
 
 <table>
   <tr>
