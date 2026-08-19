@@ -54,6 +54,13 @@ fallback and its implications.
 
 ## Environment setup
 
+### Local backend dependencies
+
+For Qwen3-TTS, install `qwen-tts` as described in the
+[Qwen3-TTS repository](https://github.com/QwenLM/Qwen3-TTS). For Woosh-DFlow,
+clone the [Woosh repository](https://github.com/SonyResearch/Woosh) and follow
+its installation instructions before downloading or configuring checkpoints.
+
 ### Shared cloud API dependency
 
 ```bash
