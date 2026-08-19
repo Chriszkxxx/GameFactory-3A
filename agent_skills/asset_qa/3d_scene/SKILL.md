@@ -24,7 +24,7 @@ Typical chain in this repo:
 
 1. Reference image (+ optional prompt / camera pose) → WorldPlay video frames
 2. Frames → WorldMirror depth / point cloud
-3. Point cloud → continuous mesh (`operators/gen_3d_scene`, sky cull + tangent-plane faces)
+3. Point cloud → continuous mesh (`<REPO_PATH>/operators/gen_3d_scene`, sky cull + tangent-plane faces)
 4. Export GLB / PLY under the `3d_scene` output path
 
 When to use this path:
@@ -39,8 +39,8 @@ Watch-outs:
   `gen_3d_scene` (sky segmentation, tangent-plane continuity, normal-agreement cull)
 - Do not expect clean infinite outdoor horizons from this path
 
-Entry points: `pipeline/assets_gen/gen_3d_scene/{run,eval,render}.py`,
-`test/test_3D_scene_gen.py`.
+Entry points: `<REPO_PATH>/pipeline/assets_gen/gen_3d_scene/{run,eval,render}.py`,
+`<REPO_PATH>/test/test_3D_scene_gen.py`.
 
 ## Open scenes — plane / terrain + objects
 
@@ -76,6 +76,6 @@ Watch-outs:
 1. Classify: closed vs open (from task text / reference).
 2. Closed → WorldPlay / WorldMirror mesh path.
 3. Open → base plane or terrain, then place `gen_3d_object` (or kit) assets.
-4. Write artifacts to the paths `pipeline/common/paths.py` defines for `3d_scene`.
+4. Write artifacts to the paths `<REPO_PATH>/pipeline/common/paths.py` defines for `3d_scene`.
 5. Visually check continuity (closed) or placement / scale on ground (open)
    before accepting the asset.

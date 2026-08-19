@@ -33,7 +33,7 @@ test_data/test_samples/<game_id>/cg_video/
 ```
 
 Do not choose the generated-artifact directory here. The parent Skill and
-`pipeline/common/paths.py` own `run_id` and final output paths.
+`<REPO_PATH>/pipeline/common/paths.py` own `run_id` and final output paths.
 
 For a multi-clip sequence, create and validate one envelope per independently
 generated clip. Keep task IDs unique and preserve continuity anchors between
@@ -68,7 +68,7 @@ envelopes. Do not represent several independently generated clips as one task.
      `reference_to_video`;
    - never select or mention the excluded last-frame-only mode.
 3. Use the requested model, normalized to lowercase; otherwise use `h3`. Read
-   `models/<model>.md`. If the profile does not exist, stop instead of
+   `<REPO_PATH>/models/<model>.md`. If the profile does not exist, stop instead of
    inventing one.
 
 ## Read only the selected guidance
@@ -82,7 +82,7 @@ the game-CG task layer. Read these files in order:
 4. `common/style-mapping.md` only when the request contains a style term
 5. exactly one `modes/<mode>.md`: `t2va`, `i2va`, `fl2va`, or `ref2va`
 6. exactly one `templates/<scene>.md`
-7. `models/<model>.md`
+7. `<REPO_PATH>/models/<model>.md`
 
 Do not preload sibling modes or scenes. Write prompt prose in English. Preserve
 user-supplied dialogue, lyrics, and visible scene text verbatim and format them
@@ -140,7 +140,7 @@ For an 3AGameFactory child call:
    bundled validator on that file.
 3. After validation passes, add only the selected `game_id` and write the full
    object as one compact line directly to
-   `test_data/test_samples/<game_id>/cg_video/cg_tasks.jsonl`.
+   `<REPO_PATH>/test_data/test_samples/<game_id>/cg_video/cg_tasks.jsonl`.
 4. Preserve row order and unrelated tasks. Reject a duplicate `task_id` unless
    the caller explicitly requested a revision; then replace that row in place.
 5. Remove the temporary validation file. Never create a persistent `director/`

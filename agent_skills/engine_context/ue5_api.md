@@ -30,8 +30,9 @@ scripts, and platform Serving backends must not:
 
 Host-side code must not replace a public `UEClient` operation with a direct
 `UnrealEditor`, `Build.bat`, `unreal.AssetImportTask`, or ad-hoc Unreal Python
-launcher. The repository `scripts/ue/import_asset` wrappers are lifecycle
-wrappers around the same public Client contract, not a second import API.
+launcher. The repository `<REPO_PATH>/scripts/engine_install/ue5/import_asset.sh`
+wrappers are lifecycle wrappers around the same public Client contract, not a
+second import API.
 
 ### Native Plugin Boundary
 
@@ -46,7 +47,7 @@ Native Unreal Gameplay/UI Plugin                 -> Unreal native C++ API
 
 Native plugins remain project-local, use only permitted public
 `A3GamePlayable` headers and normal Unreal module dependencies, and do not
-reach into `engine_adapters/ue5` private implementation code.
+reach into `<REPO_PATH>/engine_adapters/ue5` private implementation code.
 
 ### Execution Composition Root
 
@@ -133,10 +134,10 @@ preserve the structured result and artifact identity it returns.
 
 ### Import Lifecycle
 
-`scripts/ue/import_asset` is a lifecycle wrapper around the same public
-`UEClient`; it is not a second or faster asset API. Host-side batch execution
-should reuse one configured Client and one running Editor session instead of
-launching a separate Unreal process for every asset.
+`<REPO_PATH>/scripts/engine_install/ue5/import_asset.sh` is a lifecycle wrapper
+around the same public `UEClient`; it is not a second or faster asset API.
+Host-side batch execution should reuse one configured Client and one running
+Editor session instead of launching a separate Unreal process for every asset.
 
 Direct asset and World operations expect Unreal Python execution to be ready.
 Execution code should reuse one `UEClient` and one running Editor session for a

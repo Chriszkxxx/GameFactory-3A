@@ -9,8 +9,8 @@ image-generation and image-editing task; it is not a separate asset category.
 
 | Need | Route | Next step |
 |---|---|---|
-| Single-object concept art for reconstruction | `models/gen_image/sdxl_turbo.py` | Review image, then use `agent_skills/asset_qa/3d_object/SKILL.md` |
-| Convert an existing character image into a T-pose | `pipeline/assets_gen/gen_tpose_image/run.py` | Use the transparent PNG as input to the selected 3D-object or motion workflow |
+| Single-object concept art for reconstruction | `<REPO_PATH>/models/gen_image/sdxl_turbo.py` | Review image, then use `<REPO_PATH>/agent_skills/asset_qa/3d_object/SKILL.md` |
+| Convert an existing character image into a T-pose | `<REPO_PATH>/pipeline/assets_gen/gen_tpose_image/run.py` | Use the transparent PNG as input to the selected 3D-object or motion workflow |
 | Validate a generated T-pose | This Skill | Confirm pose, identity, silhouette, alpha, framing, and style before handoff |
 
 Do not use multi-view sheets, collages, multiple characters, busy scenery,
@@ -21,12 +21,12 @@ They tend to become fused geometry, baked texture, or missing body parts.
 
 | Component | Location | Responsibility |
 |---|---|---|
-| Concept image model | `models/gen_image/sdxl_turbo.py` | Fast single-object text-to-image concept art; tuned for reconstruction inputs |
-| Image editor (local) | `models/gen_image/qwen_edit_model.py` | Turns a supplied character reference into a white-background T-pose render |
-| Image editor (cloud API) | `models/gen_image/seedream_model.py` | Uses Seedream image editing as a swappable T-pose generation backend |
-| Foreground extraction | `models/tools/image_matting/rmbg_model.py` or `models/tools/image_matting/depth_anything_model.py` | Creates a foreground alpha mask |
-| Task operator | `operators/gen_tpose_image/operator.py` | Reads a task, generates the T-pose, saves artifacts and metadata |
-| Runner | `pipeline/assets_gen/gen_tpose_image/run.py` | Loads models, accepts CLI/JSONL tasks, and writes result summaries |
+| Concept image model | `<REPO_PATH>/models/gen_image/sdxl_turbo.py` | Fast single-object text-to-image concept art; tuned for reconstruction inputs |
+| Image editor (local) | `<REPO_PATH>/models/gen_image/qwen_edit_model.py` | Turns a supplied character reference into a white-background T-pose render |
+| Image editor (cloud API) | `<REPO_PATH>/models/gen_image/seedream_model.py` | Uses Seedream image editing as a swappable T-pose generation backend |
+| Foreground extraction | `<REPO_PATH>/models/tools/image_matting/rmbg_model.py` or `<REPO_PATH>/models/tools/image_matting/depth_anything_model.py` | Creates a foreground alpha mask |
+| Task operator | `<REPO_PATH>/operators/gen_tpose_image/operator.py` | Reads a task, generates the T-pose, saves artifacts and metadata |
+| Runner | `<REPO_PATH>/pipeline/assets_gen/gen_tpose_image/run.py` | Loads models, accepts CLI/JSONL tasks, and writes result summaries |
 
 The default T-pose route is Qwen Image Edit
 `Qwen/Qwen-Image-Edit-2511` plus RMBG `briaai/RMBG-1.4`. The generation backend
@@ -163,7 +163,7 @@ test_data/outputs/<game_id>/<run_id>/assets/tpose/<task_id>/
 └── meta.json       # source, models, seed, steps, size, and task metadata
 ```
 
-Use `pipeline/common/paths.py` and preserve this task-kind layout. The Skill is
+Use `<REPO_PATH>/pipeline/common/paths.py` and preserve this task-kind layout. The Skill is
 named `image` for agent routing; it does not rename existing pipeline APIs or
 artifact paths.
 

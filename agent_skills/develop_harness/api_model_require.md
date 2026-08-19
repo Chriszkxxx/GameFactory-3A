@@ -8,11 +8,11 @@ rather than a call, every call costs money, and the network fails routinely.
 
 This file adds **R9** on top of `model_require.md`. Everything in R1–R8 that is
 not explicitly overridden here still applies, in particular R1.1 (no imports from
-`operators/` or `pipeline/`), R1.2 (never construct an output path), R1.4 (no task
+`<REPO_PATH>/operators/` or `<REPO_PATH>/pipeline/`), R1.2 (never construct an output path), R1.4 (no task
 semantics) and R6 (swappability).
 
-> Read `models/gen_3d_object/tripo_model.py` as the reference implementation, and
-> `models/common/cloud_api.py` for the shared HTTP / retry / cache plumbing.
+> Read `<REPO_PATH>/models/gen_3d_object/tripo_model.py` as the reference implementation, and
+> `<REPO_PATH>/models/common/cloud_api.py` for the shared HTTP / retry / cache plumbing.
 
 ---
 
@@ -26,7 +26,7 @@ semantics) and R6 (swappability).
 | **R9.4** | `unload()` exists, is idempotent and closes the HTTP session. It never invalidates cached credentials. | Overrides R4.1–R4.3. |
 | **R9.5** | `seed` is forwarded when the provider supports it, otherwise accepted and ignored. The docstring must say **server-side reproducibility is not guaranteed**. Never fake determinism by seeding locally. | Overrides R3.3 / R3.4. |
 | **R9.6** | Task-based APIs (submit → poll → download) are hidden behind the synchronous `infer()`. `timeout` and `poll_interval` are constructor arguments; the timeout default errs **long** (generation runs into the tens of minutes). On timeout raise an error that **contains the `task_id`**, so the run can be recovered manually. | R3.1 stays synchronous for the caller. A tripped budget refunds nothing — the task finishes server-side and only the download is lost — so a short default costs credits while a long one costs nothing. |
-| **R9.7** | The API key is read from an **environment variable at first call**, never at construction, never from a file in the repo. When missing, fail fast with the variable name and the sign-up URL (R1.6). | Constructing a model must not require credentials — `test/harness` imports it. |
+| **R9.7** | The API key is read from an **environment variable at first call**, never at construction, never from a file in the repo. When missing, fail fast with the variable name and the sign-up URL (R1.6). | Constructing a model must not require credentials — `<REPO_PATH>/test/harness` imports it. |
 | **R9.8** | Support `cache_dir`. A request identified by `(model_path, prompt / image hash, all inference params, output_format)` that is already in the cache returns **without any network traffic**. Every real call logs `task_id`, elapsed seconds, credits consumed (when reported) and the output size. | Every call is billed. Re-running a pipeline must not re-bill. |
 | **R9.9** | Support `max_retries` with exponential backoff, and **classify** failures: retryable (5xx, 429, connection reset, read timeout) vs. terminal (400 bad params, 401/403 auth, 402 insufficient credits, task rejected). Never retry a terminal failure. **Classify on the response body, not only the status code**: providers return "out of credit" under an auth status, which by status alone is indistinguishable from a bad key, and a caller must be able to tell them apart. | Network failure is the normal case, not the exception. |
 
@@ -39,7 +39,7 @@ alternative — never silently return a different format.
 ### R9.11 — where shared plumbing lives
 
 HTTP session, retry/backoff, error classification, response cache and the polling
-loop are **not** duplicated per provider. They live in `models/common/cloud_api.py`
+loop are **not** duplicated per provider. They live in `<REPO_PATH>/models/common/cloud_api.py`
 and are shared across families (`gen_3d_object`, `gen_audio`, `gen_cg_video`, …).
 Provider-specific request bodies stay in the wrapper.
 
@@ -111,7 +111,7 @@ Use these ids so every cloud wrapper reads the same way.
 - [ ] `unload()` twice is a no-op
 - [ ] `infer_and_save` signature is byte-identical to the other backends in the
       same operator slot (R6)
-- [ ] a stub exists in `test/harness/stubs.py` that performs **no** network I/O,
+- [ ] a stub exists in `<REPO_PATH>/test/harness/stubs.py` that performs **no** network I/O,
       and `python test/harness/smoke.py --kind <kind>` passes with no key set
 
 ---

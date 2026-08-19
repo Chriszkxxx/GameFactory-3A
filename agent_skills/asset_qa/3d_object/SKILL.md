@@ -22,7 +22,7 @@ bash scripts/asset_env_setup/3d_object/trellis2_install.sh
 ```
 
 Use only the selected route. Keep API keys in environment variables and large
-local checkpoints outside source control or under `third_party/`.
+local checkpoints outside source control or under `<REPO_PATH>/third_party/`.
 
 ## The Five Checks
 
@@ -50,7 +50,7 @@ standing figure touches the frame edge and the model frequently infers a
 ground plane — measured at a fifth of the triangle budget, and a 2.4 m
 grey pancake once the asset is scaled to a character's height.
 
-`operators/gen_3d_object` removes this automatically
+`<REPO_PATH>/operators/gen_3d_object` removes this automatically
 (`funcs/mesh_cleanup.py`) and reports what it took out. A **solid slab**
 in the review sheet means the removal was refused, which it does whenever
 the diagnosis would cost more than 40% of the mesh — check the task's
@@ -59,7 +59,7 @@ at floor level are the floor's rubble and are harmless.
 
 **5. Is it inside its budget?** The sheet title states the triangle count.
 The budgets live in `BUDGET_BY_ROLE` in
-`operators/gen_3d_object/funcs/art_plan.py`, keyed by role rather than
+`<REPO_PATH>/operators/gen_3d_object/funcs/art_plan.py`, keyed by role rather than
 asset type, because what matters is how *often* a thing is drawn:
 
 | Role | Triangles | Texture |
@@ -85,8 +85,9 @@ the two failures that make a scene read as a toy.
 ## Recording The Outcome
 
 - **Accept**: run the orientation review
-  (`imported_asset_orientation.md`) and record the facing axis. An
-  accepted asset with an unverified facing is not finished.
+  (`<REPO_PATH>/agent_skills/asset_qa/3d_object/orientation_review.md`) and
+  record the facing axis. An accepted asset with an unverified facing is not
+  finished.
 - **Regenerate**: change the plan entry — prompt, seed, `role`,
   `triangles`, `texture` — and say which, so the next run is a different
   attempt rather than the same one.
@@ -102,7 +103,7 @@ of visible effect per line of code, a generated three.js scene is decided
 by `host.setEnvironment({ preset })`, filmic tone mapping, a fitted
 shadow camera, bevelled edges, honest materials, and contact shadows —
 all of them documented in
-`agent_skills/engine_context/three_js_api.md`. An unlit scene full of
+`<REPO_PATH>/agent_skills/engine_context/three_js_api.md`. An unlit scene full of
 generated art still looks like an unlit scene; a lit scene full of
 primitives does not.
 

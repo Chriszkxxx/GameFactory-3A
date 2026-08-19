@@ -13,15 +13,15 @@ The audio chain is:
 Task dict / JSONL → GenAudioOperator → selected audio model → WAV + meta.json
 ```
 
-- Model implementations: `models/gen_audio/`
-- Task and artifact handling: `operators/gen_audio/`
-- Runner and batch execution: `pipeline/assets_gen/gen_audio/`
-- Free smoke checks: `test/harness/`
-- Generated results: `test_data/outputs/<game_id>/<run_id>/assets/audio/<task_id>/`
+- Model implementations: `<REPO_PATH>/models/gen_audio/`
+- Task and artifact handling: `<REPO_PATH>/operators/gen_audio/`
+- Runner and batch execution: `<REPO_PATH>/pipeline/assets_gen/gen_audio/`
+- Free smoke checks: `<REPO_PATH>/test/harness/`
+- Generated results: `<REPO_PATH>/test_data/outputs/<game_id>/<run_id>/assets/audio/<task_id>/`
 
-Use `pipeline/common/paths.py` for output locations. Mechanics and UI belong in
-that game's run directory, not in root-level `test_data/outputs/mechanic/` or
-`test_data/outputs/ui/` directories.
+Use `<REPO_PATH>/pipeline/common/paths.py` for output locations. Mechanics and UI belong in
+that game's run directory, not in root-level `<REPO_PATH>/test_data/outputs/mechanic/` or
+`<REPO_PATH>/test_data/outputs/ui/` directories.
 
 ## Plan before generating
 
@@ -88,7 +88,7 @@ python pipeline/assets_gen/gen_audio/run.py \
   --no-auto-download
 ```
 
-Keep large checkpoints and installer packages under `third_party/` or an
+Keep large checkpoints and installer packages under `<REPO_PATH>/third_party/` or an
 externally configured model cache; do not commit them to source control.
 
 ## Seed Audio 1.0 cloud backend

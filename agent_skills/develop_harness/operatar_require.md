@@ -9,8 +9,8 @@ semantics (prompts, step order, artifact naming, metadata) and is deliberately
 **model-agnostic**: any wrapper satisfying the expected method signature is
 injected in.
 
-Reference implementations: `operators/gen_3d_object/` (single-call),
-`operators/gen_tpose_image/` (multi-step with `funcs/`).
+Reference implementations: `<REPO_PATH>/operators/gen_3d_object/` (single-call),
+`<REPO_PATH>/operators/gen_tpose_image/` (multi-step with `funcs/`).
 
 ---
 
@@ -33,7 +33,7 @@ operator's artifact layout.
 
 | # | Rule | Why |
 |---|------|-----|
-| R1.1 | **No imports from `pipeline/`** except `pipeline.common.paths`, and that one **inside a method**, not at module top level. | Keeps the layer boundary; avoids import cycles. |
+| R1.1 | **No imports from `<REPO_PATH>/pipeline/`** except `pipeline.common.paths`, and that one **inside a method**, not at module top level. | Keeps the layer boundary; avoids import cycles. |
 | R1.2 | **Never load a model.** Models arrive fully loaded via the constructor. | Lets `run.py` load once and reuse across a batch, and lets tests inject stubs. |
 | R1.3 | **No `argparse`, no env-var reading, no `sys.exit`.** | CLI belongs to `run.py`. |
 | R1.4 | **Never hardcode an output path.** Use `paths.task_output_dir(...)`. | One source of truth for the layout. |
@@ -102,9 +102,9 @@ Required keys:
 | `task_kind` | `str` | the module-level `TASK_KIND` constant |
 | `output_dir` | `str` | directory holding all artifacts of this task |
 
-**Compatibility:** these keys are consumed by `run.py`, `eval.py` and `test/`.
+**Compatibility:** these keys are consumed by `run.py`, `eval.py` and `<REPO_PATH>/test/`.
 Adding keys is safe. Removing, renaming or repurposing one is a breaking change —
-`test/harness/smoke.py` will fail.
+`<REPO_PATH>/test/harness/smoke.py` will fail.
 
 Optional artifacts use `None`, not a missing key (see `tpose_rgb_path`).
 
@@ -165,7 +165,7 @@ Usage:
 
 ## R8 — Checklist
 
-- [ ] `TASK_KIND` set and registered in `pipeline/common/paths.py`
+- [ ] `TASK_KIND` set and registered in `<REPO_PATH>/pipeline/common/paths.py`
 - [ ] Models injected, never loaded inside
 - [ ] `output_dir=None` → per-game layout; `output_dir="..."` → unchanged legacy behaviour
 - [ ] `run(inp: dict) -> dict` and `run_batch(...)` present
@@ -176,5 +176,5 @@ Usage:
 - [ ] `metrics/evaluate(result, task)` and `operator.eval(result, task)` present (or an explicit TODO)
 - [ ] No `argparse`, no model loading, no literal output path
 - [ ] Module imports cleanly on CPU with no weights installed
-- [ ] Stub registered in `test/harness/stubs.py` (`STUB_OPERATOR_KWARGS` + `OPERATOR_LOCATION`)
+- [ ] Stub registered in `<REPO_PATH>/test/harness/stubs.py` (`STUB_OPERATOR_KWARGS` + `OPERATOR_LOCATION`)
 - [ ] `python test/harness/smoke.py --kind <kind>` passes (covers **both** output modes)

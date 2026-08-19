@@ -16,17 +16,17 @@ requirement is a **Node 20+** toolchain on `PATH`, because the adapter
 drives Vite, Vitest, and the package manager through its private Node
 transport.
 
-`scripts/three_js/setup_env.sh` provisions that toolchain as a conda
-environment for machines with no system Node:
+`<REPO_PATH>/scripts/engine_install/three_js/setup_env.sh` provisions that
+toolchain as a conda environment for machines with no system Node:
 
 ```bash
-scripts/three_js/setup_env.sh                # create or verify
+scripts/engine_install/three_js/setup_env.sh  # create or verify
 source <conda_root>/etc/profile.d/conda.sh
 conda activate threejs
 ```
 
-`scripts/three_js/README.md` documents the launchers and their environment
-variables. Every launcher is a thin wrapper over the public
+`<REPO_PATH>/scripts/engine_install/three_js/README.md` documents the launchers
+and their environment variables. Every launcher is a thin wrapper over the public
 `ThreeClient`.
 
 ## Hard API Boundary
@@ -196,7 +196,7 @@ Importing a directional asset without a `forward_axis` succeeds and
 returns a warning: the runtime then places the model exactly as authored,
 which is a coin flip. Determining the axis requires looking at the model —
 see **Preview** below and
-`agent_skills/asset_qa/imported_asset_orientation.md`.
+`<REPO_PATH>/agent_skills/asset_qa/3d_object/orientation_review.md`.
 
 All three models in the curated CC0 pack face **+Z**, so every one of
 them needs a 180° correction.
@@ -237,8 +237,9 @@ runtime format. `import_asset` therefore stages the file into
 `public/<destination>/`, copies any `.gltf` sidecar buffers and images,
 records an artifact, and rewrites the manifest.
 
-`scripts/three_js/import_asset` is a lifecycle wrapper around the same
-public `ThreeClient`; it is not a second or faster asset API.
+`<REPO_PATH>/scripts/engine_install/three_js/import_asset.sh` is a lifecycle
+wrapper around the same public `ThreeClient`; it is not a second or faster asset
+API.
 
 Asset and World operations need no live browser. Execution code should
 reuse one `ThreeClient` for a task batch.
@@ -315,7 +316,7 @@ browser but validates with a warning, and `glb` is the runtime format. The
 generation chain that produces the clip in the first place — Puppeteer rig,
 MoMask or a licensed clip, Blender `world_delta` retarget, `inspect_fbx`
 verification — is documented in
-`agent_skills/asset_qa/motion_gen_skills.md`.
+`<REPO_PATH>/agent_skills/asset_qa/motion/SKILL.md`.
 
 ### Motion On A Generated Character
 
@@ -341,7 +342,7 @@ tries them in order:
 
 ### The `rigged_asset` Route
 
-This is the route to prefer, and the one to produce. `operators/gen_motion`
+This is the route to prefer, and the one to produce. `<REPO_PATH>/operators/gen_motion`
 runs Puppeteer, which predicts the skeleton *and* the skinning weights from the
 mesh — a real answer, where `autoRigHumanoid` is a browser-side approximation.
 What comes back is skinned and bound but has **no clips**, because rigging and
@@ -443,7 +444,7 @@ const actor = await createAnimatedActor(
 - `autoRigHumanoid` - converts every mesh in a subtree into a
   `SkinnedMesh` bound to one fitted skeleton, with weights from
   distance to each bone's segment limited by that bone's influence
-  radius. A browser-side approximation of what `operators/gen_motion`
+  radius. A browser-side approximation of what `<REPO_PATH>/operators/gen_motion`
   does properly with Puppeteer; it returns `null` for an
   already-skinned model.
 - `createHumanoidClip` / `createHumanoidClipSet` /
@@ -457,7 +458,7 @@ const actor = await createAnimatedActor(
   tracks onto another skeleton, resolving `mixamorig:` prefixes and
   common library names. This is the *name* half of retargeting, which is
   all a browser can do; reconciling rest poses and bone lengths needs the
-  source bind pose and belongs to `operators/gen_motion`.
+  source bind pose and belongs to `<REPO_PATH>/operators/gen_motion`.
 - `A3GameMotionLibrary` - `listMotions`, `loadClips`,
   `loadForCharacter`, `available`, `warnings`. Renames clips to the state
   they represent when the artifact declares one, because a game maps
@@ -543,7 +544,7 @@ load-bearing: `play()` on an unregistered name returns `0` rather than
 throwing, so a missing effect can never be why a hit stops registering.
 
 Reference implementation of both halves:
-`engine_adapters/three_js/examples/motion-vfx-example/`.
+`<REPO_PATH>/engine_adapters/three_js/examples/motion-vfx-example/`.
 
 ## Bindings
 
@@ -1050,7 +1051,7 @@ player than for the physics.
 
 #### Acquiring the files
 
-`operators/gen_3d_scene/funcs/scene_assets.py` is a vetted catalogue of
+`<REPO_PATH>/operators/gen_3d_scene/funcs/scene_assets.py` is a vetted catalogue of
 CC0/MIT equirectangular HDRIs, sky photographs, tiling ground textures,
 VFX sprites and open-source scene geometry, with a downloader and a
 stager that writes `manifest.json` entries the asset library already
@@ -1077,7 +1078,7 @@ bite out of the canopy. No lighting change hides an unclosed mesh.
 
 Meshy and Tripo are text-to-3D services with a multi-view prior and a
 texture pass, so for "make this prop look good" they are strictly better.
-`operators/gen_3d_scene/funcs/appearance_assets.py` holds the plan,
+`<REPO_PATH>/operators/gen_3d_scene/funcs/appearance_assets.py` holds the plan,
 generation, GLB optimisation and staging:
 
 ```bash
@@ -1171,7 +1172,7 @@ three.js ships no models, so there are exactly two ways to get one, and
 they are not interchangeable.
 
 **Generate it** — `Gen3DObjectOperator.run_art_plan`, driving TRELLIS.2
-through `models/gen_3d_object/trellis_2_model.py`. This is the default for
+through `<REPO_PATH>/models/gen_3d_object/trellis_2_model.py`. This is the default for
 a game's own content, because it produces the props the design asked for
 rather than the three that happen to be free:
 
@@ -1184,7 +1185,7 @@ op.run_art_plan("game_archer_explorer", image_model=qwen_edit)
 ```
 
 Each entry of the art plan
-(`operators/gen_3d_object/funcs/art_plan.py`) names a subject, an asset
+(`<REPO_PATH>/operators/gen_3d_object/funcs/art_plan.py`) names a subject, an asset
 type, **a height in metres**, and a **role**. The operator generates a
 concept image, reconstructs it, strips the floor the reconstruction
 invents, writes an ordinary `3d_object` task output, imports it, and
@@ -1234,10 +1235,10 @@ by gameplay, and swap only the visual.
 A humanoid is the one exception, and only because the runtime works around
 it: `autoRigHumanoid` fits a skeleton to a static generated body and skins
 it, so a generated character can play the authored clip set. That is an
-approximation of `operators/gen_motion`, not a replacement — and it refuses
+approximation of `<REPO_PATH>/operators/gen_motion`, not a replacement — and it refuses
 a mesh whose proportions are not a standing figure. See **Animation**.
 
-**Download it** — `operators/gen_3d_object/funcs/asset_pack.py`, a
+**Download it** — `<REPO_PATH>/operators/gen_3d_object/funcs/asset_pack.py`, a
 curated, licence-checked pack of three CC0 models:
 
 ```python
@@ -1397,7 +1398,7 @@ needs and that are easy to get wrong.
 
 ### Choosing A Reference Example By Camera Perspective
 
-`engine_adapters/three_js/examples/` holds four playable references, and
+`<REPO_PATH>/engine_adapters/three_js/examples/` holds four playable references, and
 they are indexed by **camera perspective rather than by genre**, because
 the camera decides far more of a game's code than the genre does. Two
 shooters with different cameras share almost nothing; a racing game and an
@@ -1443,7 +1444,7 @@ a `src/world.js` ahead of its `src/explorer.js`.
 
 ### Name Modules After The Game, Not After The Framework
 
-Every generated game under `test_data/outputs/` names its modules for
+Every generated game under `<REPO_PATH>/test_data/outputs/` names its modules for
 **what the thing is in that game**, and none of them contains an
 `entity.js` or a `factory.js`:
 
@@ -1571,7 +1572,7 @@ Generated tests do not need to duplicate it; they must not break it.
 ## Generated Output Layout
 
 A generated playable game is a self-contained Vite project written to the
-task output directory resolved by `pipeline/common/paths.py`:
+task output directory resolved by `<REPO_PATH>/pipeline/common/paths.py`:
 
 ```text
 test_data/outputs/<game_id>/<run_id>/mechanic/<task_id>/
@@ -1587,7 +1588,7 @@ test_data/outputs/<game_id>/<run_id>/mechanic/<task_id>/
 ```
 
 Create the project with `three.project.create` (or
-`scripts/three_js/create_project.sh`) and let
+`<REPO_PATH>/scripts/engine_install/three_js/create_project.sh`) and let
 `three.plugin.install_framework` place the framework. Never copy the
 framework by hand, and never build these paths by string concatenation.
 

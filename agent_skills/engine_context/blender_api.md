@@ -7,7 +7,7 @@ pivot or a scale the generator got wrong, and renders a picture of the result
 without a project, a licence or a GPU.
 
 Reference implementations to extend rather than rewrite:
-`engine_adapters/blender/`.
+`<REPO_PATH>/engine_adapters/blender/`.
 
 ---
 
@@ -51,7 +51,7 @@ here) and read at startup. This is the same channel the UE5 importer uses, so th
 host-side launcher builds one job shape for every engine.
 
 **Defer the `bpy` import.** Put it behind a function so the module's constants
-are readable by a host-side launcher and by `test/` with no Blender installed:
+are readable by a host-side launcher and by `<REPO_PATH>/test/` with no Blender installed:
 
 ```python
 def _bpy():
@@ -286,10 +286,10 @@ Practical points when building an armature from joints and skin weights:
   than an error.
 - Bake to keyframes before exporting; constraint-driven poses do not survive FBX.
 
-`operators/gen_motion/funcs/retarget_utils/` (via `retarget_motion.py`)
+`<REPO_PATH>/operators/gen_motion/funcs/retarget_utils/` (via `retarget_motion.py`)
 implements Puppeteer rig import, auto bone mapping, and world-delta retarget.
 Validate the resulting FBX with
-`engine_adapters/blender/import_generated/import_motion.py` (`--kind motion`).
+`<REPO_PATH>/engine_adapters/blender/import_generated/import_motion.py` (`--kind motion`).
 
 ---
 
@@ -347,17 +347,17 @@ a **triangle soup**: no shared vertices, cracks between parts, mixed winding.
 Importing the raw PLY into Blender works and is useful for looking at what the
 generator produced, but it is not an asset.
 
-Run `scripts/prepare_world_asset.py` first — it fuses the parts and repairs the
+Run `<REPO_PATH>/scripts/prepare_world_asset.py` first — it fuses the parts and repairs the
 surface into one continuous `world.glb`, needing neither Blender nor an engine —
 then import that like anything else. The repair itself lives in
-`models/common/mesh_repair.py`; `models/README.md` explains what each stage does
+`<REPO_PATH>/models/common/mesh_repair.py`; `<REPO_PATH>/models/README.md` explains what each stage does
 and why hole-filling has to distinguish a hole from an open perimeter.
 
 ---
 
 ## 10. A live session
 
-`engine_adapters/blender/runtime/` is the one part of this adapter that is not
+`<REPO_PATH>/engine_adapters/blender/runtime/` is the one part of this adapter that is not
 batch: a Blender process that stays up and takes JSON commands over UDP, so a
 world can be walked around before an engine is involved. Reach for it when the
 question is about *behaviour in space* — is that doorway passable, is the floor

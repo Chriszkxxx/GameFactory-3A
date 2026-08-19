@@ -37,7 +37,7 @@ Browser Play HTTP/fetch
 Browser Play never constructs an `EngineBackend`, `UEClient`, or
 `UnityClient`. A game-specific backend or recording preset belongs in the
 execution composition root that registers the backend, not in generated
-Browser Play or an `engine_adapters/*/examples` directory.
+Browser Play or an `<REPO_PATH>/engine_adapters/*/examples` directory.
 
 Browser Serving exposes engine view, assets, Worlds, sessions, streams, and
 generic input. It does not replace engine-native Mechanic UI.

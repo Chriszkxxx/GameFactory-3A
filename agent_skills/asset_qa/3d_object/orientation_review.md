@@ -42,7 +42,7 @@ Read before deciding:
 - the rendered views and the geometric evidence returned by
   `three.preview.orientation_report`;
 - the artifact's own metadata (`three.assets.get_orientation`);
-- `agent_skills/engine_context/three_js_api.md`, sections *Asset
+- `<REPO_PATH>/agent_skills/engine_context/three_js_api.md`, sections *Asset
   Orientation* and *Preview*.
 
 The rendered views outrank everything else. Geometry narrows the answer;

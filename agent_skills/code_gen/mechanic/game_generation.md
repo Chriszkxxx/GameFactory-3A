@@ -126,7 +126,7 @@ appear successful.
   descriptors; inherit Example gameplay classes; copy Example gameplay; or
   depend on Example plugins at runtime.
 - Do not inspect, compare with, copy, or adapt generated implementation from
-  other tasks or games under `test_data/outputs/` or a relocated output root.
+  other tasks or games under `<REPO_PATH>/test_data/outputs/` or a relocated output root.
 - Do not make Mechanic depend on UI or expose UI-facing state through casts to
   private/incidental runtime types.
 - Do not invoke execution/evaluation-only APIs, run authoritative tests, launch
@@ -170,7 +170,7 @@ test_data/outputs/<game_id>/runs/<run_id>/
 `-- _pipeline/{packets,attempts,prompts,snapshots}/
 ```
 
-`pipeline/common/paths.py` owns these paths; do not construct them manually.
+`<REPO_PATH>/pipeline/common/paths.py` owns these paths; do not construct them manually.
 Published runs are immutable. A content repair creates a new run and records
 `parent_run_id`, `repair_of`, and the failure digest. Keep unpublished retries
 under `_pipeline/attempts/` and promote only the selected attempt.
