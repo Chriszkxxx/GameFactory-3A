@@ -22,16 +22,35 @@ They tend to become fused geometry, baked texture, or missing body parts.
 | Component | Location | Responsibility |
 |---|---|---|
 | Concept image model | `models/gen_image/sdxl_turbo.py` | Fast single-object text-to-image concept art; tuned for reconstruction inputs |
-| Image editor | `models/gen_image/qwen_edit_model.py` | Turns a supplied character reference into a white-background T-pose render |
+| Image editor (local) | `models/gen_image/qwen_edit_model.py` | Turns a supplied character reference into a white-background T-pose render |
+| Image editor (cloud API) | `models/gen_image/seedream_model.py` | Uses Seedream image editing as a swappable T-pose generation backend |
 | Foreground extraction | `models/tools/image_matting/rmbg_model.py` or `models/tools/image_matting/depth_anything_model.py` | Creates a foreground alpha mask |
 | Task operator | `operators/gen_tpose_image/operator.py` | Reads a task, generates the T-pose, saves artifacts and metadata |
 | Runner | `pipeline/assets_gen/gen_tpose_image/run.py` | Loads models, accepts CLI/JSONL tasks, and writes result summaries |
 
 The default T-pose route is Qwen Image Edit
-`Qwen/Qwen-Image-Edit-2511` plus RMBG `briaai/RMBG-1.4`. Both are downloaded
-on first use unless `--gen-ckpt` and `--mask-ckpt` point to local checkpoints.
-A CUDA GPU is strongly recommended; Qwen Edit on CPU is supported but impractical
-for normal production use.
+`Qwen/Qwen-Image-Edit-2511` plus RMBG `briaai/RMBG-1.4`. The generation backend
+can be changed to Seedream `doubao-seedream-5-0-260128` while keeping the same
+RMBG mask stage, shared T-pose prompt, operator, task JSONL, and output contract.
+Local model weights are downloaded on first use unless checkpoint flags point to
+local paths. A CUDA GPU is strongly recommended for Qwen Edit and RMBG; Seedream
+itself runs through the Ark API, but the RMBG stage still uses the local runtime.
+
+## Install the image environment
+
+Install Qwen Image Edit and the local RMBG / Depth Anything mask runtime. This
+environment is also required when Seedream generation is followed by real RMBG:
+
+```bash
+bash scripts/asset_env_setup/image/qwen_image_install.sh
+conda activate qwen_image
+```
+
+Install only the shared HTTP and smoke-test dependencies for cloud wrappers:
+
+```bash
+bash scripts/asset_env_setup/image/cloud_api_install.sh
+```
 
 ## Plan the image before generating
 
@@ -73,9 +92,9 @@ later.
 
 ### Single image
 
-```bash
-cd /Users/bohanzeng/Documents/project/AAAGameForge/my_code/AAAGameForge
+Run from the repository root:
 
+```bash
 python pipeline/assets_gen/gen_tpose_image/run.py \
   --game gameA_cyberpunk_shooter \
   --run-id auto \
@@ -95,7 +114,7 @@ callers), `game_id`, `task_id`, `description`, `seed`, `steps`, `target_size`,
 and `save_intermediate`.
 
 ```json
-{"game_id":"gameA_cyberpunk_shooter","task_id":"character_tpose_001","image_path":"test_data/test_samples/gameA_cyberpunk_shooter/tpose/ref_images/character.jpg","description":"Full-body cyberpunk scout in teal jacket and visor.","seed":42,"steps":40,"target_size":1024,"save_intermediate":true}
+{"game_id":"gameA_cyberpunk_shooter","task_id":"luffy_tpose_001","image_path":"test_data/test_samples/gameA_cyberpunk_shooter/tpose/ref_images/luffy.jpg","description":"Monkey D. Luffy wearing his iconic red vest and straw hat.","seed":42,"steps":40,"target_size":1024}
 ```
 
 ```bash
@@ -104,19 +123,34 @@ python pipeline/assets_gen/gen_tpose_image/run.py \
   --run-id auto
 ```
 
-Optional model overrides and segmentation choice:
+Optional backend/model overrides and segmentation choice:
 
 ```bash
+# Local Qwen Image Edit (default)
 python pipeline/assets_gen/gen_tpose_image/run.py \
-  --gen-ckpt /models/Qwen-Image-Edit-2511 \
-  --mask-ckpt /models/RMBG-1.4 \
+  --gen-backend qwen_edit \
+  --gen-ckpt Qwen/Qwen-Image-Edit-2511 \
+  --mask-ckpt briaai/RMBG-1.4 \
   --mask-type rmbg \
-  --device cuda
+  --device cuda \
+  --tasks test_data/test_samples/tpose_gen_collect.jsonl \
+  --run-id auto
+
+# Seedream API generation with the same local RMBG stage
+export ARK_API_KEY="your-key"
+python pipeline/assets_gen/gen_tpose_image/run.py \
+  --gen-backend seedream \
+  --gen-ckpt doubao-seedream-5-0-260128 \
+  --mask-ckpt briaai/RMBG-1.4 \
+  --mask-type rmbg \
+  --device cuda \
+  --tasks test_data/test_samples/tpose_gen_collect.jsonl \
+  --run-id auto
 ```
 
-Use `--mask-type depth` only when the Depth Anything backend is intentionally
-configured. `--out-dir` is legacy flat-output mode for debugging; do not use it
-for game deliverables.
+Use `--mask-type depth --mask-ckpt LiheYoung/depth-anything-small-hf` only
+when the Depth Anything backend is intentionally selected. `--out-dir` is
+legacy flat-output mode for debugging; do not use it for game deliverables.
 
 ## Outputs and metadata
 
@@ -135,20 +169,33 @@ artifact paths.
 
 ## Validation and QA
 
-Run a free contract check before loading production checkpoints:
+Run free contract checks before loading production checkpoints or spending API
+credits:
 
 ```bash
 python test/harness/smoke.py --kind tpose
+python test/harness/smoke.py --kind tpose --backend seedream
 ```
 
 The smoke harness uses stub models, requires only `pillow`, `numpy`, and `scipy`,
-and leaves no production output after success. A real checkpoint integration test
-is available when model weights and a GPU are intentionally provided:
+and leaves no production output after success. Run the local checkpoint integration
+test when Qwen and RMBG weights plus a GPU are intentionally available:
 
 ```bash
-QWEN_EDIT_CKPT=/path/to/Qwen-Image-Edit-2511 \
-RMBG_CKPT=/path/to/RMBG-1.4 \
-python test/test_gen_tpose_image.py
+QWEN_EDIT_CKPT=Qwen/Qwen-Image-Edit-2511 \
+RMBG_CKPT=briaai/RMBG-1.4 \
+python -m unittest test.test_gen_tpose_image -v
+```
+
+Run the paid Seedream integration against the same canonical task JSONL and the
+same RMBG stage only when explicitly requested:
+
+```bash
+export ARK_API_KEY="your-key"
+export AAAGF_RUN_SEEDREAM_LIVE=1
+export SEEDREAM_MODEL="doubao-seedream-5-0-260128"
+export RMBG_CKPT="briaai/RMBG-1.4"
+python -m unittest test.test_api_gen_tpose_image -v
 ```
 
 Review every production image at full size before handoff:

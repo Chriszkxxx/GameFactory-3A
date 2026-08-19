@@ -579,12 +579,35 @@ class StubQwenEditModel(_StubBase):
     def load(self) -> None:
         self.calls.append({"op": "load"})
 
+    def infer(self, image: Image.Image, prompt: str, seed: int = 42,
+              steps: int = 40) -> Image.Image:
+        self.calls.append({"op": "infer", "seed": seed, "steps": steps,
+                           "prompt_len": len(prompt)})
+        return make_ref_image(size=max(image.size), seed=seed)
+
     def edit(self, image: Image.Image, prompt: str, seed: int = 42,
              steps: int = 40) -> Image.Image:
-        self.calls.append({"op": "edit", "seed": seed, "steps": steps,
+        return self.infer(image, prompt, seed=seed, steps=steps)
+
+
+class StubSeedreamModel(_StubBase):
+    """Mimics `models.gen_image.seedream_model.SeedreamModel`."""
+
+    def __init__(self, model_path: str = "stub-seedream", device: str = "cpu", **kw):
+        super().__init__(model_path=model_path, device=device, **kw)
+        self.last_call_info: dict = {}
+
+    def infer(self, image: Image.Image, prompt: str, seed: int = 42,
+              steps: int = 40) -> Image.Image:
+        self.calls.append({"op": "infer", "seed": seed, "steps": steps,
                            "prompt_len": len(prompt)})
-        # Return a white-bg image with a blob, i.e. what the real T-pose edit yields.
-        return make_ref_image(size=max(image.size), seed=seed)
+        result = make_ref_image(size=max(image.size), seed=seed)
+        self.last_call_info = {
+            "provider": "seedream",
+            "model": self.model_path,
+            "cached": False,
+        }
+        return result
 
 
 class StubVideoModel(_StubBase):
@@ -690,12 +713,13 @@ class StubSeedAudioModel(_StubBase):
 class StubRMBGModel(_StubBase):
     """Mimics `models.tools.image_matting.rmbg_model.RMBGModel` — HxW float32 in [0, 1]."""
 
-    def predict(self, image: Image.Image, **kw) -> np.ndarray:
-        self.calls.append({"op": "predict", "size": image.size})
+    def infer(self, image: Image.Image, **kw) -> np.ndarray:
+        self.calls.append({"op": "infer", "size": image.size})
         arr = np.asarray(image.convert("RGB"))
-        # Foreground = anything not near-white, matching RMBG's practical behaviour.
-        fg = (arr < 240).any(axis=-1)
-        return fg.astype(np.float32)
+        return (arr < 240).any(axis=-1).astype(np.float32)
+
+    def predict(self, image: Image.Image, **kw) -> np.ndarray:
+        return self.infer(image, **kw)
 
     def __call__(self, image: Image.Image, **kw) -> np.ndarray:
         return self.predict(image, **kw)
@@ -782,6 +806,10 @@ STUB_BACKENDS: dict[str, dict[str, Any]] = {
         "tripo": StubTripoModel,
         "meshy": StubMeshyModel,
     },
+    "tpose": {
+        "qwen_edit": StubQwenEditModel,
+        "seedream": StubSeedreamModel,
+    },
     "3d_scene": {
         "worldmirror": StubWorldMirrorModel,
         "worldplay": StubWorldMirrorModel,
@@ -807,7 +835,8 @@ STUB_OPERATOR_KWARGS: dict[str, Any] = {
     "3d_object": lambda model_key=None: {
         "model": STUB_BACKENDS["3d_object"][model_key or "trellis2"]()},
     "tpose": lambda model_key=None: {
-        "gen_model": StubQwenEditModel(), "mask_model": StubRMBGModel()},
+        "gen_model": STUB_BACKENDS["tpose"][model_key or "qwen_edit"](),
+        "mask_model": StubRMBGModel()},
     # `worldplay` adds the video stage in front, so a reference image alone is a
     # valid task; `worldmirror` alone needs the task to bring its own frames.
     "3d_scene": lambda model_key=None: {
