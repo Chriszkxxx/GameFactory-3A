@@ -11,10 +11,10 @@ are fallbacks for projects without a suitable asset.
 
 ## Select The Engine
 
-- For UE5, read `engine_adapters/ue5/vfx/vfx_functions.py` and call its Python API
+- For UE5, read `<REPO_PATH>/engine_adapters/ue5/vfx/vfx_functions.py` and call its Python API
   inside Unreal Editor.
 - For Unity, read
-  `engine_adapters/unity3d/vfx/Runtime/A3Game_VFX.cs`. Copy it under the
+  `<REPO_PATH>/engine_adapters/unity3d/vfx/Runtime/A3Game_VFX.cs`. Copy it under the
   target project's `Assets/` directory before referencing the class.
 - Keep engine-specific code out of host Python and model/operator modules.
 

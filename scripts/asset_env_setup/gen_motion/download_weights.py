@@ -1,4 +1,4 @@
-"""Download only the Puppeteer and HumanML3D weights used by A3GameForge."""
+"""Download only the Puppeteer and HumanML3D weights used by 3AGameFactory."""
 
 from __future__ import annotations
 
@@ -37,13 +37,13 @@ MOMASK_FILE_ID = "1vXS7SHJBgWPt59wupQ5UUzhFObrnGkQ0"
 def _data_root() -> Path:
     configured = os.environ.get("A3GF_RUNTIME_ROOT")
     base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
-    return Path(configured).expanduser() if configured else base / "a3gameforge"
+    return Path(configured).expanduser() if configured else base / "gamefactory3a"
 
 
 def _cache_root() -> Path:
     configured = os.environ.get("A3GF_CACHE_ROOT")
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return Path(configured).expanduser() if configured else base / "a3gameforge"
+    return Path(configured).expanduser() if configured else base / "gamefactory3a"
 
 
 def _safe_extract(archive: Path, destination: Path) -> None:

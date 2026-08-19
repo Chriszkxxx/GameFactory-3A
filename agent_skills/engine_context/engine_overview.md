@@ -1,14 +1,19 @@
 # Engine Context Routing
 
-Read this file after `agent_skills/setting_overview.md` routes a task into Engine
+Read this file after `<REPO_PATH>/agent_skills/setting_overview.md` routes a task into Engine
 game generation. The setting overview remains authoritative for the overall
 game workflow. This file defines only CodeGen-to-Engine reading order and
 cross-layer boundaries; exact workflows belong in the selected CodeGen Skill,
 and exact APIs belong in the selected Engine API document.
 
+Paths are written from the repository root as `<REPO_PATH>/...`; see the Path
+convention section of `<REPO_PATH>/agent_skills/setting_overview.md`. Note that
+`<REPO_PATH>/engine_adapters/` is a sibling of `<REPO_PATH>/agent_skills/`, not a
+subdirectory of it.
+
 ## Read In This Order
 
-1. Read `agent_skills/setting_overview.md`, the task packet, requirements, and
+1. Read `<REPO_PATH>/agent_skills/setting_overview.md`, the task packet, requirements, and
    acceptance criteria. The task packet owns the canonical Engine and filesystem
    boundaries.
 2. Read this file to select the CodeGen route without opening every Engine API.
@@ -27,12 +32,12 @@ outputs.
 
 | Task | Required context |
 |---|---|
-| Mechanic generation | `agent_skills/code_gen/mechanic/game_generation.md` -> selected Engine API |
-| UI generation | `agent_skills/code_gen/ui/game_ui_generation.md` -> selected Engine API -> `agent_skills/engine_context/browser_serving_api.md` |
+| Mechanic generation | `<REPO_PATH>/agent_skills/code_gen/mechanic/game_generation.md` -> selected Engine API |
+| UI generation | `<REPO_PATH>/agent_skills/code_gen/ui/game_ui_generation.md` -> selected Engine API -> `<REPO_PATH>/agent_skills/engine_context/browser_serving_api.md` |
 | Engine assembly, build, test, or runtime | selected Engine API |
-| Browser delivery | `agent_skills/engine_context/browser_serving_api.md` + selected Engine API |
-| VFX creation | `agent_skills/engine_context/create-vfx-effects/SKILL.md` + selected Engine API |
-| Retargeting, rigging, mesh repair, or neutral asset preparation | `agent_skills/engine_context/blender_api.md` |
+| Browser delivery | `<REPO_PATH>/agent_skills/engine_context/browser_serving_api.md` + selected Engine API |
+| VFX creation | `<REPO_PATH>/agent_skills/engine_context/create-vfx-effects/SKILL.md` + selected Engine API |
+| Retargeting, rigging, mesh repair, or neutral asset preparation | `<REPO_PATH>/agent_skills/engine_context/blender_api.md` |
 
 ## Engine Selection
 
@@ -41,10 +46,10 @@ Engine Context:
 
 | Identifier | API document | Public host entry point |
 |---|---|---|
-| `ue5` | `agent_skills/engine_context/ue5_api.md` | `from engine_adapters.ue5 import UEClient` |
-| `unity3d` | `agent_skills/engine_context/unity3d_api.md` | `from engine_adapters.unity3d import UnityClient` |
-| `three_js` | `agent_skills/engine_context/three_js_api.md` | `from engine_adapters.three_js import ThreeClient` |
-| `blender` | `agent_skills/engine_context/blender_api.md` | documented `bpy` interpreter boundary |
+| `ue5` | `<REPO_PATH>/agent_skills/engine_context/ue5_api.md` | `from engine_adapters.ue5 import UEClient` |
+| `unity3d` | `<REPO_PATH>/agent_skills/engine_context/unity3d_api.md` | `from engine_adapters.unity3d import UnityClient` |
+| `three_js` | `<REPO_PATH>/agent_skills/engine_context/three_js_api.md` | `from engine_adapters.three_js import ThreeClient` |
+| `blender` | `<REPO_PATH>/agent_skills/engine_context/blender_api.md` | documented `bpy` interpreter boundary |
 
 When `blender` is selected, it is a neutral asset-processing context rather than
 a shipped game runtime. Do not mix primary Engine APIs or Examples. Browser
@@ -107,7 +112,7 @@ publish a browser URL until the Engine runtime is ready.
 - Examples are read-only references, not base projects, templates, runtime
   dependencies, or limits on generated features.
 - Read only finalized upstream artifacts declared by the task packet.
-- Use `pipeline/common/paths.py` for repository output paths.
+- Use `<REPO_PATH>/pipeline/common/paths.py` for repository output paths.
 - Record actual context use in `context_used.json` when the selected Skill
   requires it.
 - Generation, assembly, execution, and evaluation have separate ownership.

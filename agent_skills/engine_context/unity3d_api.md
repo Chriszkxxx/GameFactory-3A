@@ -291,7 +291,7 @@ project (commonly exit code 199). The transport returns
 tail in that case, so callers fail fast with the external prerequisite rather
 than claiming that import, compilation, or build succeeded.
 
-Use `scripts/engine_install/unity/` for Unity project creation, game
+Use `<REPO_PATH>/scripts/engine_install/unity/` for Unity project creation, game
 generation, asset import, and runtime launch commands. The top-level
 `import-batch` public client command imports batches of assets. Use
 `generate-game` for the complete pipeline so one Editor session owns plugin
@@ -316,7 +316,7 @@ forward direction still require inspection or importer configuration.
 
 For smoke, fire, explosion, dust, and particle lifecycle work, use the
 [`create-vfx-effects`](create-vfx-effects/SKILL.md) skill and
-`engine_adapters/unity3d/vfx/Runtime/A3Game_VFX.cs`.
+`<REPO_PATH>/engine_adapters/unity3d/vfx/Runtime/A3Game_VFX.cs`.
 
 Prefer an existing reviewed particle or VFX Graph prefab through `SpawnPrefab`.
 The named ParticleSystem functions are no-asset fallbacks. Their positions use
@@ -336,7 +336,7 @@ python scripts/import_generated_asset.py --engine unity \
 ```
 
 The launcher installs
-`engine_adapters/unity3d/import_generated/ImportGeneratedMesh.cs` under the
+`<REPO_PATH>/engine_adapters/unity3d/import_generated/ImportGeneratedMesh.cs` under the
 project's `Assets/Editor/` directory and invokes `ImportGeneratedMesh.RunFromCLI`.
 Use `--usage asset` for ordinary meshes, `vfx_standalone` for a single effect
 mesh, and `vfx_particle` for meshes instanced by a particle system.
@@ -344,7 +344,7 @@ mesh, and `vfx_particle` for meshes instanced by a particle system.
 Treat the JSON import report as the result contract. Check `ok`, `assetPath`,
 `prefabPath`, triangle and material counts, bound textures, bounds, and warnings
 before referencing the prefab. GLB import requires `com.unity.cloud.gltfast`;
-the full project setup is in `scripts/engine_install/README.md`.
+the full project setup is in `<REPO_PATH>/scripts/engine_install/README.md`.
 Generated projects own concrete gameplay implementation. Optional Arena
 Fighter, FPS, and Racing examples are read-only references and are not runtime
 dependencies or success criteria.

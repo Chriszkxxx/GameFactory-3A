@@ -6,7 +6,7 @@ Operator, and `run.generate(inp, operator)` generates one asset. `run.py`
 batch-drives the same `generate()` entry point for Benchmark; `eval.py` only
 scores existing artifacts.
 
-> Scope: this contract applies to `pipeline/assets_gen/` only. The public API is
+> Scope: this contract applies to `<REPO_PATH>/pipeline/assets_gen/` only. The public API is
 > `load_*()` → `make_operator()` → `generate(inp, operator)`; `run.py` batch
 > execution and `eval.py` form the asset-generation Benchmark chain.
 >
@@ -21,7 +21,7 @@ pipeline/
     └── eval.py                      # Benchmark scoring only
 ```
 
-Reference implementation: `pipeline/assets_gen/gen_3d_object/run.py`.
+Reference implementation: `<REPO_PATH>/pipeline/assets_gen/gen_3d_object/run.py`.
 
 ---
 
@@ -32,7 +32,7 @@ Reference implementation: `pipeline/assets_gen/gen_3d_object/run.py`.
 | R1.1 | Runs correctly **from any CWD** — prepend the repo root to `sys.path` before importing anything local. | Users invoke it as `python pipeline/.../run.py`. |
 | R1.2 | **Never build an output path.** Only `pipeline.common.paths`. | One source of truth. |
 | R1.3 | `run.py` generates artifacts only; `eval.py` reads artifacts from an existing `run_id` and computes metrics only. | Clean split; evaluation never imports or triggers generation. |
-| R1.4 | Every required module-level function must exist with the exact name. `test/` imports them. | They are an API, not style. |
+| R1.4 | Every required module-level function must exist with the exact name. `<REPO_PATH>/test/` imports them. | They are an API, not style. |
 | R1.5 | Model imports go **inside** `load_*()`, operator imports **inside** `make_operator()`. | So `--help` works without CUDA, and the smoke test can import the module. |
 | R1.6 | Zero side effects at import time beyond `sys.path` and constants. | The module is imported by tests. |
 
@@ -117,7 +117,7 @@ mixes games — it defeats the per-project layout.
 
 ## R6 — Registering a task kind
 
-`pipeline/common/paths.py` is the **only** registration point. Add one entry to
+`<REPO_PATH>/pipeline/common/paths.py` is the **only** registration point. Add one entry to
 each of the four tables:
 
 ```python

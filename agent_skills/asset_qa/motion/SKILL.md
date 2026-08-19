@@ -7,7 +7,7 @@ Motion assets are a special category: many clip / mesh / engine formats,
 per-character skeletons, and unit conventions that static-mesh QA does not
 cover. Prefer the `gen_motion` operator first; when a format or retarget
 edge case is outside what the operator already handles, the agent **may
-edit the retarget code** (`operators/gen_motion/funcs/retarget_utils/` and
+edit the retarget code** (`<REPO_PATH>/operators/gen_motion/funcs/retarget_utils/` and
 related steps) rather than inventing a one-off workaround outside the
 pipeline.
 
@@ -29,15 +29,41 @@ character mesh (.glb/.obj/…)
    import (Blender / UE5)    →  engine-ready skeletal asset
 ```
 
-Entry point: `pipeline/assets_gen/gen_motion/run.py`.
-Operator: `operators/gen_motion/operator.py`.
+Entry point: `<REPO_PATH>/pipeline/assets_gen/gen_motion/run.py`.
+Operator: `<REPO_PATH>/operators/gen_motion/operator.py`.
 Code the agent should read before changing anything: this file, then the
-module docstrings under `operators/gen_motion/funcs/`.
+module docstrings under `<REPO_PATH>/operators/gen_motion/funcs/`.
+
+## Get the clip by download first
+
+**Text-to-motion generation quality and controllability are not good enough yet.**
+MoMask produces a plausible-looking clip from a sentence, but you cannot reliably
+control timing, style, exact limb trajectories, foot contact, or how the clip
+loops — and re-prompting rarely converges on what the plan asked for.
+
+So for any real game deliverable, **download a clip first and prefer Mixamo**:
+
+1. **Mixamo** — the default source. Broad, consistent, game-oriented humanoid
+   library on one skeleton (`mixamorig:*`), so `SOURCE_SKELETONS` already knows
+   it and retargeting is predictable. It is login-gated, so download by hand:
+   FBX Binary, **Skin = Without Skin**, then use `task_type=retarget` with
+   `motion_source=mixamo` and `global_scale=0.01` (centimetres).
+2. **Other libraries** — MoCap Online, CMU BVH, or a local clip, per
+   [Motion sources](#when-generation-quality-is-not-enough).
+   Check each licence; Bandai-Namco is research-only.
+3. **MoMask text-to-motion** — use it when no downloadable clip fits, when the
+   motion is unusual enough that no library has it, or for a quick placeholder
+   while the game is being assembled. Say that it is the generated route, and
+   expect to review it harder.
+
+Do not scrape login-gated sources; that violates the licence and the fetcher
+refuses it on purpose. Always record provenance either way.
 
 ## When To Run
 
 - A task asks for a humanoid character that moves (walk, attack, idle, …).
-- A generated clip looks wrong and you need a Mixamo / mocap fallback.
+- You have a downloaded Mixamo / mocap clip and need it on a generated rig.
+- A generated clip looks wrong and you need a downloaded replacement.
 - You have a retargeted FBX and need to prove Blender or Unreal can use it.
 
 Do **not** use the static mesh importers (`import_mesh.py`) on a motion FBX —
@@ -61,7 +87,7 @@ If the operator cannot ingest a legitimate clip format, scale convention, or
 retarget quirk the task needs, extend `fetch_motion`, `formats`,
 `mapping_auto`, or `world_delta` in-repo and keep the task on the pipeline
 path — do not bypass with a hand-rolled Blender script that never lands in
-`operators/`.
+`<REPO_PATH>/operators/`.
 
 ## Task Types
 
@@ -76,14 +102,7 @@ CLI demo (single task). Load the runtime first and pass the explicit model
 arguments shown in [Runtime Environment](#6-runtime-environment)::
 
 ```bash
-# Full chain: mesh → rig → MoMask → FBX
-python pipeline/assets_gen/gen_motion/run.py \
-  --task-type humanoid \
-  --target-mesh character.glb \
-  --prompt "A person walks forward and waves." \
-  --in-place
-
-# Retarget a Mixamo download onto an existing rig
+# Retarget a Mixamo download onto an existing rig — the preferred route
 python pipeline/assets_gen/gen_motion/run.py \
   --task-type retarget \
   --source-motion walk.fbx \
@@ -91,6 +110,13 @@ python pipeline/assets_gen/gen_motion/run.py \
   --target-rig character_rig.txt \
   --motion-source mixamo \
   --global-scale 0.01
+
+# Full chain with generated motion: mesh → rig → MoMask → FBX
+python pipeline/assets_gen/gen_motion/run.py \
+  --task-type humanoid \
+  --target-mesh character.glb \
+  --prompt "A person walks forward and waves." \
+  --in-place
 ```
 
 Registries (no models, no Blender)::
@@ -102,8 +128,8 @@ python pipeline/assets_gen/gen_motion/run.py --list-motion-sources
 
 ## 1. Rigging
 
-**Model:** `models/gen_motion/puppeteer_model.py` (CUDA required for real runs).
-**Step:** `operators/gen_motion/funcs/rig_character.py`.
+**Model:** `<REPO_PATH>/models/gen_motion/puppeteer_model.py` (CUDA required for real runs).
+**Step:** `<REPO_PATH>/operators/gen_motion/funcs/rig_character.py`.
 
 Accepted mesh formats: `.glb`, `.gltf`, `.obj`, `.ply`, `.stl` (and `.fbx` at
 retarget time). The operator accepts both `target_mesh_path` and the legacy
@@ -114,12 +140,16 @@ index in the mesh it consumed. The rig artifacts therefore include that exact
 OBJ. Retargeting binds weights against the same vertex order — any conversion
 that reorders vertices between rig and retarget silently ruins the skin.
 
-Stub-test without CUDA: inject `StubPuppeteerModel` from `test/harness/stubs.py`.
+Stub-test without CUDA: inject `StubPuppeteerModel` from `<REPO_PATH>/test/harness/stubs.py`.
 
 ## 2. Motion Generation
 
-**Model:** `models/gen_motion/momask_model.py`.
-**Step:** `operators/gen_motion/funcs/generate_motion.py`.
+**Model:** `<REPO_PATH>/models/gen_motion/momask_model.py`.
+**Step:** `<REPO_PATH>/operators/gen_motion/funcs/generate_motion.py`.
+
+Reach for this only after [Get the clip by download first](#get-the-clip-by-download-first)
+has been considered: generation is the weakest link in this chain, and a
+downloaded Mixamo clip is usually the shorter path to a shippable animation.
 
 - Native rate is **20 fps**. Pass that through to retarget; exporting a 20 fps
   clip as 30 fps plays too fast without looking "broken".
@@ -127,14 +157,19 @@ Stub-test without CUDA: inject `StubPuppeteerModel` from `test/harness/stubs.py`
   tag lists.
 - `in_place=True` when the game drives locomotion and the clip only has to
   look like walking.
+- Do not expect prompt-level control over timing, style, foot contact, or
+  looping. If the plan needs a specific performance, download it instead of
+  re-rolling seeds.
 
-### When generation quality is not enough
+<a id="when-generation-quality-is-not-enough"></a>
 
-Use `operators/gen_motion/funcs/fetch_motion.py` instead of fighting the prompt.
+### Motion sources (the preferred route)
+
+Use `<REPO_PATH>/operators/gen_motion/funcs/fetch_motion.py` instead of fighting the prompt.
 
 | Source | Access | Skeleton | Notes |
 |---|---|---|---|
-| `mixamo` | manual (login) | Mixamo | Download FBX Binary, Skin=Without Skin |
+| `mixamo` | manual (login) | Mixamo | **Preferred.** Download FBX Binary, Skin=Without Skin |
 | `mocap_online` | manual | UE5 mannequin | Free sample packs |
 | `cmu_bvh` | direct URL | CMU BVH | Free; quality uneven |
 | `bandai_namco` | direct URL | — | CC BY-NC-ND — research only |
@@ -168,8 +203,8 @@ Task fields for an external clip::
 
 ## 3. Retargeting And Bone Mapping
 
-**Host driver:** `operators/gen_motion/funcs/retarget_motion.py`.
-**Blender package:** `operators/gen_motion/funcs/retarget_utils/`.
+**Host driver:** `<REPO_PATH>/operators/gen_motion/funcs/retarget_motion.py`.
+**Blender package:** `<REPO_PATH>/operators/gen_motion/funcs/retarget_utils/`.
 
 | Module | Runs in | Role |
 |---|---|---|
@@ -201,8 +236,8 @@ Motion retarget has many legitimate edge cases (odd BVH hierarchies, engine
 axis packs, IK feet, non-humanoid props, new mocap libraries). If
 `mapping_auto` / `world_delta` / import fails for a real asset and the gap is
 in our code — not bad input — the agent should **patch the retarget stack**
-under `operators/gen_motion/funcs/` (and tests under `test/test_gen_motion.py`
-/ `test/test_rigging_retarget.py`) so the next run goes through the operator.
+under `<REPO_PATH>/operators/gen_motion/funcs/` (and tests under `<REPO_PATH>/test/test_gen_motion.py`
+/ `<REPO_PATH>/test/test_rigging_retarget.py`) so the next run goes through the operator.
 Keep format constants in `retarget_utils/formats.py` in sync with fetch /
 rig / CLI validation.
 
@@ -274,7 +309,7 @@ python scripts/import_generated_asset.py \
   --uproject /path/to/MyGame.uproject
 ```
 
-Engine script: `engine_adapters/ue5/import_generated/import_motion.py`.
+Engine script: `<REPO_PATH>/engine_adapters/ue5/import_generated/import_motion.py`.
 It forces `import_as_skeletal=True` and `import_animations=True` — the static
 `import_mesh.py` path must not be used here.
 
@@ -286,7 +321,7 @@ After import, confirm in Content Browser:
    the root.
 
 Higher-level UE client: `ue.animation.import_motion(...)` in
-`engine_adapters/ue5/animation/client.py`.
+`<REPO_PATH>/engine_adapters/ue5/animation/client.py`.
 
 ## 5. Quality Checklist (What Code Cannot Decide Alone)
 
@@ -301,7 +336,7 @@ Run these after `inspect_fbx` / Blender import report `ok=True`:
    were wrong (`global_scale`).
 5. **Facing.** Pipeline exports Y-up / -Z forward. Record facing for the game
    asset if the character looks sideways in the first playable spawn (see
-   `imported_asset_orientation.md`).
+   `<REPO_PATH>/agent_skills/asset_qa/3d_object/orientation_review.md`).
 6. **Licence.** Check the model, dataset, and source-motion terms before
    shipping. Mixamo / MoCap Online / Bandai each have separate terms; retain
    `*_motion_source.json` with the artifact.
@@ -319,8 +354,8 @@ bash scripts/asset_env_setup/gen_motion/install.sh --skip-weights
 source scripts/asset_env_setup/gen_motion/runtime_env.sh
 ```
 
-The installer creates `a3gameforge-puppeteer`, `a3gameforge-momask`, and
-`a3gameforge-retarget-bpy`. `runtime_env.sh` exports:
+The installer creates `gamefactory3a-puppeteer`, `gamefactory3a-momask`, and
+`gamefactory3a-retarget-bpy`. `runtime_env.sh` exports:
 
 - `A3GF_PUPPETEER_MODEL_PATH`
 - `A3GF_PUPPETEER_PYTHON`
@@ -353,7 +388,7 @@ python -m unittest test.test_gen_motion
 # Create an unlicensed, single-mesh T-pose fixture for a real local run.
 "$A3GF_MOMASK_PYTHON" \
   scripts/asset_env_setup/gen_motion/create_humanoid_glb.py \
-  /tmp/a3gameforge_humanoid.glb
+  /tmp/gamefactory3a_humanoid.glb
 ```
 
 Synthetic humanoid fixture (mesh + Mixamo-named BVH + matching Puppeteer
@@ -366,11 +401,12 @@ build_all("/tmp/mofix", mesh_format=".glb")
 
 ## 7. What An Agent Should Do, In Order
 
-1. Read this skill and `operators/gen_motion/funcs/retarget_utils/__init__.py`.
-2. Prefer `task_type=humanoid` for a fresh character; `retarget` when a clip
-   already exists.
-3. If MoMask quality is poor → `--list-motion-sources`, download by hand if
-   manual, then `fetch_motion` / `motion_source` on the task.
+1. Read this skill and `<REPO_PATH>/operators/gen_motion/funcs/retarget_utils/__init__.py`.
+2. Prefer a downloaded clip — Mixamo first — and run `task_type=retarget`. Use
+   `task_type=humanoid` with MoMask only when no library clip fits or a
+   placeholder is enough.
+3. `--list-motion-sources` to see the registry; download manual sources by hand,
+   then set `fetch_motion` / `motion_source` on the task.
 4. Never invent a bone map for a new Puppeteer rig — omit mapping and let
    `mapping_auto` run, or generate one with the bpy `mapping_auto` module.
 5. If retarget/import fails for a real format or skeleton the operator should

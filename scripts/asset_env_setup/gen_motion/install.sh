@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Linux setup for A3GameForge human-motion inference. Third-party sources,
+# Linux setup for 3AGameFactory human-motion inference. Third-party sources,
 # environments, weights, and caches stay outside the repository checkout.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PUPPETEER_ENV="a3gameforge-puppeteer"
-MOMASK_ENV="a3gameforge-momask"
-RETARGET_ENV="a3gameforge-retarget-bpy"
+PUPPETEER_ENV="gamefactory3a-puppeteer"
+MOMASK_ENV="gamefactory3a-momask"
+RETARGET_ENV="gamefactory3a-retarget-bpy"
 PUPPETEER_COMMIT="1c0f9fc6ad209667a0ec5ceac9b59964938a8b51"
 MOMASK_COMMIT="94a6636c9c463b7a9414c3401a6f1b67e6c51824"
 
@@ -41,8 +41,8 @@ esac
   exit 2
 }
 
-RUNTIME_ROOT="${A3GF_RUNTIME_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/a3gameforge}"
-CACHE_ROOT="${A3GF_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME}/.cache}/a3gameforge}"
+RUNTIME_ROOT="${A3GF_RUNTIME_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/gamefactory3a}"
+CACHE_ROOT="${A3GF_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME}/.cache}/gamefactory3a}"
 CONDA_BIN="${A3GF_CONDA_BIN:-${CONDA_EXE:-$(command -v conda || true)}}"
 
 [[ -n "${CONDA_BIN}" ]] && "${CONDA_BIN}" --version >/dev/null 2>&1 || {

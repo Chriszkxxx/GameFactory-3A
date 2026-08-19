@@ -137,7 +137,7 @@ behavior is absent; avoid empty assertions and unconditional success.
 - Treat packet inputs, Engine Context, Examples, Mechanic artifacts, reference
   images, Skills, Prompts, and framework frontends as read-only.
 - Do not inspect, compare with, copy, or adapt generated implementation from
-  other tasks or games under `test_data/outputs/` or a relocated output root.
+  other tasks or games under `<REPO_PATH>/test_data/outputs/` or a relocated output root.
 - Do not modify Mechanic source, Pipeline metadata, framework backends, or the
   repository-owned Browser Serving frontend.
 - Do not create replacement contracts, invented bindings, fallback state
@@ -184,7 +184,7 @@ test_data/outputs/<game_id>/runs/<run_id>/
 `-- _pipeline/{packets,attempts,prompts,snapshots}/
 ```
 
-`pipeline/common/paths.py` owns these paths; do not construct them manually.
+`<REPO_PATH>/pipeline/common/paths.py` owns these paths; do not construct them manually.
 Published runs are immutable. A content repair creates a new run and records
 `parent_run_id`, `repair_of`, and the failure digest. Keep unpublished retries
 under `_pipeline/attempts/` and promote only the selected attempt.
