@@ -72,7 +72,8 @@ path — do not bypass with a hand-rolled Blender script that never lands in
 | `retarget` | source clip + mesh + rig | `retargeted.fbx`, `animation.fbx`, `mapping.json` |
 | `humanoid` | mesh + prompt | all of the above, chained |
 
-CLI demo (single task)::
+CLI demo (single task). Load the runtime first and pass the explicit model
+arguments shown in [Runtime Environment](#6-runtime-environment)::
 
 ```bash
 # Full chain: mesh → rig → MoMask → FBX
@@ -232,7 +233,7 @@ Legacy keys `mixamo` / `target` are normalised on load.
 python scripts/import_generated_asset.py \
   --src outputs/.../retargeted.fbx \
   --engine blender --kind motion \
-  --blender $AAAGF_RETARGET_BPY_PYTHON
+  --blender "$A3GF_RETARGET_BPY_PYTHON"
 
 # Or call the importer directly
 python engine_adapters/blender/import_generated/import_motion.py \
@@ -245,7 +246,8 @@ travel alone is not enough — a sliding T-pose would otherwise pass).
 Also useful for a quick structural check without the full import path::
 
 ```bash
-python -m operators.gen_motion.funcs.retarget_utils.inspect_fbx \
+"$A3GF_RETARGET_BPY_PYTHON" \
+  -m operators.gen_motion.funcs.retarget_utils.inspect_fbx \
   --input retargeted.fbx --output fbx_inspection.json
 ```
 
@@ -300,29 +302,58 @@ Run these after `inspect_fbx` / Blender import report `ok=True`:
 5. **Facing.** Pipeline exports Y-up / -Z forward. Record facing for the game
    asset if the character looks sideways in the first playable spawn (see
    `imported_asset_orientation.md`).
-6. **Licence.** Generated MoMask clips are yours. Mixamo / MoCap Online /
-   Bandai each have terms — check `*_motion_source.json` before shipping.
+6. **Licence.** Check the model, dataset, and source-motion terms before
+   shipping. Mixamo / MoCap Online / Bandai each have separate terms; retain
+   `*_motion_source.json` with the artifact.
 
 ## 6. Runtime Environment
 
+Install the three isolated Linux environments and selected weights once:
+
 ```bash
+bash scripts/asset_env_setup/gen_motion/install.sh
+
+# Install sources and environments only; download weights later if needed.
+bash scripts/asset_env_setup/gen_motion/install.sh --skip-weights
+
 source scripts/asset_env_setup/gen_motion/runtime_env.sh
-# expects conda envs (or overrides):
-#   AAAGF_PUPPETEER_PYTHON, AAAGF_MOMASK_PYTHON, AAAGF_RETARGET_BPY_PYTHON
-#   AAAGF_PUPPETEER_MODEL_PATH, AAAGF_MOMASK_MODEL_PATH
 ```
 
-Install: `scripts/asset_env_setup/gen_motion/install.sh`.
+The installer creates `a3gameforge-puppeteer`, `a3gameforge-momask`, and
+`a3gameforge-retarget-bpy`. `runtime_env.sh` exports:
+
+- `A3GF_PUPPETEER_MODEL_PATH`
+- `A3GF_PUPPETEER_PYTHON`
+- `A3GF_MOMASK_MODEL_PATH`
+- `A3GF_MOMASK_PYTHON`
+- `A3GF_RETARGET_BPY_PYTHON`
+
+Pass them explicitly to the pipeline so the command does not depend on legacy
+environment-variable aliases:
+
+```bash
+python pipeline/assets_gen/gen_motion/run.py \
+  --task-type humanoid \
+  --target-mesh character.glb \
+  --prompt "A person walks forward and waves." \
+  --puppeteer-model-path "$A3GF_PUPPETEER_MODEL_PATH" \
+  --puppeteer-python "$A3GF_PUPPETEER_PYTHON" \
+  --momask-model-path "$A3GF_MOMASK_MODEL_PATH" \
+  --momask-python "$A3GF_MOMASK_PYTHON" \
+  --bpy-python "$A3GF_RETARGET_BPY_PYTHON" \
+  --in-place
+```
 
 Tests::
 
 ```bash
 # Unit + stub integration (no GPU)
-AAAGF_RETARGET_BPY_PYTHON=/path/to/bpy/python \
-  python test/test_gen_motion.py
+python -m unittest test.test_gen_motion
 
-# Real bpy retarget of a synthetic humanoid (needs AAAGF_RETARGET_BPY_PYTHON)
-# Full humanoid chain needs Puppeteer + MoMask + bpy + a GLB
+# Create an unlicensed, single-mesh T-pose fixture for a real local run.
+"$A3GF_MOMASK_PYTHON" \
+  scripts/asset_env_setup/gen_motion/create_humanoid_glb.py \
+  /tmp/a3gameforge_humanoid.glb
 ```
 
 Synthetic humanoid fixture (mesh + Mixamo-named BVH + matching Puppeteer

@@ -804,7 +804,7 @@ class TestRetargetFunction(unittest.TestCase):
         missing = str(_REPO_ROOT / "does_not_exist" / "python.exe")
         with self.assertRaisesRegex(
             RuntimeError,
-            "AAAGF_RETARGET_BPY_PYTHON",
+            "A3GF_RETARGET_BPY_PYTHON",
         ):
             ensure_retarget_runtime(missing)
 
@@ -946,12 +946,12 @@ class TestGenMotionEvaluationPipeline(unittest.TestCase):
                 )
 
 
-_BPY_PYTHON = os.environ.get("AAAGF_RETARGET_BPY_PYTHON")
+_BPY_PYTHON = os.environ.get("A3GF_RETARGET_BPY_PYTHON")
 
 
 @unittest.skipUnless(
     _BPY_PYTHON,
-    "Set AAAGF_RETARGET_BPY_PYTHON for the synthetic bpy integration test.",
+    "Set A3GF_RETARGET_BPY_PYTHON for the synthetic bpy integration test.",
 )
 class TestGenMotionSyntheticBpyIntegration(unittest.TestCase):
     """Run a generated one-bone asset through the real bpy subprocess."""
@@ -1072,18 +1072,18 @@ class TestGenMotionSyntheticBpyIntegration(unittest.TestCase):
 
 
 _REAL_ENV = {
-    "bpy_python": os.environ.get("AAAGF_RETARGET_BPY_PYTHON"),
-    "source_motion": os.environ.get("AAAGF_RETARGET_SOURCE_MOTION"),
-    "target_glb": os.environ.get("AAAGF_RETARGET_TARGET_GLB"),
-    "target_rig": os.environ.get("AAAGF_RETARGET_TARGET_RIG"),
+    "bpy_python": os.environ.get("A3GF_RETARGET_BPY_PYTHON"),
+    "source_motion": os.environ.get("A3GF_RETARGET_SOURCE_MOTION"),
+    "target_glb": os.environ.get("A3GF_RETARGET_TARGET_GLB"),
+    "target_rig": os.environ.get("A3GF_RETARGET_TARGET_RIG"),
 }
 _REAL_READY = all(_REAL_ENV.values())
 
 
 @unittest.skipUnless(
     _REAL_READY,
-    "Set AAAGF_RETARGET_BPY_PYTHON, AAAGF_RETARGET_SOURCE_MOTION, "
-    "AAAGF_RETARGET_TARGET_GLB and AAAGF_RETARGET_TARGET_RIG for the real test.",
+    "Set A3GF_RETARGET_BPY_PYTHON, A3GF_RETARGET_SOURCE_MOTION, "
+    "A3GF_RETARGET_TARGET_GLB and A3GF_RETARGET_TARGET_RIG for the real test.",
 )
 class TestGenMotionRealIntegration(unittest.TestCase):
     """Optional real bpy integration test using external, uncommitted assets."""
@@ -1117,8 +1117,8 @@ class TestGenMotionRealIntegration(unittest.TestCase):
             "source_motion_path": _REAL_ENV["source_motion"],
             "target_glb_path": _REAL_ENV["target_glb"],
             "target_rig_path": _REAL_ENV["target_rig"],
-            "mapping_path": os.environ.get("AAAGF_RETARGET_MAPPING"),
-            "fps": int(os.environ.get("AAAGF_RETARGET_FPS", "30")),
+            "mapping_path": os.environ.get("A3GF_RETARGET_MAPPING"),
+            "fps": int(os.environ.get("A3GF_RETARGET_FPS", "30")),
         }
         result = generate(task, operator)
         for key in (
@@ -1134,18 +1134,18 @@ class TestGenMotionRealIntegration(unittest.TestCase):
 
 
 _HUMANOID_ENV = {
-    "puppeteer_root": os.environ.get("AAAGF_PUPPETEER_MODEL_PATH"),
-    "puppeteer_python": os.environ.get("AAAGF_PUPPETEER_PYTHON"),
-    "momask_root": os.environ.get("AAAGF_MOMASK_MODEL_PATH"),
-    "momask_python": os.environ.get("AAAGF_MOMASK_PYTHON"),
-    "bpy_python": os.environ.get("AAAGF_RETARGET_BPY_PYTHON"),
-    "target_glb": os.environ.get("AAAGF_HUMANOID_TARGET_GLB"),
+    "puppeteer_root": os.environ.get("A3GF_PUPPETEER_MODEL_PATH"),
+    "puppeteer_python": os.environ.get("A3GF_PUPPETEER_PYTHON"),
+    "momask_root": os.environ.get("A3GF_MOMASK_MODEL_PATH"),
+    "momask_python": os.environ.get("A3GF_MOMASK_PYTHON"),
+    "bpy_python": os.environ.get("A3GF_RETARGET_BPY_PYTHON"),
+    "target_glb": os.environ.get("A3GF_HUMANOID_TARGET_GLB"),
 }
 
 
 @unittest.skipUnless(
     all(_HUMANOID_ENV.values()),
-    "Set the AAAGF Puppeteer, MoMask, bpy and humanoid GLB environment "
+    "Set the A3GF Puppeteer, MoMask, bpy and humanoid GLB environment "
     "variables for the complete real chain.",
 )
 class TestGenMotionRealHumanoidIntegration(unittest.TestCase):
@@ -1288,7 +1288,7 @@ class TestGenMotionRealHumanoidIntegration(unittest.TestCase):
 
 @unittest.skipUnless(
     _BPY_PYTHON,
-    "Set AAAGF_RETARGET_BPY_PYTHON for the humanoid fixture bpy integration test.",
+    "Set A3GF_RETARGET_BPY_PYTHON for the humanoid fixture bpy integration test.",
 )
 class TestGenMotionHumanoidFixtureBpyIntegration(unittest.TestCase):
     """

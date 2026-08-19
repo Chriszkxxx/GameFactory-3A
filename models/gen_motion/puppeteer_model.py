@@ -97,7 +97,7 @@ class PuppeteerModel:
         if not python_bin.is_file():
             raise RuntimeError(
                 "Puppeteer Python executable does not exist: "
-                f"{python_bin}. Set AAAGF_PUPPETEER_PYTHON or pass "
+                f"{python_bin}. Set A3GF_PUPPETEER_PYTHON or pass "
                 "--puppeteer-python."
             )
         missing = [
