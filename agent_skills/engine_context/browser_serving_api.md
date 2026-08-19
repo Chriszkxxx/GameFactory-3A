@@ -6,7 +6,7 @@ This file is a compact index of implemented public capabilities. It lists
 public names and their functions only. Read the current source when exact
 parameters, routes, or result payload fields are required.
 
-## Hard API Boundary
+## Browser/Backend API Boundary
 
 Browser Serving is the engine-neutral browser mapping layer:
 
@@ -14,14 +14,30 @@ Browser Serving is the engine-neutral browser mapping layer:
 Browser UI -> Browser Serving API -> EngineBackend -> Engine Client -> Engine
 ```
 
-Browser UI must not import concrete backends, call Engine clients directly, or
-branch on Engine names. Backends may access UE5 and Unity only through their
-public clients:
+Browser UI and generated Browser Play source must not import concrete
+backends, call Engine clients directly, or branch on Engine names. Registered
+Backends and the Gateway composition root may access UE5 and Unity only
+through their public clients:
 
 ```python
 from engine_adapters.ue5 import UEClient
 from engine_adapters.unity3d import UnityClient
 ```
+
+The allowed call direction is:
+
+```text
+Browser Play HTTP/fetch
+    -> Browser Serving Gateway
+        -> registered EngineBackend
+            -> public Engine Client
+                -> Engine runtime
+```
+
+Browser Play never constructs an `EngineBackend`, `UEClient`, or
+`UnityClient`. A game-specific backend or recording preset belongs in the
+execution composition root that registers the backend, not in generated
+Browser Play or an `engine_adapters/*/examples` directory.
 
 Browser Serving exposes engine view, assets, Worlds, sessions, streams, and
 generic input. It does not replace engine-native Mechanic UI.
@@ -38,7 +54,7 @@ Public operations return JSON-serializable results with these stable fields:
 - `errors` - fatal problems;
 - `payload` - operation-specific result data.
 
-## Public Entry Points
+## Public Entry Points And Ownership
 
 Python Agents import the public API from:
 
@@ -46,13 +62,19 @@ Python Agents import the public API from:
 from engine_adapters.browser_serving import BrowserServingClient
 ```
 
+`BrowserServingClient` is a host-side Python client for Admin, execution, and
+integration tooling. Browser JavaScript uses the documented HTTP routes; it
+does not import the Python client.
+
 - `API_VERSION` - Reports the public Browser Serving API version.
 - `BrowserServingClient` - Calls the public Browser Serving HTTP API.
 - `BrowserServingConfig` - Resolves Gateway, Admin, Engine, stream, upload, and
   session configuration.
-- `BrowserServingService` - Delegates public operations to a registered Engine
-  backend.
-- `EngineBackend` - Protocol implemented by Engine backends.
+- `BrowserServingService` - Gateway/service composition API that delegates
+  operations to a registered Engine backend. It is not a generated Browser
+  Play dependency.
+- `EngineBackend` - Protocol implemented and registered by the Gateway
+  composition root. Generated Browser Play treats it as opaque.
 - `EngineCapabilities` - Declares supported browser-facing capabilities.
 - `EngineDescriptor` - Describes a registered backend.
 - `AssetImportRequest` - Carries a staged task artifact to a backend.
@@ -113,7 +135,8 @@ Game-specific actions remain owned by the generated Mechanic contract.
 ## Browser HTTP API
 
 Generated Browser Play calls the Gateway HTTP API rather than importing the
-Python client. Public routes map directly to the client operations above:
+Python client or an Engine Client. Public routes map directly to the client
+operations above:
 
 - `GET /api/health` - Reports Gateway readiness.
 - `GET /api/engines` - Lists registered Engines and capabilities.
@@ -165,9 +188,12 @@ Browser UI enables features from capabilities, not Engine names. Generated
 Browser Play consumes `stream_url`; transport-specific URL aliases are not the
 cross-Engine contract.
 Passing `engine` as backend selection data is allowed; Engine-specific UI logic
-is not.
+is not. The Gateway, not the Browser page, chooses the registered backend.
 
 ## EngineBackend Contract
+
+This is a backend implementation contract for the Gateway composition root,
+not an API that generated Browser Play code implements or imports.
 
 - `descriptor` - Returns backend identity and capabilities.
 - `status` - Reports backend readiness.
@@ -207,8 +233,11 @@ runtime session. Unity browser sessions use `runtime_kind=unity_webgl`,
 `input_transport=browser_canvas`; keyboard and pointer events are delivered
 directly to the Unity canvas, not through UE-compatible Pixel Streaming.
 
-Bundled backends are implementation references. Generated browser UI must not
-import them.
+Bundled backends are implementation references and registered backend
+implementations. Generated Browser UI must not import them. A project-specific
+backend may subclass or compose an implementation only in the project or
+execution composition root, and it must still use the selected public Engine
+Client.
 
 ## Frontends
 
@@ -223,17 +252,19 @@ import them.
 
 Generated Browser Play reads the engine-neutral `stream_url`, keeps input in
 the Engine frame, and reports session or stream errors. It does not configure
-backends or duplicate engine-native Mechanic UI.
+backends, call Engine Clients, inject game-specific commands, or duplicate
+engine-native Mechanic UI.
 
 ## UI Generation Boundary
 
 Engine-native UI uses the selected Engine API and generated Mechanic contract.
-Browser Play uses this Browser Serving API for stream, session, and generic
-controls only.
+Browser Play uses this Browser Serving API for stream, session, focus,
+fullscreen, error, and generic input controls only.
 
 Browser Serving does not expose a versioned Mechanic state/event/command bridge
 to Web. Generated Browser Play must not invent health, ammo, score, objective,
-pause, victory, or game-specific command APIs.
+pause, victory, or game-specific command APIs. Game-specific actions stay in
+the native Engine UI and the Mechanic contract.
 
 ## Launch
 
@@ -252,3 +283,8 @@ pause, victory, or game-specific command APIs.
 Default ports are `7860` for Admin, `7870` for Gateway, `18080+` for session
 pages, and `18888+` for UE streamer WebSockets. Unity WebGL does not use the UE
 streamer WebSocket ports.
+
+Launch scripts may set these documented environment variables and delegate to
+the Browser Serving Gateway. They must not implement a replacement backend,
+launch an Engine outside the registered backend lifecycle, or return a browser
+URL before the Engine session reports ready.

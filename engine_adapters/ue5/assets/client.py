@@ -103,7 +103,11 @@ class UEAssetsClient:
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         try:
-            resolved = self._resolve_source(source, "effect")
+            resolved = self._resolve_source(
+                source,
+                "effect",
+                allow_directory=True,
+            )
         except Exception as exc:
             return self._source_failure(
                 "assets.import_effect",

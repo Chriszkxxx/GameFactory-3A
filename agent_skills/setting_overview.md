@@ -34,10 +34,11 @@ generation before the game has a plan.
    less mature generation types—especially motion and 3D scenes—prefer suitable
    licensed assets from the chosen engine's asset library when that produces a
    more reliable, shippable result. Record provenance and licence information.
-4. **Build the game in the selected engine.** Read the corresponding engine API
-   context, then use the repository's engine reference code and public adapter
-   APIs to create the scene, gameplay, UI, materials, animation, effects, and
-   engine-specific project structure. Do not mix engine APIs.
+4. **Build the game in the selected engine.** Read
+   `engine_context/engine_overview.md`; it routes you to the applicable CodeGen
+   Skill and then the one matching engine API. Use only that API and the minimum
+   relevant same-engine reference code to create the scene, gameplay, UI,
+   materials, animation, effects, and engine-specific project structure.
 5. **Validate, play, and iterate.** Build and launch the game, then execute the
    majority of the intended player operations rather than checking only startup.
    Use browser serving or the engine's capture path to create a small-resolution
@@ -73,11 +74,16 @@ asks for multiple independent deliverables.
 | Prepare a character image or T-pose | `asset_qa/image/SKILL.md` | the selected 3D-object or motion skill after preprocessing |
 | Generate dialogue or sound effects | `asset_qa/audio/SKILL.md` | the selected engine API before in-game integration |
 | Generate CG video | `asset_qa/cg_video/SKILL.md` | the selected engine API when the video is used in-game |
-| Generate gameplay mechanics | `code_gen/mechanic/game_generation.md` | the selected engine API |
-| Generate UI or browser play | `code_gen/ui/game_ui_generation.md` | the selected engine API and `engine_context/browser_serving_api.md` when browser delivery is required |
-| Build a full game slice | this file, then the required asset, mechanic, UI, and engine documents | only the documents relevant to the selected deliverables |
+| Generate gameplay mechanics | `engine_context/engine_overview.md` | `code_gen/mechanic/game_generation.md`, then the selected engine API |
+| Generate UI or browser play | `engine_context/engine_overview.md` | `code_gen/ui/game_ui_generation.md`, then the selected engine API and `engine_context/browser_serving_api.md` |
+| Build a full game slice | this file, then `engine_context/engine_overview.md` | the required asset Skills, CodeGen Skills, and selected engine context routed by those documents |
 
 ## Select exactly one engine context
+
+For Mechanic, UI, or full Engine integration, do not select an API directly
+from this table before reading `engine_context/engine_overview.md`. That routing
+document selects the applicable CodeGen Skill first and then exactly one matching
+API context:
 
 | Engine identifier | Required API context | Reference code |
 |---|---|---|
