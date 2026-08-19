@@ -88,10 +88,10 @@ shared script directly.
 - `test/` contains runnable, current-use test and smoke scripts. Agents should
   use the relevant test to verify that generated assets, game code, or adapter
   flows can actually run; a written file alone is not evidence of success.
-- `third_party/` stores installation packages or checked-out dependencies for
-  assets and engines. Treat its contents as external dependencies: do not
-  modify, redistribute, or assume a package is installed without checking its
-  own licence and setup instructions.
+- `third_party/` holds externally cloned repositories such as `trimesh` and
+  engine material/asset packs. Treat its contents as external dependencies: do
+  not modify or redistribute them, and check each upstream licence and setup
+  instructions before use.
 
 ## Why visual QA is required
 
