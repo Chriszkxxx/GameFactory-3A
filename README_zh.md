@@ -1,22 +1,22 @@
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/104f765d-44aa-4880-8748-f6c02381e11d" alt="A3GameForge" width="256" />
+  <img src="https://github.com/user-attachments/assets/104f765d-44aa-4880-8748-f6c02381e11d" alt="3AGameFactory" width="256" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/OpenDCAI/A3GameForge/stargazers"><img src="https://img.shields.io/github/stars/OpenDCAI/A3GameForge?style=flat-square&logo=github&color=ffca28" alt="GitHub stars" /></a>
-  <a href="https://github.com/OpenDCAI/A3GameForge/network/members"><img src="https://img.shields.io/github/forks/OpenDCAI/A3GameForge?style=flat-square&logo=github&color=90a4ae" alt="GitHub forks" /></a>
-  <a href="https://github.com/OpenDCAI/A3GameForge/issues"><img src="https://img.shields.io/github/issues/OpenDCAI/A3GameForge?style=flat-square&logo=github" alt="GitHub issues" /></a>
-  <a href="https://github.com/OpenDCAI/A3GameForge/pulls"><img src="https://img.shields.io/github/issues-pr/OpenDCAI/A3GameForge?style=flat-square&logo=github" alt="Pull requests" /></a>
+  <a href="https://github.com/OpenDCAI/GameFactory-3A/stargazers"><img src="https://img.shields.io/github/stars/OpenDCAI/GameFactory-3A?style=flat-square&logo=github&color=ffca28" alt="GitHub stars" /></a>
+  <a href="https://github.com/OpenDCAI/GameFactory-3A/network/members"><img src="https://img.shields.io/github/forks/OpenDCAI/GameFactory-3A?style=flat-square&logo=github&color=90a4ae" alt="GitHub forks" /></a>
+  <a href="https://github.com/OpenDCAI/GameFactory-3A/issues"><img src="https://img.shields.io/github/issues/OpenDCAI/GameFactory-3A?style=flat-square&logo=github" alt="GitHub issues" /></a>
+  <a href="https://github.com/OpenDCAI/GameFactory-3A/pulls"><img src="https://img.shields.io/github/issues-pr/OpenDCAI/GameFactory-3A?style=flat-square&logo=github" alt="Pull requests" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square" alt="License: Apache 2.0" /></a>
   <img src="https://img.shields.io/badge/Engines-UE5%20%7C%20Blender%20%7C%20Unity%20%7C%20three.js-6a4cff?style=flat-square" alt="支持的引擎" />
   <img src="https://img.shields.io/badge/Assets-Image%20%7C%203D%20%7C%20Motion%20%7C%20Audio%20%7C%20CG%20Video-00897b?style=flat-square" alt="资产能力覆盖" />
 </p>
 
-# A3GameForge
+# 3AGameFactory
 
-**A3GameForge 让 Coding Agent 根据游戏需求生成可用于游戏构建的资产与引擎代码。**
+**3AGameFactory 让 Coding Agent 根据游戏需求生成可用于游戏构建的资产与引擎代码。**
 
-> **A3GameForge 是一个全面的开源 3A 游戏生成 Skill 与资产框架。** 它覆盖图片、3D 资产、动作、音频与 CG 视频生成，并支持使用 **UE5、Blender、Unity 和 three.js** 构建游戏。
+> **3AGameFactory 是一个全面的开源 3A 游戏生成 Skill 与资产框架。** 它覆盖图片、3D 资产、动作、音频与 CG 视频生成，并支持使用 **UE5、Blender、Unity 和 three.js** 构建游戏。
 
 <p align="center">
   <b><a href="#quick-start">快速开始</a></b>
@@ -28,7 +28,7 @@
 
 ## 游戏演示
 
-下方视频均由 Code Agent 基于 A3GameForge 提供的框架提示与资产调用策略生成。
+以下是 3AGameFactory 生成的不同美术风格、不同视角游戏的实机操作录屏。
 
 ### Unity
 
@@ -120,23 +120,23 @@
 
 ## 快速开始：让 Coding Agent 生成游戏
 
-A3GameForge 由 Coding Agent 驱动，它读取本项目的 Skills 并调用相应 Pipeline，
+3AGameFactory 由 Coding Agent 驱动，它读取本项目的 Skills 并调用相应 Pipeline，
 例如 [Codex](https://github.com/openai/codex)、
 [Claude Code](https://github.com/anthropics/claude-code) 或
 [Gemini CLI](https://github.com/google-gemini/gemini-cli)。
 
 ```text
 1. 打开 Coding Agent，例如 Codex、Claude Code（CC）或其他兼容 Agent。
-2. cd A3GameForge
+2. cd GameFactory-3A
 3. 告诉 Agent 你的游戏需求，并要求它先阅读 agent_skills/setting_overview.md。
 ```
 
 <p><strong><span style="color: #d1242f;">重要提示</span></strong><br>
-`agent_skills/setting_overview.md` 是使用 A3GameForge 生成资产、玩法、UI
+`agent_skills/setting_overview.md` 是使用 3AGameFactory 生成资产、玩法、UI
 和特定引擎游戏时的入口文档。它会将 Agent 路由到对应的资产 Skill 和引擎
 API 上下文。
 
-### 为 A3GameForge 框架贡献代码
+### 为 3AGameFactory 框架贡献代码
 
 这与“使用框架生成游戏”是两条独立路径。若要新增或修改模型封装、Operator
 或 Pipeline Runner，请从
@@ -147,7 +147,7 @@ API 上下文。
 
 <a id="capabilities"></a>
 
-## A3GameForge 能做什么
+## 3AGameFactory 能做什么
 
 | 能力 | 产物 | 主要 Pipeline 位置 |
 |---|---|---|
@@ -179,7 +179,7 @@ API 上下文。
 ## 项目目录
 
 ```text
-A3GameForge/
+GameFactory-3A/
 ├── agent_skills/               # 供 Agent 阅读的工作流、QA Skill 与引擎 API 上下文
 │   ├── setting_overview.md     # 游戏生成 Agent 从这里开始
 │   ├── asset_qa/               # 资产生成与视觉 QA Skill
@@ -215,11 +215,11 @@ A3GameForge/
 ## 引用
 
 ```bibtex
-@misc{a3gameforge,
-  title        = {A3GameForge: Open-Source 3A Game Generation Skills and Asset Framework},
+@misc{gamefactory3a,
+  title        = {3AGameFactory: Open-Source 3A Game Generation Skills and Asset Framework},
   author       = {OpenDCAI},
   year         = {2026},
-  howpublished = {\url{https://github.com/OpenDCAI/A3GameForge}},
+  howpublished = {\url{https://github.com/OpenDCAI/GameFactory-3A}},
   note         = {Open-source software repository}
 }
 ```
@@ -228,7 +228,7 @@ A3GameForge/
 
 ## 许可证
 
-A3GameForge 基于 [Apache License 2.0](LICENSE) 开源。
+3AGameFactory 基于 [Apache License 2.0](LICENSE) 开源。
 
 第三方引擎、模型、权重以及从外部素材库获取的资产均遵循各自的许可证。
 在将生成内容用于正式产品前，请先确认对应提供方的授权条款。
