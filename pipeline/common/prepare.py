@@ -15,8 +15,8 @@ from pipeline.common.artifacts import (
 )
 
 
-PACKET_SCHEMA = "aaagameforge.code_gen.packet.v1"
-SNAPSHOT_SCHEMA = "aaagameforge.code_gen.workspace_snapshot.v1"
+PACKET_SCHEMA = "gamefactory3a.code_gen.packet.v1"
+SNAPSHOT_SCHEMA = "gamefactory3a.code_gen.workspace_snapshot.v1"
 DEFAULT_RESERVED_ROOTS = (
     "meta.json",
     "demo_outputs",

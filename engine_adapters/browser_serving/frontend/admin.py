@@ -346,7 +346,7 @@ def build_admin_app(
     }
     """
     with gr.Blocks(
-        title="AAAGameForge 资产上传 / 导入",
+        title="3AGameFactory 资产上传 / 导入",
         css=responsive_css,
         fill_width=True,
     ) as app:
@@ -355,7 +355,7 @@ def build_admin_app(
         worlds_state = gr.State([])
         session_state = gr.State("")
 
-        gr.Markdown("# AAAGameForge 资产上传 / 导入调试页")
+        gr.Markdown("# 3AGameFactory 资产上传 / 导入调试页")
         gr.Markdown(
             "此页面只调用 Browser Serving API。引擎通过 backend contract "
             "接入，UE5 是当前 example backend。"

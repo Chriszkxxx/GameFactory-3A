@@ -1,6 +1,6 @@
 # A3Game Runtime Framework
 
-The Unity runtime framework for AAAGameForge — the Unity equivalent of UE5's
+The Unity runtime framework for 3AGameFactory — the Unity equivalent of UE5's
 `A3GamePlayable` C++ framework. It provides controllable-entity contracts,
 in-memory session state management, and UDP input reception for AI-driven
 game generation.

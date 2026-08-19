@@ -1,11 +1,11 @@
 {
-    "name": "com.aaagameforge.racing-ui-example",
+    "name": "com.gamefactory3a.racing-ui-example",
     "version": "1.0.0",
-    "displayName": "AAAGameForge Racing UI Example",
+    "displayName": "3AGameFactory Racing UI Example",
     "description": "Optional Unity racing HUD consuming the separate RacingExample mechanic assembly.",
     "unity": "2021.3",
     "dependencies": {
-        "com.aaagameforge.racing-example": "1.0.0",
+        "com.gamefactory3a.racing-example": "1.0.0",
         "com.unity.ugui": "1.0.0"
     },
     "keywords": [
@@ -14,10 +14,10 @@
         "racing",
         "ui",
         "hud",
-        "aaagameforge"
+        "gamefactory3a"
     ],
     "author": {
-        "name": "AAAGameForge",
-        "url": "https://github.com/aaagameforge"
+        "name": "3AGameFactory",
+        "url": "https://github.com/gamefactory3a"
     }
 }

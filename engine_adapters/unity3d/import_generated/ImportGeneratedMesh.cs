@@ -457,7 +457,7 @@ public static class ImportGeneratedMesh
     static string Get(Dictionary<string, string> args, string key, string fallback)
     {
         if (args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v)) return v;
-        return A3GameForgeEditorBridge.GetArgument(key, fallback);
+        return GameFactory3AEditorBridge.GetArgument(key, fallback);
     }
 
     static int? ParseIntOrNull(string s)
@@ -486,7 +486,7 @@ public static class ImportGeneratedMesh
 
     // ── Menu ──────────────────────────────────────────────────────────────────
 
-    [MenuItem("AAAGameForge/Import generated mesh…")]
+    [MenuItem("3AGameFactory/Import generated mesh…")]
     static void ImportFromMenu()
     {
         string src = EditorUtility.OpenFilePanel(

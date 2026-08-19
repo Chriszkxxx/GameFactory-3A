@@ -1,5 +1,5 @@
 {
-    "name": "com.aaagameforge.a3gameruntime",
+    "name": "com.gamefactory3a.a3gameruntime",
     "version": "1.0.0",
     "displayName": "A3Game Runtime Framework",
     "description": "Unity runtime framework for A3Game controllable entities, session management, and UDP input reception. The Unity equivalent of UE5's A3GamePlayable C++ framework.",
@@ -9,12 +9,12 @@
         "a3game",
         "runtime",
         "framework",
-        "aaagameforge",
+        "gamefactory3a",
         "controllable-entity",
         "session"
     ],
     "author": {
-        "name": "AAAGameForge",
-        "url": "https://github.com/aaagameforge"
+        "name": "3AGameFactory",
+        "url": "https://github.com/gamefactory3a"
     }
 }

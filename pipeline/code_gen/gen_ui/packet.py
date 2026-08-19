@@ -1160,7 +1160,7 @@ def prepare(
             "browser_play_tests_required": True,
             "browser_play_handoff_required": True,
             "browser_play_manifest_schema": (
-                "aaagameforge.browser_play_manifest.v1"
+                "gamefactory3a.browser_play_manifest.v1"
             ),
             "browser_play_may_bind_mechanic": False,
         },

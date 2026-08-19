@@ -1,4 +1,4 @@
-# AAAGameForge Unity Example Plugins
+# 3AGameFactory Unity Example Plugins
 
 These are **educational reference implementations** that demonstrate how to
 build fully functional gameplay on top of the `A3GameRuntime` Unity
@@ -24,7 +24,7 @@ testable game logic.
 - **Gameplay examples ship with NUnit EditMode tests** that create real
   `GameObject`s and verify behavioral invariants (damage, death, lap counting).
 - **Each gameplay example includes a `mechanic_contract.json`** using the
-  `aaagameforge.mechanic_contract.v1` schema, documenting the behavioral
+  `gamefactory3a.mechanic_contract.v1` schema, documenting the behavioral
   invariants the implementation must satisfy.
 
 Arena Fighter and Racing now follow the same mechanic/UI assembly boundary as

@@ -1,7 +1,7 @@
 {
-  "schema_version": "aaagameforge.mechanic_contract_fixture.v1",
+  "schema_version": "gamefactory3a.mechanic_contract_fixture.v1",
   "mechanic_contract": {
-    "schema_version": "aaagameforge.mechanic_contract.v1",
+    "schema_version": "gamefactory3a.mechanic_contract.v1",
     "contract_version": 1,
     "gameplay_module": "FPSExample"
   },

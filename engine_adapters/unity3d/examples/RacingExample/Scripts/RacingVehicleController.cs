@@ -8,7 +8,7 @@ namespace RacingExample
     /// and lap tracking. <see cref="CurrentLap"/> delegates to a
     /// <see cref="RacingLapCounter"/> when assigned, defaulting to 1.
     /// </summary>
-    [AddComponentMenu("AAAGameForge/Racing Vehicle Controller")]
+    [AddComponentMenu("3AGameFactory/Racing Vehicle Controller")]
     [DisallowMultipleComponent]
     public class RacingVehicleController : MonoBehaviour, IA3GameControllableEntity
     {

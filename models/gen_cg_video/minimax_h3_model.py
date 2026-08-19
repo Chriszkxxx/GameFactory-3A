@@ -96,9 +96,9 @@ def _aligned_frame_count(duration_sec: float) -> int:
 
 @contextmanager
 def _comfy_import_argv(device: str):
-    """Keep ComfyUI's CLI parser from consuming A3GameForge runner flags."""
+    """Keep ComfyUI's CLI parser from consuming 3AGameFactory runner flags."""
     previous = sys.argv
-    argv = [previous[0] if previous else "a3gameforge"]
+    argv = [previous[0] if previous else "gamefactory3a"]
     normalized = str(device).strip().lower()
     if normalized == "cpu":
         argv.append("--cpu")

@@ -1,8 +1,8 @@
 {
-  "schema_version": "aaagameforge.ui_binding_manifest.v1",
+  "schema_version": "gamefactory3a.ui_binding_manifest.v1",
   "ui_module": "ArenaFighterUIExample",
   "mechanic_contract": {
-    "schema_version": "aaagameforge.mechanic_contract.v1",
+    "schema_version": "gamefactory3a.mechanic_contract.v1",
     "contract_version": 1,
     "gameplay_module": "ArenaFighterExample"
   },

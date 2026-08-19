@@ -42,7 +42,7 @@ def _package_json(project_name: str) -> dict[str, Any]:
         "private": True,
         "version": "0.0.0",
         "type": "module",
-        "description": "AAAGameForge generated three.js project.",
+        "description": "3AGameFactory generated three.js project.",
         "scripts": {
             "dev": "vite",
             "serve": "vite",
@@ -135,7 +135,7 @@ def _index_html(project_name: str) -> str:
 def _main_js() -> str:
     return "\n".join(
         (
-            "// AAAGameForge three.js host entry point.",
+            "// 3AGameFactory three.js host entry point.",
             "//",
             "// This file boots the adapter-owned runtime framework "
             "only. Concrete",

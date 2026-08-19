@@ -9,7 +9,7 @@ namespace RacingExample
     /// triggers; when all checkpoints have been passed, the counter resets
     /// progress and increments <see cref="CurrentLap"/>.
     /// </summary>
-    [AddComponentMenu("AAAGameForge/Racing Lap Counter")]
+    [AddComponentMenu("3AGameFactory/Racing Lap Counter")]
     [DisallowMultipleComponent]
     public class RacingLapCounter : MonoBehaviour
     {

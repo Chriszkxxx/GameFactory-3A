@@ -58,7 +58,7 @@ def run_all(config: BrowserServingConfig | None = None) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run AAAGameForge Browser Serving",
+        description="Run 3AGameFactory Browser Serving",
     )
     parser.add_argument(
         "service",

@@ -1,5 +1,5 @@
 // Project-local job bridge used when the configured Unity project is already
-// open in a licensed GUI Editor. Python writes a job into Library/A3GameForge;
+// open in a licensed GUI Editor. Python writes a job into Library/GameFactory3A;
 // this Editor script invokes the same public RunFromCLI method used by the
 // batch transport, while command-line helpers read job/report paths from the
 // bridge environment.
@@ -13,7 +13,7 @@ using UnityEditor;
 using UnityEngine;
 
 [InitializeOnLoad]
-public static class A3GameForgeEditorBridge
+public static class GameFactory3AEditorBridge
 {
     [Serializable]
     private sealed class BridgeJob
@@ -37,14 +37,14 @@ public static class A3GameForgeEditorBridge
     private static readonly string Root = Path.Combine(
         Directory.GetParent(Application.dataPath).FullName,
         "Library",
-        "A3GameForge");
+        "GameFactory3A");
     private static readonly string Inbox = Path.Combine(Root, "inbox");
     private static readonly string Processing = Path.Combine(Root, "processing");
     private static readonly string Completed = Path.Combine(Root, "completed");
     private static bool executing;
     private const int MaxCompileRetries = 8;
 
-    static A3GameForgeEditorBridge()
+    static GameFactory3AEditorBridge()
     {
         Directory.CreateDirectory(Inbox);
         Directory.CreateDirectory(Processing);
@@ -147,7 +147,7 @@ public static class A3GameForgeEditorBridge
                 failedJob = JsonUtility.FromJson<BridgeJob>(File.ReadAllText(processingPath));
             }
             catch { }
-            Debug.LogError("[A3GameForgeEditorBridge] " + exception);
+            Debug.LogError("[GameFactory3AEditorBridge] " + exception);
             WriteStatus(failedJob, false, exception.ToString());
         }
         finally

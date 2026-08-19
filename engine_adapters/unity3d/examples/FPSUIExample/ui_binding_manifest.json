@@ -1,8 +1,8 @@
 {
-  "schema_version": "aaagameforge.ui_binding_manifest.v1",
+  "schema_version": "gamefactory3a.ui_binding_manifest.v1",
   "ui_module": "FPSUIExample",
   "mechanic_contract": {
-    "schema_version": "aaagameforge.mechanic_contract.v1",
+    "schema_version": "gamefactory3a.mechanic_contract.v1",
     "contract_version": 1,
     "gameplay_module": "FPSExample",
     "sha256": "c70df7a99cd3d28e516942d2434a67908119d59b5c9e348a5f21c164cde4e64d"

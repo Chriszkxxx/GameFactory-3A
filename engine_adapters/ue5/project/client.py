@@ -241,9 +241,9 @@ def _write_project_files(
             {
                 "FileVersion": 3,
                 "EngineAssociation": "",
-                "Category": "AAAGameForge",
+                "Category": "3AGameFactory",
                 "Description": (
-                    "AAAGameForge generated Unreal project."
+                    "3AGameFactory generated Unreal project."
                 ),
                 "Modules": [
                     {

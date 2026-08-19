@@ -12,7 +12,7 @@ if [[ -z "${PYTHON_BIN}" ]]; then
   elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
   else
-    echo "AAAGameForge requires Python 3." >&2
+    echo "3AGameFactory requires Python 3." >&2
     exit 127
   fi
 fi

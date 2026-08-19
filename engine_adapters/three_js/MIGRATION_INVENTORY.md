@@ -17,10 +17,10 @@ refer_code/three_js_corr/ThreeFlow   # Vue3 editor built on three.js
 Target repository:
 
 ```text
-my_code/AAAGameForge
+my_code/3AGameFactory
 ```
 
-This inventory maps three.js into the AAAGameForge architecture by
+This inventory maps three.js into the 3AGameFactory architecture by
 mirroring the UE5 adapter. It does not change the existing Layer A/B/C,
 `design_doc.txt`, `pipeline_task.jsonl`, or output layout.
 

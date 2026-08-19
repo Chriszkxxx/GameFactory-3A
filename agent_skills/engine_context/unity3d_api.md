@@ -277,7 +277,7 @@ could write outside the project and AssetDatabase would not see the import:
 
 ### Unity licensing prerequisite
 
-Unity licensing is an external host prerequisite, not an AAAGameForge
+Unity licensing is an external host prerequisite, not an 3AGameFactory
 operation. Before invoking a mutating client method, the selected Editor must
 be installed and activated through the matching Unity Hub/Tuanjie Hub account,
 or an already-open licensed Editor must be available. `UnityClient` does not

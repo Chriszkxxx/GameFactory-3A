@@ -84,7 +84,7 @@ own transport, branch on Engine names, or generate/modify an `EngineBackend`.
 The registered backend owns transport-specific URL preparation.
 
 Generate `browser_play_manifest.json` using
-`aaagameforge.browser_play_manifest.v1` and a referenced thin task-owned launch
+`gamefactory3a.browser_play_manifest.v1` and a referenced thin task-owned launch
 script. The script may set documented Browser Serving environment variables and
 invoke `python -m engine_adapters.browser_serving`; it must not implement,
 copy, or import a concrete backend. This is the only allowed process-lifecycle
@@ -113,7 +113,7 @@ Required task-owned outputs include:
 - `generated_ui/context_used.json`;
 - `generated_ui/browser_play/browser_play_manifest.json` and its launch script.
 
-`context_used.json` uses `aaagameforge.context_used.v1` and records:
+`context_used.json` uses `gamefactory3a.context_used.v1` and records:
 
 - the matching Engine API with stage `engine_native`;
 - Browser Serving API with stage `browser_play`;
@@ -212,7 +212,7 @@ a game artifact. Keep `Binaries/`, `Intermediate/`, `Saved/`, Derived Data
 Cache, `__pycache__/`, and other mutable output under `.tmp`.
 
 Every published artifact includes `manifest.json` using
-`aaagameforge.artifact_manifest.v1` with:
+`gamefactory3a.artifact_manifest.v1` with:
 
 - `artifact_version`;
 - identity: `game_id`, `run_id`, `task_kind=ui`, and `task_id`;
@@ -226,7 +226,7 @@ run-relative paths, never machine-local absolute paths.
 
 Assembly must record and recalculate both finalized Mechanic and UI manifest
 digests and `tree_sha256` values in an
-`aaagameforge.assembly_manifest.v1` manifest, fail on mismatch, and produce a
+`gamefactory3a.assembly_manifest.v1` manifest, fail on mismatch, and produce a
 new assembly/product digest when Mechanic, native UI, or Browser Play source
 changes. Evaluation must pin `subject.product_manifest` and
 `subject.product_manifest_sha256`; native builds/tests, screenshots, logs, and

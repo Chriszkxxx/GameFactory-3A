@@ -97,7 +97,7 @@ class WooshDFlowModel:
             raise RuntimeError(
                 "Sony Woosh is not importable. Clone https://github.com/SonyResearch/Woosh "
                 "and install it with `uv sync --extra cuda` (or `--extra cpu`), then "
-                "run AAAGameForge from that environment."
+                "run 3AGameFactory from that environment."
             ) from exc
 
         # Woosh's release config contains cwd-relative component paths. LoadConfig

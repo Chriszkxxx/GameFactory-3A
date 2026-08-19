@@ -229,7 +229,7 @@ class CloudAPIClient:
         backoff: float = 1.5,
         auth_header: str = "Authorization",
         auth_template: str = "Bearer {key}",
-        user_agent: str = "AAAGameForge/0.1 (+https://github.com/OpenDCAI/AAAGameForge)",
+        user_agent: str = "3AGameFactory/0.1 (+https://github.com/OpenDCAI/GameFactory-3A)",
     ):
         self.base_url = base_url.rstrip("/")
         self._api_key = api_key

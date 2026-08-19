@@ -201,7 +201,7 @@ Install the shared dependency and set credentials:
 ```bash
 bash scripts/asset_env_setup/cg_video/cloud_api_install.sh
 export ARK_API_KEY="your-api-key"
-export A3GAMEFORGE_API_CACHE=test_data/outputs/_api_cache
+export GAMEFACTORY3A_API_CACHE=test_data/outputs/_api_cache
 ```
 
 Optional configuration:
@@ -312,7 +312,7 @@ export ARK_API_KEY="your-api-key"
 export CG_VIDEO_BACKEND=seedance
 export CG_VIDEO_TEST_TASKS=/absolute/path/to/cg_tasks.jsonl
 export CG_VIDEO_TEST_OUT_DIR=/absolute/path/to/output
-export A3GAMEFORGE_API_CACHE=/absolute/path/to/api_cache
+export GAMEFACTORY3A_API_CACHE=/absolute/path/to/api_cache
 python test/test_cg_video_gen.py
 ```
 

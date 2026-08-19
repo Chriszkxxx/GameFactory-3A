@@ -121,7 +121,7 @@ def _download_file(
 ) -> None:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "AAAGameForge-WooshDownloader/1.0"},
+        headers={"User-Agent": "3AGameFactory-WooshDownloader/1.0"},
     )
     for attempt in range(1, retries + 1):
         try:

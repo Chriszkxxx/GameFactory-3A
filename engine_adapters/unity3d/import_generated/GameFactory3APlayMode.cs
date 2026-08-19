@@ -7,12 +7,12 @@ using UnityEditor;
 using UnityEngine;
 
 [InitializeOnLoad]
-public static class A3GameForgePlayMode
+public static class GameFactory3APlayMode
 {
-    private const string LaunchPendingKey = "A3GameForge.PlayMode.LaunchPending";
-    private const string LaunchArgumentConsumedKey = "A3GameForge.PlayMode.ArgumentConsumed";
+    private const string LaunchPendingKey = "GameFactory3A.PlayMode.LaunchPending";
+    private const string LaunchArgumentConsumedKey = "GameFactory3A.PlayMode.ArgumentConsumed";
 
-    static A3GameForgePlayMode()
+    static GameFactory3APlayMode()
     {
         bool unconsumedLaunchArgument = HasLaunchArgument() &&
             !SessionState.GetBool(LaunchArgumentConsumedKey, false);
@@ -33,7 +33,7 @@ public static class A3GameForgePlayMode
     {
         EditorApplication.update -= EnterWhenReady;
         EditorApplication.update += EnterWhenReady;
-        Debug.Log("[A3GameForgePlayMode] Waiting for Unity Editor compilation");
+        Debug.Log("[GameFactory3APlayMode] Waiting for Unity Editor compilation");
     }
 
     private static void EnterWhenReady()
@@ -46,7 +46,7 @@ public static class A3GameForgePlayMode
         if (EditorApplication.isPlayingOrWillChangePlaymode)
             return;
 
-        Debug.Log("[A3GameForgePlayMode] Entering Play Mode");
+        Debug.Log("[GameFactory3APlayMode] Entering Play Mode");
         EditorApplication.isPlaying = true;
     }
 
@@ -56,7 +56,7 @@ public static class A3GameForgePlayMode
         for (int index = 0; index + 1 < args.Length; index++)
         {
             if (args[index] == "-executeMethod" &&
-                args[index + 1] == "A3GameForgePlayMode.Enter")
+                args[index + 1] == "GameFactory3APlayMode.Enter")
                 return true;
         }
         return false;

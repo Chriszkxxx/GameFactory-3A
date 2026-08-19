@@ -1,13 +1,13 @@
-# A3GameForge game-generation agent guide
+# 3AGameFactory game-generation agent guide
 
-Read this file first when you are asked to use A3GameForge to create or improve
+Read this file first when you are asked to use 3AGameFactory to create or improve
 a game. It routes you to the minimum task-specific Skills and engine API context.
 It is for **game-generation work**: generate assets, gameplay, UI, scenes, and
 engine-ready projects. It is not a source-code API reference.
 
 ## Project goal
 
-A3GameForge helps a coding agent turn a game requirement into a playable game
+3AGameFactory helps a coding agent turn a game requirement into a playable game
 slice. It supports image and T-pose preparation, 3D objects, 3D scenes, motion,
 audio, CG video, gameplay mechanics, UI, and full-pipeline assembly for UE5,
 Blender, Unity, and three.js.

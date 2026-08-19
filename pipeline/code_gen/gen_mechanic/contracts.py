@@ -13,7 +13,7 @@ from pipeline.common.artifacts import (
 
 
 MECHANIC_CONTRACT_SCHEMA = (
-    "aaagameforge.mechanic_contract.v1"
+    "gamefactory3a.mechanic_contract.v1"
 )
 MECHANIC_CONTRACT_FILENAME = "mechanic_contract.json"
 

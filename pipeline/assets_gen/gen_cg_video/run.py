@@ -97,7 +97,7 @@ def run_from_jsonl(
     game_filter: str | None = None,
     task_filter: str | None = None,
 ) -> list[dict]:
-    """Run every selected task from a standard A3GameForge JSONL file."""
+    """Run every selected task from a standard 3AGameFactory JSONL file."""
     results = []
     for task, game_id in paths.iter_tasks(tasks_path, game_filter=game_filter):
         if task_filter and task.get("task_id") != task_filter:
@@ -127,7 +127,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run CG video generation.")
     parser.add_argument(
         "--backend",
-        default=os.environ.get("A3GAMEFORGE_VIDEO_BACKEND", "seedance"),
+        default=os.environ.get("GAMEFACTORY3A_VIDEO_BACKEND", "seedance"),
         choices=sorted(BACKENDS),
         help="Video model backend",
     )
@@ -139,7 +139,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--cache-dir",
-        default=os.environ.get("A3GAMEFORGE_API_CACHE"),
+        default=os.environ.get("GAMEFACTORY3A_API_CACHE"),
         help="Reuse identical billed requests without network traffic",
     )
     parser.add_argument("--timeout", type=int, default=1800)

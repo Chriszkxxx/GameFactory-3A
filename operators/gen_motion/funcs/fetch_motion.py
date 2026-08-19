@@ -196,7 +196,7 @@ def _download(url: str, into: Path) -> Path:
     filename = Path(urllib.parse.unquote(parsed.path)).name or "download.bin"
     target = into / filename
     request = urllib.request.Request(
-        url, headers={"User-Agent": "AAAGameForge/gen_motion"}
+        url, headers={"User-Agent": "3AGameFactory/gen_motion"}
     )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:

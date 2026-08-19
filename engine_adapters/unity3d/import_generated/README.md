@@ -40,7 +40,7 @@ Unity -batchmode -quit -nographics -projectPath D:/proj/MyGame \
       --name Sword_001 --report C:/out/unity_import.json
 ```
 
-In the editor there is also **AAAGameForge ▸ Import generated mesh…**.
+In the editor there is also **3AGameFactory ▸ Import generated mesh…**.
 
 ## Prerequisite: glTF support
 

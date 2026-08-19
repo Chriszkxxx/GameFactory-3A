@@ -11,7 +11,7 @@ edit the retarget code** (`operators/gen_motion/funcs/retarget_utils/` and
 related steps) rather than inventing a one-off workaround outside the
 pipeline.
 
-This skill covers the whole motion chain in AAAGameForge:
+This skill covers the whole motion chain in 3AGameFactory:
 
 ```
 character mesh (.glb/.obj/…)
