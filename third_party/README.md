@@ -1,25 +1,21 @@
 # third_party/
 
-Landing area for **cloned code-agent repos** used during benchmark runs, e.g.:
+Landing area for **externally cloned repositories** that A3GameForge depends on
+but does not vendor, for example:
 
-- OpenClaw
-- Codex
-- Claude Code
-- Cline
-- Aider
-- OpenHands
-- Gemini CLI
+- geometry and asset libraries such as `trimesh`
+- engine-related material, shader, or asset-pack repositories
+- third-party generation runtimes checked out from source
 
-Each agent should be cloned into its own subdirectory. This folder is **git-ignored
-by default** except for this README. If nothing ends up being cloned here, the
-directory can be deleted.
+Clone each dependency into its own subdirectory:
 
-## Convention
-
-```
+```text
 third_party/
-├── codex/                  # git clone <upstream>
-├── claude-code/
-├── aider/
-└── ...
+├── trimesh/
+├── <engine-material-repo>/
+└── <runtime-repo>/
 ```
+
+This folder is **git-ignored by default** except for this README. Every clone
+keeps its own upstream licence; verify those terms before shipping generated
+content.

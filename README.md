@@ -2,13 +2,27 @@
   <img src="https://github.com/user-attachments/assets/104f765d-44aa-4880-8748-f6c02381e11d" alt="A3GameForge" width="256" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/OpenDCAI/A3GameForge/stargazers"><img src="https://img.shields.io/github/stars/OpenDCAI/A3GameForge?style=flat-square&logo=github&color=ffca28" alt="GitHub stars" /></a>
+  <a href="https://github.com/OpenDCAI/A3GameForge/network/members"><img src="https://img.shields.io/github/forks/OpenDCAI/A3GameForge?style=flat-square&logo=github&color=90a4ae" alt="GitHub forks" /></a>
+  <a href="https://github.com/OpenDCAI/A3GameForge/issues"><img src="https://img.shields.io/github/issues/OpenDCAI/A3GameForge?style=flat-square&logo=github" alt="GitHub issues" /></a>
+  <a href="https://github.com/OpenDCAI/A3GameForge/pulls"><img src="https://img.shields.io/github/issues-pr/OpenDCAI/A3GameForge?style=flat-square&logo=github" alt="Pull requests" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square" alt="License: Apache 2.0" /></a>
+  <img src="https://img.shields.io/badge/Engines-UE5%20%7C%20Blender%20%7C%20Unity%20%7C%20three.js-6a4cff?style=flat-square" alt="Supported engines" />
+  <img src="https://img.shields.io/badge/Assets-Image%20%7C%203D%20%7C%20Motion%20%7C%20Audio%20%7C%20CG%20Video-00897b?style=flat-square" alt="Asset coverage" />
+</p>
+
 # A3GameForge
 
 **A3GameForge turns a game requirement into production-ready game assets and engine-ready game code with a coding agent.**
 
 > **A3GameForge is a comprehensive open-source 3A game-generation skill and asset framework.** It covers image, 3D asset, motion, audio, and CG-video generation, and supports game construction with **UE5, Blender, Unity, and three.js**.
 
-[中文文档](README_zh.md)
+<p align="center">
+  <b><a href="#quick-start">Quick Start</a></b>
+  ·
+  <a href="README_zh.md">中文文档</a>
+</p>
 
 ---
 
@@ -102,7 +116,14 @@ The demos below show a battle game, an RPG exploration game, a first-person shoo
 
 ---
 
+<a id="quick-start"></a>
+
 ## Quick start: generate a game with a coding agent
+
+A3GameForge is driven by a coding agent that reads its Skills and calls the
+pipelines, for example [Codex](https://github.com/openai/codex),
+[Claude Code](https://github.com/anthropics/claude-code), or
+[Gemini CLI](https://github.com/google-gemini/gemini-cli).
 
 ```text
 1. Open a coding agent, such as Codex, Claude Code, or another compatible agent.
@@ -175,7 +196,7 @@ A3GameForge/
 │   └── cloud_api_install.sh    # Shared implementation behind task-specific cloud API installers
 ├── test/                       # Runnable current-use scripts for contract, integration, and smoke checks
 ├── test_data/                  # Sample requirements; generated game results live in outputs/
-└── third_party/                # External asset/engine installation packages and checked-out dependencies
+└── third_party/                # Externally cloned repositories, e.g. trimesh and engine material/asset packs
 ```
 
 Generated artifacts are organized by game, run, task kind, and task id under
@@ -191,7 +212,17 @@ Generated artifacts are organized by game, run, task kind, and task id under
   title        = {A3GameForge: Open-Source 3A Game Generation Skills and Asset Framework},
   author       = {OpenDCAI},
   year         = {2026},
-  howpublished = {\url{https://github.com/OpenDCAI/AAAGameForge}},
+  howpublished = {\url{https://github.com/OpenDCAI/A3GameForge}},
   note         = {Open-source software repository}
 }
 ```
+
+---
+
+## License
+
+A3GameForge is released under the [Apache License 2.0](LICENSE).
+
+Third-party engines, models, checkpoints, and any assets fetched from external
+libraries keep their own licences. Verify each provider's terms before shipping
+generated content in a product build.

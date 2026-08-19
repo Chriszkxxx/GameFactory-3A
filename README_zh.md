@@ -2,13 +2,27 @@
   <img src="https://github.com/user-attachments/assets/104f765d-44aa-4880-8748-f6c02381e11d" alt="A3GameForge" width="256" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/OpenDCAI/A3GameForge/stargazers"><img src="https://img.shields.io/github/stars/OpenDCAI/A3GameForge?style=flat-square&logo=github&color=ffca28" alt="GitHub stars" /></a>
+  <a href="https://github.com/OpenDCAI/A3GameForge/network/members"><img src="https://img.shields.io/github/forks/OpenDCAI/A3GameForge?style=flat-square&logo=github&color=90a4ae" alt="GitHub forks" /></a>
+  <a href="https://github.com/OpenDCAI/A3GameForge/issues"><img src="https://img.shields.io/github/issues/OpenDCAI/A3GameForge?style=flat-square&logo=github" alt="GitHub issues" /></a>
+  <a href="https://github.com/OpenDCAI/A3GameForge/pulls"><img src="https://img.shields.io/github/issues-pr/OpenDCAI/A3GameForge?style=flat-square&logo=github" alt="Pull requests" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square" alt="License: Apache 2.0" /></a>
+  <img src="https://img.shields.io/badge/Engines-UE5%20%7C%20Blender%20%7C%20Unity%20%7C%20three.js-6a4cff?style=flat-square" alt="支持的引擎" />
+  <img src="https://img.shields.io/badge/Assets-Image%20%7C%203D%20%7C%20Motion%20%7C%20Audio%20%7C%20CG%20Video-00897b?style=flat-square" alt="资产能力覆盖" />
+</p>
+
 # A3GameForge
 
 **A3GameForge 让 Coding Agent 根据游戏需求生成可用于游戏构建的资产与引擎代码。**
 
 > **A3GameForge 是一个全面的开源 3A 游戏生成 Skill 与资产框架。** 它覆盖图片、3D 资产、动作、音频与 CG 视频生成，并支持使用 **UE5、Blender、Unity 和 three.js** 构建游戏。
 
-[English](README.md)
+<p align="center">
+  <b><a href="#quick-start">快速开始</a></b>
+  ·
+  <a href="README.md">English</a>
+</p>
 
 ---
 
@@ -102,7 +116,14 @@
 
 ---
 
+<a id="quick-start"></a>
+
 ## 快速开始：让 Coding Agent 生成游戏
+
+A3GameForge 由 Coding Agent 驱动，它读取本项目的 Skills 并调用相应 Pipeline，
+例如 [Codex](https://github.com/openai/codex)、
+[Claude Code](https://github.com/anthropics/claude-code) 或
+[Gemini CLI](https://github.com/google-gemini/gemini-cli)。
 
 ```text
 1. 打开 Coding Agent，例如 Codex、Claude Code（CC）或其他兼容 Agent。
@@ -124,6 +145,8 @@ API 上下文。
 
 ---
 
+<a id="capabilities"></a>
+
 ## A3GameForge 能做什么
 
 | 能力 | 产物 | 主要 Pipeline 位置 |
@@ -138,6 +161,8 @@ API 上下文。
 | UI 生成 | HUD、菜单、界面与交互流程 | `pipeline/ui/` |
 | 完整游戏切片 | 资产、玩法、UI 与评测的协同结果 | `pipeline/full_pipeline/` |
 
+<a id="engines"></a>
+
 ### 支持的游戏构建引擎
 
 | 引擎 | Agent 上下文 | 参考实现 |
@@ -148,6 +173,8 @@ API 上下文。
 | three.js | `agent_skills/engine_context/three_js_api.md` | `engine_adapters/three_js/` |
 
 ---
+
+<a id="layout"></a>
 
 ## 项目目录
 
@@ -175,13 +202,15 @@ A3GameForge/
 │   └── cloud_api_install.sh    # 各任务云 API 安装器复用的共享实现
 ├── test/                       # 用于验证流程实际可运行的契约、集成与 smoke 脚本
 ├── test_data/                  # 示例需求；生成的游戏结果位于 outputs/
-└── third_party/                # 资产/引擎安装包与检出的外部依赖
+└── third_party/                # 检出的外部仓库，例如 trimesh 与引擎材质/资产库
 ```
 
 生成产物位于 `test_data/outputs/`，并按照游戏、运行、任务类别和任务 ID
 组织。Agent 与贡献者应使用 `pipeline/common/paths.py`，不要手工拼接输出路径。
 
 ---
+
+<a id="citation"></a>
 
 ## 引用
 
@@ -190,7 +219,16 @@ A3GameForge/
   title        = {A3GameForge: Open-Source 3A Game Generation Skills and Asset Framework},
   author       = {OpenDCAI},
   year         = {2026},
-  howpublished = {\url{https://github.com/OpenDCAI/AAAGameForge}},
+  howpublished = {\url{https://github.com/OpenDCAI/A3GameForge}},
   note         = {Open-source software repository}
 }
 ```
+
+---
+
+## 许可证
+
+A3GameForge 基于 [Apache License 2.0](LICENSE) 开源。
+
+第三方引擎、模型、权重以及从外部素材库获取的资产均遵循各自的许可证。
+在将生成内容用于正式产品前，请先确认对应提供方的授权条款。
