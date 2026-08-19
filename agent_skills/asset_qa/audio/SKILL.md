@@ -29,11 +29,13 @@ For every audio task, record:
 
 1. the game moment and source (player, enemy, world, UI, cinematic);
 2. asset type: `dialogue` or `sound_effect`;
-3. duration, language/voice requirements, emotional delivery, distance,
-   perspective, and any diegetic context;
+3. duration **required by the game code** that will play it (fire-rate interval,
+   animation length, loop period), plus language/voice requirements, emotional
+   delivery, distance, perspective, and any diegetic context;
 4. style references, loudness/mixing intent, looping need, and acceptance
    criteria;
-5. backend choice, expected cost, and licence/provenance.
+5. route (download vs generate), backend choice, expected cost, and
+   licence/provenance.
 
 Do not ask a generator to imitate a named living performer or use reference
 recordings without the required rights. Never commit audio API keys or private
@@ -44,7 +46,8 @@ reference recordings.
 | Need | Preferred route | Notes |
 |---|---|---|
 | Character dialogue / TTS | Qwen3-TTS or Seed Audio | Choose a voice that is licensed and suitable for the game; record speaker configuration. |
-| Sound effects / foley / ambience | Sony Woosh-DFlow or Seed Audio | Generate a focused one-shot first; layer and mix only after QA. |
+| **Natural / mechanical one-shots** (gunshots, thunder, rain, wind, footsteps, engines, impacts, doors) | **Download a licence-checked recording** | A real recording beats a generated one for these; see *Download natural sound effects first* below. |
+| Sound effects / foley / ambience that cannot be sourced | Sony Woosh-DFlow or Seed Audio | Generate a focused one-shot first; layer and mix only after QA. |
 | Fast cloud dialogue or SFX | Seed Audio 1.0 | One API supports both slots and outputs an offline WAV asset. |
 
 Use a local/open backend when offline execution, privacy, reproducibility, or
@@ -52,14 +55,34 @@ budget requires it. Use a cloud backend when it is permitted and gives the
 planned quality. Do not silently substitute one backend for another: report the
 fallback and its implications.
 
-**Prefer the Seed Audio cloud route** for both dialogue and sound effects unless
-offline execution, privacy, or a declined budget rules it out. It is paid, so
-before the first call **pause and follow *Paid cloud backend* in
+**When generation is the chosen route, prefer the Seed Audio cloud backend** for
+dialogue and for the effects that cannot be downloaded, unless offline execution,
+privacy, or a declined budget rules it out. It is paid, so before the first call
+**pause and follow *Paid cloud backend* in
 `<REPO_PATH>/agent_skills/asset_qa/README.md`**: send the purchase/API-key page
 (<https://console.volcengine.com/speech/>), state the estimated cost for the
 planned line and one-shot count including retakes, ask the user to buy access and
 supply `SEED_AUDIO_API_KEY`, and wait for an explicit answer. Local Qwen3-TTS and
 Woosh-DFlow are the fallback.
+
+### Download natural sound effects first
+
+For **gunshots, thunder, rain, wind, footsteps, engine and impact sounds**, prefer
+a real recording from the selected engine's audio library or a licence-checked
+free library (CC0 / CC-BY) — existing libraries cover these well, and a recording
+is more convincing than a generated approximation. Record source and licence, and
+keep non-commercial material out of a product build. Generate only when nothing
+suitable can be sourced or the sound is fictional (energy weapon, magic spell).
+
+**Match the clip length to what the code needs**, then obtain or trim to it:
+
+- Take the required length from the game code — fire-rate interval, animation
+  length, loop period. For generated tasks, compare `requested_duration_sec`
+  against the delivered `duration_sec` in `meta.json`.
+- One-shots: no leading silence, and a tail shorter than the retrigger interval,
+  or rapid fire turns to mush. Looping ambience: seamless wrap, no level jump.
+- Trim or fade in the audio tool before import; never fix a wrong-length asset by
+  cutting playback in gameplay code.
 
 ## Environment setup
 
@@ -176,6 +199,9 @@ python pipeline/assets_gen/gen_audio/run.py \
 
 2. Inspect the WAV before integration: no unintended music in a one-shot, no
    clipping, abrupt cut, dominant background noise, or unsuitable duration.
+   Compare the delivered `duration_sec` against the length the game code needs,
+   check that a one-shot has no dead leading silence, and that a loop wraps
+   without a seam.
 3. Integrate the asset in the target game and exercise the related action or
    scene. Check trigger timing, attenuation, looping, dialogue intelligibility,
    spatial placement, mix balance, and consistency with the requested style.
