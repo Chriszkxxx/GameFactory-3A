@@ -19,10 +19,10 @@ Install pinned Puppeteer, MoMask, and Blender-retarget runtimes on Linux.
 Selected model weights are downloaded unless --skip-weights is specified.
 
 Optional environment variables:
-  A3GAMEFORGE_RUNTIME_ROOT   sources and weights directory
-  A3GAMEFORGE_CACHE_ROOT     download and build cache directory
-  A3GAMEFORGE_CONDA_BIN      Conda executable when it is not on PATH
-  A3GAMEFORGE_CUDA_ARCH_LIST CUDA architecture used to build extensions
+  A3GF_RUNTIME_ROOT   sources and weights directory
+  A3GF_CACHE_ROOT     download and build cache directory
+  A3GF_CONDA_BIN      Conda executable when it is not on PATH
+  A3GF_CUDA_ARCH_LIST CUDA architecture used to build extensions
   MAX_JOBS                   extension build jobs (default: 4)
 EOF
 }
@@ -41,12 +41,12 @@ esac
   exit 2
 }
 
-RUNTIME_ROOT="${A3GAMEFORGE_RUNTIME_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/a3gameforge}"
-CACHE_ROOT="${A3GAMEFORGE_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME}/.cache}/a3gameforge}"
-CONDA_BIN="${A3GAMEFORGE_CONDA_BIN:-${CONDA_EXE:-$(command -v conda || true)}}"
+RUNTIME_ROOT="${A3GF_RUNTIME_ROOT:-${XDG_DATA_HOME:-${HOME}/.local/share}/a3gameforge}"
+CACHE_ROOT="${A3GF_CACHE_ROOT:-${XDG_CACHE_HOME:-${HOME}/.cache}/a3gameforge}"
+CONDA_BIN="${A3GF_CONDA_BIN:-${CONDA_EXE:-$(command -v conda || true)}}"
 
 [[ -n "${CONDA_BIN}" ]] && "${CONDA_BIN}" --version >/dev/null 2>&1 || {
-  echo "Conda was not found. Install Miniforge or set A3GAMEFORGE_CONDA_BIN." >&2
+  echo "Conda was not found. Install Miniforge or set A3GF_CONDA_BIN." >&2
   exit 2
 }
 command -v git >/dev/null 2>&1 || {
@@ -54,16 +54,16 @@ command -v git >/dev/null 2>&1 || {
   exit 2
 }
 
-export A3GAMEFORGE_RUNTIME_ROOT="${RUNTIME_ROOT}"
-export A3GAMEFORGE_CACHE_ROOT="${CACHE_ROOT}"
+export A3GF_RUNTIME_ROOT="${RUNTIME_ROOT}"
+export A3GF_CACHE_ROOT="${CACHE_ROOT}"
 export HF_HOME="${CACHE_ROOT}/huggingface"
 export PIP_CACHE_DIR="${CACHE_ROOT}/pip"
 export TORCH_HOME="${CACHE_ROOT}/torch"
 export CONDA_PKGS_DIRS="${CACHE_ROOT}/conda-pkgs"
 export CONDA_CHANNEL_PRIORITY="strict"
 export MAX_JOBS="${MAX_JOBS:-4}"
-[[ -z "${A3GAMEFORGE_CUDA_ARCH_LIST:-}" ]] || \
-  export TORCH_CUDA_ARCH_LIST="${A3GAMEFORGE_CUDA_ARCH_LIST}"
+[[ -z "${A3GF_CUDA_ARCH_LIST:-}" ]] || \
+  export TORCH_CUDA_ARCH_LIST="${A3GF_CUDA_ARCH_LIST}"
 
 mkdir -p "${RUNTIME_ROOT}/sources" "${RUNTIME_ROOT}/test_assets" \
   "${RUNTIME_ROOT}/logs" "${HF_HOME}" "${PIP_CACHE_DIR}" \
@@ -71,6 +71,11 @@ mkdir -p "${RUNTIME_ROOT}/sources" "${RUNTIME_ROOT}/test_assets" \
 
 clone_pinned() {
   local url="$1" destination="$2" commit="$3"
+  if [[ -d "${destination}/.git" ]] && \
+     [[ "$(git -C "${destination}" rev-parse HEAD 2>/dev/null || true)" == "${commit}" ]]; then
+    echo "Using pinned source already present: ${destination}"
+    return
+  fi
   [[ -d "${destination}/.git" ]] || git clone "${url}" "${destination}"
   git -C "${destination}" fetch origin "${commit}"
   git -C "${destination}" checkout --detach "${commit}"
@@ -157,8 +162,8 @@ cat <<EOF
 Motion environments are ready under ${RUNTIME_ROOT}.
 
 Before running the real pipeline:
-  export A3GAMEFORGE_RUNTIME_ROOT="${RUNTIME_ROOT}"
-  export A3GAMEFORGE_CACHE_ROOT="${CACHE_ROOT}"
+  export A3GF_RUNTIME_ROOT="${RUNTIME_ROOT}"
+  export A3GF_CACHE_ROOT="${CACHE_ROOT}"
   source "${SCRIPT_DIR}/runtime_env.sh"
 EOF
 

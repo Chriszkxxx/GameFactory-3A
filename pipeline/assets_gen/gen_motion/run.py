@@ -179,7 +179,7 @@ def _build_operator_for_types(
         if not args.puppeteer_model_path:
             raise RuntimeError(
                 "This task needs Puppeteer. Pass --puppeteer-model-path or "
-                "set AAAGF_PUPPETEER_MODEL_PATH."
+                "set A3GF_PUPPETEER_MODEL_PATH."
             )
         puppeteer = load_puppeteer_model(
             args.puppeteer_model_path,
@@ -196,7 +196,7 @@ def _build_operator_for_types(
         if not args.momask_model_path:
             raise RuntimeError(
                 "This task needs MoMask. Pass --momask-model-path or set "
-                "AAAGF_MOMASK_MODEL_PATH."
+                "A3GF_MOMASK_MODEL_PATH."
             )
         momask = load_momask_model(
             args.momask_model_path,
@@ -214,7 +214,7 @@ def _build_operator_for_types(
         if not args.bpy_python:
             raise RuntimeError(
                 "This task needs bpy. Pass --bpy-python or set "
-                "AAAGF_RETARGET_BPY_PYTHON."
+                "A3GF_RETARGET_BPY_PYTHON."
             )
         bpy_python = load_retarget_runtime(
             args.bpy_python,
@@ -317,26 +317,26 @@ def main() -> None:
     )
     parser.add_argument(
         "--bpy-python",
-        default=os.environ.get("AAAGF_RETARGET_BPY_PYTHON"),
+        default=os.environ.get("A3GF_RETARGET_BPY_PYTHON"),
         help="Python 3.11 executable that can import bpy, numpy and trimesh.",
     )
     parser.add_argument(
         "--puppeteer-model-path",
-        default=os.environ.get("AAAGF_PUPPETEER_MODEL_PATH"),
+        default=os.environ.get("A3GF_PUPPETEER_MODEL_PATH"),
     )
     parser.add_argument(
         "--puppeteer-python",
-        default=os.environ.get("AAAGF_PUPPETEER_PYTHON"),
+        default=os.environ.get("A3GF_PUPPETEER_PYTHON"),
     )
     parser.add_argument("--skeleton-ckpt", default=None)
     parser.add_argument("--skinning-ckpt", default=None)
     parser.add_argument(
         "--momask-model-path",
-        default=os.environ.get("AAAGF_MOMASK_MODEL_PATH"),
+        default=os.environ.get("A3GF_MOMASK_MODEL_PATH"),
     )
     parser.add_argument(
         "--momask-python",
-        default=os.environ.get("AAAGF_MOMASK_PYTHON"),
+        default=os.environ.get("A3GF_MOMASK_PYTHON"),
     )
     parser.add_argument("--momask-name", default=None)
     parser.add_argument("--momask-res-name", default=None)

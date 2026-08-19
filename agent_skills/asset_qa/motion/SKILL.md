@@ -233,7 +233,7 @@ Legacy keys `mixamo` / `target` are normalised on load.
 python scripts/import_generated_asset.py \
   --src outputs/.../retargeted.fbx \
   --engine blender --kind motion \
-  --blender "$A3GAMEFORGE_RETARGET_BPY_PYTHON"
+  --blender "$A3GF_RETARGET_BPY_PYTHON"
 
 # Or call the importer directly
 python engine_adapters/blender/import_generated/import_motion.py \
@@ -246,7 +246,7 @@ travel alone is not enough — a sliding T-pose would otherwise pass).
 Also useful for a quick structural check without the full import path::
 
 ```bash
-"$A3GAMEFORGE_RETARGET_BPY_PYTHON" \
+"$A3GF_RETARGET_BPY_PYTHON" \
   -m operators.gen_motion.funcs.retarget_utils.inspect_fbx \
   --input retargeted.fbx --output fbx_inspection.json
 ```
@@ -322,11 +322,11 @@ source scripts/asset_env_setup/gen_motion/runtime_env.sh
 The installer creates `a3gameforge-puppeteer`, `a3gameforge-momask`, and
 `a3gameforge-retarget-bpy`. `runtime_env.sh` exports:
 
-- `A3GAMEFORGE_PUPPETEER_MODEL_PATH`
-- `A3GAMEFORGE_PUPPETEER_PYTHON`
-- `A3GAMEFORGE_MOMASK_MODEL_PATH`
-- `A3GAMEFORGE_MOMASK_PYTHON`
-- `A3GAMEFORGE_RETARGET_BPY_PYTHON`
+- `A3GF_PUPPETEER_MODEL_PATH`
+- `A3GF_PUPPETEER_PYTHON`
+- `A3GF_MOMASK_MODEL_PATH`
+- `A3GF_MOMASK_PYTHON`
+- `A3GF_RETARGET_BPY_PYTHON`
 
 Pass them explicitly to the pipeline so the command does not depend on legacy
 environment-variable aliases:
@@ -336,11 +336,11 @@ python pipeline/assets_gen/gen_motion/run.py \
   --task-type humanoid \
   --target-mesh character.glb \
   --prompt "A person walks forward and waves." \
-  --puppeteer-model-path "$A3GAMEFORGE_PUPPETEER_MODEL_PATH" \
-  --puppeteer-python "$A3GAMEFORGE_PUPPETEER_PYTHON" \
-  --momask-model-path "$A3GAMEFORGE_MOMASK_MODEL_PATH" \
-  --momask-python "$A3GAMEFORGE_MOMASK_PYTHON" \
-  --bpy-python "$A3GAMEFORGE_RETARGET_BPY_PYTHON" \
+  --puppeteer-model-path "$A3GF_PUPPETEER_MODEL_PATH" \
+  --puppeteer-python "$A3GF_PUPPETEER_PYTHON" \
+  --momask-model-path "$A3GF_MOMASK_MODEL_PATH" \
+  --momask-python "$A3GF_MOMASK_PYTHON" \
+  --bpy-python "$A3GF_RETARGET_BPY_PYTHON" \
   --in-place
 ```
 
@@ -351,7 +351,7 @@ Tests::
 python -m unittest test.test_gen_motion
 
 # Create an unlicensed, single-mesh T-pose fixture for a real local run.
-"$A3GAMEFORGE_MOMASK_PYTHON" \
+"$A3GF_MOMASK_PYTHON" \
   scripts/asset_env_setup/gen_motion/create_humanoid_glb.py \
   /tmp/a3gameforge_humanoid.glb
 ```

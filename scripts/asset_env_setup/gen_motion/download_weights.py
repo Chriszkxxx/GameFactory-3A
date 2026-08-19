@@ -35,13 +35,13 @@ MOMASK_FILE_ID = "1vXS7SHJBgWPt59wupQ5UUzhFObrnGkQ0"
 
 
 def _data_root() -> Path:
-    configured = os.environ.get("A3GAMEFORGE_RUNTIME_ROOT")
+    configured = os.environ.get("A3GF_RUNTIME_ROOT")
     base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
     return Path(configured).expanduser() if configured else base / "a3gameforge"
 
 
 def _cache_root() -> Path:
-    configured = os.environ.get("A3GAMEFORGE_CACHE_ROOT")
+    configured = os.environ.get("A3GF_CACHE_ROOT")
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
     return Path(configured).expanduser() if configured else base / "a3gameforge"
 
@@ -125,12 +125,12 @@ def main() -> None:
     parser.add_argument(
         "--runtime-root",
         default=str(_data_root()),
-        help="Source and weight root (default: A3GAMEFORGE_RUNTIME_ROOT).",
+        help="Source and weight root (default: A3GF_RUNTIME_ROOT).",
     )
     parser.add_argument(
         "--cache-root",
         default=str(_cache_root()),
-        help="Download cache root (default: A3GAMEFORGE_CACHE_ROOT).",
+        help="Download cache root (default: A3GF_CACHE_ROOT).",
     )
     parser.add_argument("--skip-puppeteer", action="store_true")
     parser.add_argument("--skip-momask", action="store_true")
