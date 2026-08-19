@@ -114,7 +114,7 @@ def install_editor_scripts(
         "ImportGeneratedAvatar": ("RepairImportedModelMaterials",),
         "ImportGeneratedMesh": ("RepairImportedModelMaterials",),
         "GenerateGame": (
-            "A3GameForgeEditorBridge",
+            "GameFactory3AEditorBridge",
             "ImportBatch",
             "ImportGeneratedAvatar",
             "RepairImportedModelMaterials",
@@ -154,7 +154,7 @@ def install_editor_bridge(project_path: Path | None) -> Path | None:
     source = (
         Path(__file__).resolve().parents[2]
         / "import_generated"
-        / "A3GameForgeEditorBridge.cs"
+        / "GameFactory3AEditorBridge.cs"
     )
     if not source.is_file():
         return None
@@ -241,7 +241,7 @@ def _licensing_diagnostic(
         "action": (
             "Activate this Unity Editor installation in Unity Hub (or keep a "
             "licensed Editor session open), then retry the UnityClient call. "
-            "A3GameForge cannot bypass Unity licensing."
+            "3AGameFactory cannot bypass Unity licensing."
         ),
     }
 
@@ -294,7 +294,7 @@ class UnityEditorTransport:
         if bridge_path is None:
             return None
 
-        bridge_root = project_path / "Library" / "A3GameForge"
+        bridge_root = project_path / "Library" / "GameFactory3A"
         inbox = bridge_root / "inbox"
         completed = bridge_root / "completed"
         inbox.mkdir(parents=True, exist_ok=True)
@@ -709,7 +709,7 @@ class UnityEditorTransport:
         # macOS replace-file dialog when another Unity instance owns it,
         # leaving a client-launched Editor stuck before it creates its
         # EditorInstance marker.
-        project_log = project_path / "Library" / "A3GameForge" / "Editor.log"
+        project_log = project_path / "Library" / "GameFactory3A" / "Editor.log"
         project_log.parent.mkdir(parents=True, exist_ok=True)
         command = [
             str(unity),

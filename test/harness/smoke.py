@@ -297,7 +297,7 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
-    print("\033[1mAAAGameForge develop_harness — chain smoke test (stub models)\033[0m")
+    print("\033[1m3AGameFactory develop_harness — chain smoke test (stub models)\033[0m")
     print(f"output root: {paths.rel_to_repo(paths.OUTPUT_ROOT)}")
     print(f"run_id: {SMOKE_RUN_ID}   game_id: {SMOKE_GAME}   kinds: {', '.join(kinds)}"
           + (f"   backend: {args.backend}" if args.backend else ""))

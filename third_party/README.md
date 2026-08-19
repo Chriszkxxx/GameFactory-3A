@@ -1,6 +1,6 @@
 # third_party/
 
-Landing area for **externally cloned repositories** that A3GameForge depends on
+Landing area for **externally cloned repositories** that 3AGameFactory depends on
 but does not vendor, for example:
 
 - geometry and asset libraries such as `trimesh`

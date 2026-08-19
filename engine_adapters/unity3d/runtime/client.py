@@ -63,7 +63,7 @@ class UnityRuntimeClient:
 
         resolved_extra_args = [str(arg) for arg in extra_args]
         project_log = (
-            project_path / "Library" / "A3GameForge" / "Editor.log"
+            project_path / "Library" / "GameFactory3A" / "Editor.log"
         )
         command = [
             str(unity),

@@ -51,7 +51,7 @@ scripts/engine_install/unity/generate_game.sh \
 ```
 
 `UnityClient.generate_game()` writes a project-local manifest under
-`Library/A3GameForge/jobs/`. One Unity Editor session then performs the
+`Library/GameFactory3A/jobs/`. One Unity Editor session then performs the
 Unity-native operations in order: install finalized mechanic/UI assemblies,
 import avatars/weapons/motions/scenes through `AssetDatabase`, compose the
 scene, refresh and compile scripts, run `BuildPipeline`, and optionally enter

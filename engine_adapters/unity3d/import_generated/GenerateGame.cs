@@ -317,7 +317,7 @@ public static class GenerateGame
     private static string Get(Dictionary<string, string> args, string key, string fallback)
     {
         if (args.TryGetValue(key, out string value) && !string.IsNullOrEmpty(value)) return value;
-        return A3GameForgeEditorBridge.GetArgument(key, fallback);
+        return GameFactory3AEditorBridge.GetArgument(key, fallback);
     }
 
     private static string JsonString(string json, string key, string fallback)

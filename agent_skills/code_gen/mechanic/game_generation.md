@@ -70,7 +70,7 @@ styling, feedback, or a concrete game HUD assignment.
 ## Mechanic Contract
 
 Publish `mechanic_contract.json` with schema
-`aaagameforge.mechanic_contract.v1`.
+`gamefactory3a.mechanic_contract.v1`.
 
 | Field | Requirement |
 |---|---|
@@ -99,7 +99,7 @@ Do not generate or modify prepared packets, workspace snapshots, `meta.json`,
 `demo_outputs/`, evaluation artifacts, authoritative reports, benchmark
 scores, or Pipeline result metadata.
 
-`context_used.json` uses `aaagameforge.context_used.v1` and must record:
+`context_used.json` uses `gamefactory3a.context_used.v1` and must record:
 
 - the repository-owned matching Engine API;
 - only actually consulted paths below allowed same-Engine Example roots;
@@ -196,7 +196,7 @@ Keep `Binaries/`, `Intermediate/`, `Saved/`, Derived Data Cache,
 `__pycache__/`, and other mutable output under `.tmp`.
 
 Every published artifact includes `manifest.json` using
-`aaagameforge.artifact_manifest.v1` with:
+`gamefactory3a.artifact_manifest.v1` with:
 
 - `artifact_version`;
 - identity: `game_id`, `run_id`, `task_kind=mechanic`, and `task_id`;
@@ -209,7 +209,7 @@ SHA256 and byte size, excluding the manifest and mutable output. Publish only
 run-relative paths, never machine-local absolute paths.
 
 Assembly must record and recalculate the Mechanic manifest digest and
-`tree_sha256` in an `aaagameforge.assembly_manifest.v1` manifest, fail on
+`tree_sha256` in an `gamefactory3a.assembly_manifest.v1` manifest, fail on
 mismatch, and produce a new assembly/product digest when source changes.
 Evaluation must pin `subject.product_manifest` and
 `subject.product_manifest_sha256`; builds, tests, screenshots, logs, and

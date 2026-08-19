@@ -32,7 +32,7 @@ class BrowserServingService:
         return serving_result(
             "browser.health",
             payload={
-                "service": "aaagameforge-browser-serving",
+                "service": "gamefactory3a-browser-serving",
                 "api_version": "v1",
                 "engines": [
                     backend.descriptor.engine_id

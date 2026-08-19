@@ -89,7 +89,7 @@ def make_minimal_glb(triangles: int = 2, pad_to: int = 4096) -> bytes:
     bin_blob = pos_blob + idx_blob + b"\x00" * idx_pad
 
     doc = {
-        "asset": {"version": "2.0", "generator": "AAAGameForge test harness stub"},
+        "asset": {"version": "2.0", "generator": "3AGameFactory test harness stub"},
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0, "name": "StubMesh"}],
@@ -216,7 +216,7 @@ def make_textured_glb(size: float = 1.0, texture_size: int = 64) -> bytes:
 
     n = len(positions) // 3
     doc = {
-        "asset": {"version": "2.0", "generator": "AAAGameForge test harness stub"},
+        "asset": {"version": "2.0", "generator": "3AGameFactory test harness stub"},
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0, "name": "StubTexturedCube"}],
@@ -633,7 +633,7 @@ class StubVideoModel(_StubBase):
         })
         # Minimal MP4-like fixture: the harness checks placement and non-empty
         # artifacts, while the paid integration test checks provider decoding.
-        data = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isoma3gameforge-video-stub"
+        data = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isomgamefactory3a-video-stub"
         self.last_call_info = {
             "provider": "stub-video",
             "model": self.model_path,

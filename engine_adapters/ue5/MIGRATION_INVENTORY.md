@@ -22,11 +22,11 @@ D:\Desktop\game\OpenWL_Avatar
 Target repository:
 
 ```text
-D:\Desktop\game\AAAGameForge
+D:\Desktop\game\3AGameFactory
 ```
 
 This inventory maps the existing OpenWL Unreal and serving code into the
-AAAGameForge architecture. It does not change the existing Layer A/B/C,
+3AGameFactory architecture. It does not change the existing Layer A/B/C,
 `design_doc.txt`, `pipeline_task.jsonl`, or output layout.
 
 ## Implementation Progress

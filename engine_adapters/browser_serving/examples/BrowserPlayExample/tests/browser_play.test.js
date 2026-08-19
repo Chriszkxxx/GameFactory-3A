@@ -19,7 +19,7 @@ const manifest = JSON.parse(
 
 assert.equal(
   manifest.schema_version,
-  "aaagameforge.browser_play_manifest.v1",
+  "gamefactory3a.browser_play_manifest.v1",
 );
 assert.equal(manifest.engine, "selected_by_packet");
 assert.equal(manifest.gateway_route, "/game");

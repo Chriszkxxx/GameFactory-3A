@@ -10,7 +10,7 @@ namespace ArenaFighterExample
     /// by the A3GameRuntime input pipeline, while keeping all gameplay logic
     /// self-contained and unit-testable.
     /// </summary>
-    [AddComponentMenu("AAAGameForge/Arena Fighter Controller")]
+    [AddComponentMenu("3AGameFactory/Arena Fighter Controller")]
     [DisallowMultipleComponent]
     public class ArenaFighterController : MonoBehaviour, IA3GameControllableEntity
     {

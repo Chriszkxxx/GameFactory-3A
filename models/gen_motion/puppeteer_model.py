@@ -5,7 +5,7 @@ Reference: https://github.com/Seed3D/Puppeteer
 
 The upstream project is intentionally executed in isolated subprocesses because
 its skeleton and skinning stages have different working-directory assumptions
-and use torchrun.  The public AAAGameForge interface remains memory based.
+and use torchrun.  The public 3AGameFactory interface remains memory based.
 
 Puppeteer rigging requires CUDA.  Constructing the wrapper on CPU is supported
 for harness tests, but ``infer()`` fails fast with an actionable error.
@@ -145,7 +145,7 @@ class PuppeteerModel:
             raise RuntimeError(
                 "Puppeteer skeleton inference requires CUDA in the official "
                 "implementation. Use device='cuda'; CPU remains supported for "
-                "constructing the wrapper and running AAAGameForge stub tests."
+                "constructing the wrapper and running 3AGameFactory stub tests."
             )
         if not isinstance(mesh, (bytes, bytearray)) or not mesh:
             raise ValueError("mesh must be non-empty file bytes")

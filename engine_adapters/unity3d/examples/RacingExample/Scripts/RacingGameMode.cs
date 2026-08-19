@@ -10,7 +10,7 @@ namespace RacingExample
     /// counter and checkpoints, and tracks race completion. Integrates with
     /// the A3GameRuntime subsystem for entity identity tracking.
     /// </summary>
-    [AddComponentMenu("AAAGameForge/Racing GameMode")]
+    [AddComponentMenu("3AGameFactory/Racing GameMode")]
     public class RacingGameMode : MonoBehaviour, IA3GameEntityFactory
     {
         [Header("Configuration")]

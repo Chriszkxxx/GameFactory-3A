@@ -9,7 +9,7 @@ namespace ArenaFighterExample
     /// wires up references, and tracks win/loss state. Integrates with the
     /// A3GameRuntime subsystem when present for entity identity tracking.
     /// </summary>
-    [AddComponentMenu("AAAGameForge/Arena Fighter GameMode")]
+    [AddComponentMenu("3AGameFactory/Arena Fighter GameMode")]
     public class ArenaFighterGameMode : MonoBehaviour, IA3GameEntityFactory
     {
         [Header("Spawn Points")]

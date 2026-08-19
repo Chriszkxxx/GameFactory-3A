@@ -229,7 +229,7 @@ public static class ImportBatch
     {
         if (args.TryGetValue(key, out string value) && !string.IsNullOrEmpty(value))
             return value;
-        return A3GameForgeEditorBridge.GetArgument(key, fallback);
+        return GameFactory3AEditorBridge.GetArgument(key, fallback);
     }
 
     private static void WriteReport(object value, string path)

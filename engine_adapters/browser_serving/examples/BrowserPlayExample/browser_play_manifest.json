@@ -1,5 +1,5 @@
 {
-  "schema_version": "aaagameforge.browser_play_manifest.v1",
+  "schema_version": "gamefactory3a.browser_play_manifest.v1",
   "engine": "selected_by_packet",
   "entry_point": "index.html",
   "launch_script": "launch.cmd",

@@ -1,11 +1,11 @@
 {
-    "name": "com.aaagameforge.fps-example",
+    "name": "com.gamefactory3a.fps-example",
     "version": "1.0.0",
-    "displayName": "AAAGameForge FPS Example",
+    "displayName": "3AGameFactory FPS Example",
     "description": "Reference Unity FPS mechanic plugin with CharacterController movement, jump, interaction, environment collision, enemy pursuit, hitscan combat, reload, and encounter state.",
     "unity": "2021.3",
     "dependencies": {
-        "com.aaagameforge.a3gameruntime": "1.0.0",
+        "com.gamefactory3a.a3gameruntime": "1.0.0",
         "com.unity.modules.animation": "1.0.0",
         "com.unity.modules.audio": "1.0.0",
         "com.unity.modules.jsonserialize": "1.0.0",
@@ -19,10 +19,10 @@
         "fps",
         "shooter",
         "weapon",
-        "aaagameforge"
+        "gamefactory3a"
     ],
     "author": {
-        "name": "AAAGameForge",
-        "url": "https://github.com/aaagameforge"
+        "name": "3AGameFactory",
+        "url": "https://github.com/gamefactory3a"
     }
 }

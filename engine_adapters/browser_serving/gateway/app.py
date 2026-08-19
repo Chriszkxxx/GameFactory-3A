@@ -36,7 +36,7 @@ from ..registry import EngineRegistry
 from ..service import BrowserServingService
 
 
-logger = logging.getLogger("aaagameforge.browser_serving")
+logger = logging.getLogger("gamefactory3a.browser_serving")
 PLAYER_DIR = (
     Path(__file__).resolve().parents[1]
     / "frontend"
@@ -215,7 +215,7 @@ def create_app(
         )
 
     app = FastAPI(
-        title="AAAGameForge Browser Serving",
+        title="3AGameFactory Browser Serving",
         version="1.0.0",
     )
     app.state.browser_serving_service = service

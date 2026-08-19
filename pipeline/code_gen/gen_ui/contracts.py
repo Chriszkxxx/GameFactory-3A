@@ -14,20 +14,20 @@ from pipeline.common.code_mapping import string_list
 
 
 MECHANIC_CONTRACT_SCHEMA = (
-    "aaagameforge.mechanic_contract.v1"
+    "gamefactory3a.mechanic_contract.v1"
 )
 MECHANIC_CONTRACT_FILENAME = "mechanic_contract.json"
 UI_BINDING_MANIFEST_SCHEMA = (
-    "aaagameforge.ui_binding_manifest.v1"
+    "gamefactory3a.ui_binding_manifest.v1"
 )
 MECHANIC_FIXTURE_SCHEMA = (
-    "aaagameforge.mechanic_contract_fixture.v1"
+    "gamefactory3a.mechanic_contract_fixture.v1"
 )
 SCREENSHOT_PLAN_SCHEMA = (
-    "aaagameforge.ui_screenshot_plan.v1"
+    "gamefactory3a.ui_screenshot_plan.v1"
 )
 BROWSER_PLAY_MANIFEST_SCHEMA = (
-    "aaagameforge.browser_play_manifest.v1"
+    "gamefactory3a.browser_play_manifest.v1"
 )
 
 

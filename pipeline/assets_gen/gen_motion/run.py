@@ -133,7 +133,7 @@ def run_from_jsonl(
     operator,
     game_filter: str | None = None,
 ) -> list[dict]:
-    """Run tasks from the standard AAAGameForge JSONL iterator."""
+    """Run tasks from the standard 3AGameFactory JSONL iterator."""
     results = []
     for task, game_id in paths.iter_tasks(
         tasks_path,

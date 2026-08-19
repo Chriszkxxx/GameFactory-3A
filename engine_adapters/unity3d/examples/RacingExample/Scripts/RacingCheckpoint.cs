@@ -8,7 +8,7 @@ namespace RacingExample
     /// <see cref="RacingLapCounter"/> (or this checkpoint's assigned counter)
     /// records the checkpoint pass.
     /// </summary>
-    [AddComponentMenu("AAAGameForge/Racing Checkpoint")]
+    [AddComponentMenu("3AGameFactory/Racing Checkpoint")]
     [DisallowMultipleComponent]
     public class RacingCheckpoint : MonoBehaviour
     {

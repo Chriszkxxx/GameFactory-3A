@@ -1,4 +1,4 @@
-"""Stage browser uploads as standard AAAGameForge task artifacts."""
+"""Stage browser uploads as standard 3AGameFactory task artifacts."""
 
 from __future__ import annotations
 

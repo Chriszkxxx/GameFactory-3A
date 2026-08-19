@@ -98,7 +98,7 @@ def download(asset_id: str, cache_dir: Path | None = None) -> Path:
     if target.is_file() and target.stat().st_size > 0:
         return target
     request = urllib.request.Request(
-        entry["url"], headers={"User-Agent": "AAAGameForge/1.0"}
+        entry["url"], headers={"User-Agent": "3AGameFactory/1.0"}
     )
     with urllib.request.urlopen(request, timeout=120) as response:
         payload = response.read()

@@ -313,7 +313,7 @@ public static class ImportGeneratedMaterial
     static string Get(Dictionary<string, string> args, string key, string fallback)
     {
         if (args.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v)) return v;
-        return A3GameForgeEditorBridge.GetArgument(key, fallback);
+        return GameFactory3AEditorBridge.GetArgument(key, fallback);
     }
 
     static string GetJobValue(Dictionary<string, string> args, string key, string fallback = "")

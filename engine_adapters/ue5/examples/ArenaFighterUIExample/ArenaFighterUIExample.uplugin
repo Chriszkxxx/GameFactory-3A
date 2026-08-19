@@ -4,8 +4,8 @@
   "VersionName": "1.0.0",
   "FriendlyName": "A3Game Arena Fighter UI Example",
   "Description": "Optional arena presentation plugin consuming the Arena Fighter mechanic contract.",
-  "Category": "AAAGameForge Examples",
-  "CreatedBy": "AAAGameForge",
+  "Category": "3AGameFactory Examples",
+  "CreatedBy": "3AGameFactory",
   "EnabledByDefault": false,
   "CanContainContent": false,
   "Modules": [

@@ -5,7 +5,7 @@ description: Convert game CG intent and optional media references into validated
 
 # Game CG Director
 
-Build one validated directing envelope per generated clip. For A3GameForge,
+Build one validated directing envelope per generated clip. For 3AGameFactory,
 write it directly as a Harness task row; for standalone use, return the
 envelope file. Never call a video-generation API or write generated media.
 
@@ -20,7 +20,7 @@ Require the caller to provide:
 - the selected model (`h3` or `seedance`), or permission to use the default;
 - optional duration, aspect ratio, seed, and stable `task_id`.
 
-When A3GameForge invokes this Skill as a child capability, also require the
+When 3AGameFactory invokes this Skill as a child capability, also require the
 selected `game_id` and use its standard authoring workspace:
 
 ```text
@@ -133,7 +133,7 @@ Follow `schemas/output.schema.json`. Keep the envelope compact:
 - Do not add `game_id` or `run_id` before envelope validation. The schema
   intentionally validates directing fields independently of Harness identity.
 
-For an A3GameForge child call:
+For an 3AGameFactory child call:
 
 1. Build the envelope without `game_id` or `run_id`.
 2. Write it to a unique temporary JSON file outside the repository and run the
@@ -152,7 +152,7 @@ directory.
 
 ## Validate until it passes
 
-Validate each envelope before adding `game_id` or writing an A3GameForge task
+Validate each envelope before adding `game_id` or writing an 3AGameFactory task
 row. For standalone use, validate the written envelope. Run:
 
 ```bash
@@ -165,7 +165,7 @@ validator and never substitute visual inspection for validation.
 
 ## Hand off to the parent Skill
 
-For A3GameForge, return the `cg_tasks.jsonl` path, ordered task IDs, and
+For 3AGameFactory, return the `cg_tasks.jsonl` path, ordered task IDs, and
 validation status. The parent `../SKILL.md` selects backend and aspect-ratio
 runner options and invokes the generation pipeline. For standalone use, return
 the ordered envelope paths and validation status.

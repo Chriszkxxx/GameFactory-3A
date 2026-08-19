@@ -119,7 +119,7 @@ class UnityClient:
         build: bool = True,
         launch_editor: bool = True,
         enter_play: bool = False,
-        play_method: str = "A3GameForgePlayMode.Enter",
+        play_method: str = "GameFactory3APlayMode.Enter",
         replace_existing: bool = True,
         include_tests: bool = True,
         dry_run: bool = False,
@@ -323,7 +323,7 @@ class UnityClient:
                 warnings,
                 errors=list(validation.get("errors") or []),
             )
-        jobs = project / "Library" / "A3GameForge" / "jobs"
+        jobs = project / "Library" / "GameFactory3A" / "jobs"
         jobs.mkdir(parents=True, exist_ok=True)
 
         try:

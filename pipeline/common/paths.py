@@ -1,7 +1,7 @@
 """
 pipeline/common/paths.py
 
-Single source of truth for every input / output path in AAAGameForge.
+Single source of truth for every input / output path in 3AGameFactory.
 
 The benchmark is authored **per game project**, so outputs are organized the same
 way. An artifact is uniquely addressed by ``(game_id, run_id, task_kind, task_id)``::

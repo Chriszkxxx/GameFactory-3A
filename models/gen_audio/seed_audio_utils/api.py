@@ -24,7 +24,7 @@ class SeedAudioAPIClient(cloud_api.CloudAPIClient):
         timeout: int = 60,
         max_retries: int = 3,
         backoff: float = 1.5,
-        user_agent: str = "AAAGameForge/0.1 (+https://github.com/OpenDCAI/AAAGameForge)",
+        user_agent: str = "3AGameFactory/0.1 (+https://github.com/OpenDCAI/GameFactory-3A)",
     ):
         super().__init__(
             base_url,

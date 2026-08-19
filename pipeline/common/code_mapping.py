@@ -17,7 +17,7 @@ from pipeline.common.artifacts import (
 )
 
 
-CONTEXT_USED_SCHEMA = "aaagameforge.context_used.v1"
+CONTEXT_USED_SCHEMA = "gamefactory3a.context_used.v1"
 EXAMPLE_REFERENCE_PURPOSES = (
     "module_structure",
     "build_configuration",

@@ -8,7 +8,7 @@ namespace ArenaFighterExample
     /// identical whether called from Unity's <see cref="Update"/> loop or
     /// from an external controller (useful for deterministic testing).
     /// </summary>
-    [AddComponentMenu("AAAGameForge/Arena Fighter AI")]
+    [AddComponentMenu("3AGameFactory/Arena Fighter AI")]
     [DisallowMultipleComponent]
     public class ArenaFighterAI : MonoBehaviour
     {
