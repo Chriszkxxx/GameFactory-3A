@@ -8,15 +8,16 @@ This file is a compact index of implemented public capabilities. It lists
 public names and their functions only. Read the current source when exact
 parameters or result payload fields are required.
 
-## Hard API Boundary
+## Host-Side API Boundary
 
-The only supported Python entry point is:
+For host-side Python code, the only supported Unreal entry point is:
 
 ```text
 from engine_adapters.ue5 import UEClient
 ```
 
-Agents, generated code, Pipeline code, and platform Serving code must not:
+Agents, Pipeline code, execution/evaluation composition roots, repository
+scripts, and platform Serving backends must not:
 
 - import `engine_adapters.ue5._internal`;
 - import namespace client implementation classes directly;
@@ -27,7 +28,38 @@ Agents, generated code, Pipeline code, and platform Serving code must not:
 - depend on optional Arena Fighter, FPS, or Racing example plugins;
 - construct generated-output paths manually.
 
-Generated gameplay belongs in a separate project-local Gameplay Plugin.
+Host-side code must not replace a public `UEClient` operation with a direct
+`UnrealEditor`, `Build.bat`, `unreal.AssetImportTask`, or ad-hoc Unreal Python
+launcher. The repository `scripts/ue/import_asset` wrappers are lifecycle
+wrappers around the same public Client contract, not a second import API.
+
+### Native Plugin Boundary
+
+Generated Unreal Gameplay and UI Plugins run inside Unreal and may use the
+documented native Unreal C++ APIs available to the project. They do not
+import or call Python `UEClient`.
+
+```text
+Host-side project/import/build/runtime lifecycle -> UEClient
+Native Unreal Gameplay/UI Plugin                 -> Unreal native C++ API
+```
+
+Native plugins remain project-local, use only permitted public
+`A3GamePlayable` headers and normal Unreal module dependencies, and do not
+reach into `engine_adapters/ue5` private implementation code.
+
+### Execution Composition Root
+
+The generation Agent may produce native plugin source and tests, but does not
+run the Engine or claim authoritative build/playability success. The later
+Execution/Assembly composition root may reuse one configured `UEClient`
+session to validate and prepare the project, import descriptors, install
+plugins, build targets, run authoritative tests, and launch or stop the
+runtime.
+
+If a required operation is missing from `UEClient`, report a public API
+capability gap and extend the public Client/adapter contract first. Do not
+create a game-owned parallel importer or build system.
 
 ## Execution Authority
 
@@ -35,8 +67,10 @@ The game-generation Agent generates engine-native test source. The Agent MUST
 NOT invoke `ue.testing.*` or declare benchmark success.
 
 Engine execution and evaluation code owns builds, Automation Test execution,
-runtime evidence, and benchmark results. A zero process return code alone is
-not success; Automation Reports must contain matching passing tests.
+runtime evidence, and benchmark results. The generation Agent must not invoke
+`ue.testing.*`; the later Execution/Assembly authority may invoke it through
+`UEClient`. A zero process return code alone is not success; Automation Reports
+must contain matching passing tests.
 
 ## Result Contract
 
@@ -92,13 +126,17 @@ stable top-level fields:
   registry.
 - `ue.assets.get_metadata` - Reads metadata for one registered artifact.
 
-Public asset methods consume repository task identities. They do not accept
-arbitrary generated-output filesystem paths.
+Public asset methods consume repository task identities or the documented
+public descriptor shape. They do not accept arbitrary generated-output
+filesystem paths assembled by callers. Resolve sources through the Client and
+preserve the structured result and artifact identity it returns.
 
 ### Import Lifecycle
 
 `scripts/ue/import_asset` is a lifecycle wrapper around the same public
-`UEClient`; it is not a second or faster asset API.
+`UEClient`; it is not a second or faster asset API. Host-side batch execution
+should reuse one configured Client and one running Editor session instead of
+launching a separate Unreal process for every asset.
 
 Direct asset and World operations expect Unreal Python execution to be ready.
 Execution code should reuse one `UEClient` and one running Editor session for a
@@ -156,7 +194,8 @@ Generated Gameplay Plugins may depend only on `A3GamePlayable` Public headers.
 - `ue.testing.run_automation_tests` - Runs Unreal Automation Tests, parses a
   fresh report, and returns authoritative matched, passed, and failed counts.
 
-The game-generation Agent must not invoke this namespace.
+The game-generation Agent must not invoke this namespace. Only the later
+Execution/Assembly authority may invoke it through `UEClient`.
 
 ## Runtime
 
@@ -249,3 +288,7 @@ rule, or game-specific input mapping.
 Generated projects own concrete gameplay implementation. Optional Preview,
 Arena Fighter, FPS, and Racing plugins are read-only references and are not
 dependencies or success criteria.
+
+This native C++ contract is intentionally separate from the host-side
+`UEClient` contract above. `UEClient` prepares and executes the project; it is
+not a dependency inside the generated Unreal module.
