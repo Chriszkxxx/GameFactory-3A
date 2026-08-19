@@ -131,6 +131,17 @@ path needs a capable NVIDIA GPU, a compatible CUDA/PyTorch stack, large RAM/VRAM
 and approximately 40 GiB free cache space for common modes (about 60 GiB if
 reference-to-video is also required).
 
+**Prefer the cloud APIs — Seedance 2.0, then MiniMax Hailuo 2.3** — with local
+MiniMax H3 as the fallback for a declined budget or an offline requirement. Video
+is the most expensive asset type here and is billed per generated second, so
+before the first call **pause and follow *Paid cloud backend* in
+`<REPO_PATH>/agent_skills/asset_qa/README.md`**: send the purchase/API-key page
+(<https://console.volcengine.com/ark> for Seedance,
+<https://platform.minimax.io/user-center/basic-information/interface-key> for
+MiniMax), state the estimated cost as clips × duration × resolution including
+retries, ask the user to buy access and supply `ARK_API_KEY` or
+`MINIMAX_API_KEY`, and wait for an explicit answer.
+
 ## Common CLI usage
 
 Text to video:

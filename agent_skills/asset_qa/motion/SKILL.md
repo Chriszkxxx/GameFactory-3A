@@ -34,10 +34,36 @@ Operator: `<REPO_PATH>/operators/gen_motion/operator.py`.
 Code the agent should read before changing anything: this file, then the
 module docstrings under `<REPO_PATH>/operators/gen_motion/funcs/`.
 
+## Get the clip by download first
+
+**Text-to-motion generation quality and controllability are not good enough yet.**
+MoMask produces a plausible-looking clip from a sentence, but you cannot reliably
+control timing, style, exact limb trajectories, foot contact, or how the clip
+loops — and re-prompting rarely converges on what the plan asked for.
+
+So for any real game deliverable, **download a clip first and prefer Mixamo**:
+
+1. **Mixamo** — the default source. Broad, consistent, game-oriented humanoid
+   library on one skeleton (`mixamorig:*`), so `SOURCE_SKELETONS` already knows
+   it and retargeting is predictable. It is login-gated, so download by hand:
+   FBX Binary, **Skin = Without Skin**, then use `task_type=retarget` with
+   `motion_source=mixamo` and `global_scale=0.01` (centimetres).
+2. **Other libraries** — MoCap Online, CMU BVH, or a local clip, per
+   [Motion sources](#when-generation-quality-is-not-enough).
+   Check each licence; Bandai-Namco is research-only.
+3. **MoMask text-to-motion** — use it when no downloadable clip fits, when the
+   motion is unusual enough that no library has it, or for a quick placeholder
+   while the game is being assembled. Say that it is the generated route, and
+   expect to review it harder.
+
+Do not scrape login-gated sources; that violates the licence and the fetcher
+refuses it on purpose. Always record provenance either way.
+
 ## When To Run
 
 - A task asks for a humanoid character that moves (walk, attack, idle, …).
-- A generated clip looks wrong and you need a Mixamo / mocap fallback.
+- You have a downloaded Mixamo / mocap clip and need it on a generated rig.
+- A generated clip looks wrong and you need a downloaded replacement.
 - You have a retargeted FBX and need to prove Blender or Unreal can use it.
 
 Do **not** use the static mesh importers (`import_mesh.py`) on a motion FBX —
@@ -76,14 +102,7 @@ CLI demo (single task). Load the runtime first and pass the explicit model
 arguments shown in [Runtime Environment](#6-runtime-environment)::
 
 ```bash
-# Full chain: mesh → rig → MoMask → FBX
-python pipeline/assets_gen/gen_motion/run.py \
-  --task-type humanoid \
-  --target-mesh character.glb \
-  --prompt "A person walks forward and waves." \
-  --in-place
-
-# Retarget a Mixamo download onto an existing rig
+# Retarget a Mixamo download onto an existing rig — the preferred route
 python pipeline/assets_gen/gen_motion/run.py \
   --task-type retarget \
   --source-motion walk.fbx \
@@ -91,6 +110,13 @@ python pipeline/assets_gen/gen_motion/run.py \
   --target-rig character_rig.txt \
   --motion-source mixamo \
   --global-scale 0.01
+
+# Full chain with generated motion: mesh → rig → MoMask → FBX
+python pipeline/assets_gen/gen_motion/run.py \
+  --task-type humanoid \
+  --target-mesh character.glb \
+  --prompt "A person walks forward and waves." \
+  --in-place
 ```
 
 Registries (no models, no Blender)::
@@ -121,20 +147,29 @@ Stub-test without CUDA: inject `StubPuppeteerModel` from `<REPO_PATH>/test/harne
 **Model:** `<REPO_PATH>/models/gen_motion/momask_model.py`.
 **Step:** `<REPO_PATH>/operators/gen_motion/funcs/generate_motion.py`.
 
+Reach for this only after [Get the clip by download first](#get-the-clip-by-download-first)
+has been considered: generation is the weakest link in this chain, and a
+downloaded Mixamo clip is usually the shorter path to a shippable animation.
+
 - Native rate is **20 fps**. Pass that through to retarget; exporting a 20 fps
   clip as 30 fps plays too fast without looking "broken".
 - Prefer HumanML3D-style sentences ("a person walks forward and waves"), not
   tag lists.
 - `in_place=True` when the game drives locomotion and the clip only has to
   look like walking.
+- Do not expect prompt-level control over timing, style, foot contact, or
+  looping. If the plan needs a specific performance, download it instead of
+  re-rolling seeds.
 
-### When generation quality is not enough
+<a id="when-generation-quality-is-not-enough"></a>
+
+### Motion sources (the preferred route)
 
 Use `<REPO_PATH>/operators/gen_motion/funcs/fetch_motion.py` instead of fighting the prompt.
 
 | Source | Access | Skeleton | Notes |
 |---|---|---|---|
-| `mixamo` | manual (login) | Mixamo | Download FBX Binary, Skin=Without Skin |
+| `mixamo` | manual (login) | Mixamo | **Preferred.** Download FBX Binary, Skin=Without Skin |
 | `mocap_online` | manual | UE5 mannequin | Free sample packs |
 | `cmu_bvh` | direct URL | CMU BVH | Free; quality uneven |
 | `bandai_namco` | direct URL | — | CC BY-NC-ND — research only |
@@ -367,10 +402,11 @@ build_all("/tmp/mofix", mesh_format=".glb")
 ## 7. What An Agent Should Do, In Order
 
 1. Read this skill and `<REPO_PATH>/operators/gen_motion/funcs/retarget_utils/__init__.py`.
-2. Prefer `task_type=humanoid` for a fresh character; `retarget` when a clip
-   already exists.
-3. If MoMask quality is poor → `--list-motion-sources`, download by hand if
-   manual, then `fetch_motion` / `motion_source` on the task.
+2. Prefer a downloaded clip — Mixamo first — and run `task_type=retarget`. Use
+   `task_type=humanoid` with MoMask only when no library clip fits or a
+   placeholder is enough.
+3. `--list-motion-sources` to see the registry; download manual sources by hand,
+   then set `fetch_motion` / `motion_source` on the task.
 4. Never invent a bone map for a new Puppeteer rig — omit mapping and let
    `mapping_auto` run, or generate one with the bpy `mapping_auto` module.
 5. If retarget/import fails for a real format or skeleton the operator should

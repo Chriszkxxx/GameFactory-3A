@@ -52,6 +52,15 @@ budget requires it. Use a cloud backend when it is permitted and gives the
 planned quality. Do not silently substitute one backend for another: report the
 fallback and its implications.
 
+**Prefer the Seed Audio cloud route** for both dialogue and sound effects unless
+offline execution, privacy, or a declined budget rules it out. It is paid, so
+before the first call **pause and follow *Paid cloud backend* in
+`<REPO_PATH>/agent_skills/asset_qa/README.md`**: send the purchase/API-key page
+(<https://console.volcengine.com/speech/>), state the estimated cost for the
+planned line and one-shot count including retakes, ask the user to buy access and
+supply `SEED_AUDIO_API_KEY`, and wait for an explicit answer. Local Qwen3-TTS and
+Woosh-DFlow are the fallback.
+
 ## Environment setup
 
 ### Local backend dependencies

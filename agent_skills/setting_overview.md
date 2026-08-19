@@ -121,8 +121,10 @@ For every requested asset, follow this order:
 
 1. **Generate it** from the requirement. Prefer a suitable cloud model when it
    is available; use a local/open model when the requirement, budget, privacy,
-   or offline execution calls for it. Ask the user when cost or provider choice
-   materially changes the result.
+   or offline execution calls for it. A paid cloud backend requires the user's
+   approval first: pause, send the purchase/API-key page, state the estimated
+   cost, ask for the key, and wait — see *Paid cloud backend* in
+   `<REPO_PATH>/agent_skills/asset_qa/README.md`.
 2. **Use a licensed source or fallback** when generation quality is not suitable.
    Preserve source and licence/provenance information with the artifact. Do not
    bypass login-gated or licensed sources with scraping.

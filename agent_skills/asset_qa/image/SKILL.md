@@ -36,6 +36,14 @@ Local model weights are downloaded on first use unless checkpoint flags point to
 local paths. A CUDA GPU is strongly recommended for Qwen Edit and RMBG; Seedream
 itself runs through the Ark API, but the RMBG stage still uses the local runtime.
 
+**Prefer the Seedream cloud route** when the user permits paid generation; local
+Qwen Image Edit is the offline/declined fallback. Seedream is paid, so before the
+first call **pause and follow *Paid cloud backend* in
+`<REPO_PATH>/agent_skills/asset_qa/README.md`**: send the purchase/API-key page
+(<https://console.volcengine.com/ark>), state the estimated cost for the planned
+image count including retries, ask the user to buy access and supply
+`ARK_API_KEY`, and wait for an explicit answer.
+
 ## Install the image environment
 
 Install Qwen Image Edit and the local RMBG / Depth Anything mask runtime. This

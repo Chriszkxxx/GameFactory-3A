@@ -24,6 +24,16 @@ bash scripts/asset_env_setup/3d_object/trellis2_install.sh
 Use only the selected route. Keep API keys in environment variables and large
 local checkpoints outside source control or under `<REPO_PATH>/third_party/`.
 
+**Prefer the cloud APIs — Tripo, then Meshy** — over local TRELLIS.2; they are
+the more reliable route for game-ready meshes. They are paid, so before the first
+call **pause and follow *Paid cloud backend* in
+`<REPO_PATH>/agent_skills/asset_qa/README.md`**: recommend the provider, send the
+purchase/API-key page (<https://platform.tripo3d.ai/api-keys> or
+<https://www.meshy.ai/api>), state the estimated cost for the planned mesh count
+including regeneration attempts, ask the user to buy access and supply
+`TRIPO_API_KEY` / `MESHY_API_KEY`, and wait for an explicit answer. Use local
+TRELLIS.2 only when the user declines or requires offline execution.
+
 ## The Five Checks
 
 **1. Is it the right thing?** Compare the sheet against the concept image
