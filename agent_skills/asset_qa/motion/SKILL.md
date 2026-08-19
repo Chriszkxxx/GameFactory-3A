@@ -319,8 +319,8 @@ bash scripts/asset_env_setup/gen_motion/install.sh --skip-weights
 source scripts/asset_env_setup/gen_motion/runtime_env.sh
 ```
 
-The installer creates `a3gameforge-puppeteer`, `a3gameforge-momask`, and
-`a3gameforge-retarget-bpy`. `runtime_env.sh` exports:
+The installer creates `gamefactory3a-puppeteer`, `gamefactory3a-momask`, and
+`gamefactory3a-retarget-bpy`. `runtime_env.sh` exports:
 
 - `A3GF_PUPPETEER_MODEL_PATH`
 - `A3GF_PUPPETEER_PYTHON`
@@ -353,7 +353,7 @@ python -m unittest test.test_gen_motion
 # Create an unlicensed, single-mesh T-pose fixture for a real local run.
 "$A3GF_MOMASK_PYTHON" \
   scripts/asset_env_setup/gen_motion/create_humanoid_glb.py \
-  /tmp/a3gameforge_humanoid.glb
+  /tmp/gamefactory3a_humanoid.glb
 ```
 
 Synthetic humanoid fixture (mesh + Mixamo-named BVH + matching Puppeteer
