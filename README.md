@@ -89,14 +89,23 @@ The demos below show a battle game, an RPG exploration game, a first-person shoo
 
 ## CG-video demos
 
+The demos below show an F1 racing-game opening, a mid-story fantasy-exploration
+RPG cutscene, a promotional trailer for a counter-terrorism tactical FPS, and an
+ultimate-ability cinematic for a two-player fighting game.
+
+> Generated locally at 720P with
+> [MiniMax H3](https://huggingface.co/Comfy-Org/MiniMax-H3). Optional higher
+> local resolutions or cloud API models such as Seedance may provide stronger
+> results at higher cost.
+
 <table>
   <tr>
-    <td width="50%"><video src="VIDEO_URL_CG_01" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_CG_02" width="100%" controls muted playsinline></video></td>
+    <td width="50%"><video src="https://github.com/user-attachments/assets/02bfe9fe-f5bf-46f2-81ab-371c57120b42" width="100%" controls muted playsinline></video></td>
+    <td width="50%"><video src="https://github.com/user-attachments/assets/4408ca34-016b-4291-a282-2219abd42192" width="100%" controls muted playsinline></video></td>
   </tr>
   <tr>
-    <td width="50%"><video src="VIDEO_URL_CG_03" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_CG_04" width="100%" controls muted playsinline></video></td>
+    <td width="50%"><video src="https://github.com/user-attachments/assets/3ea93ea3-050a-44a4-a326-868943d2950e" width="100%" controls muted playsinline></video></td>
+    <td width="50%"><video src="https://github.com/user-attachments/assets/1e6d59a1-d0f2-4bf5-bfb6-70679e253760" width="100%" controls muted playsinline></video></td>
   </tr>
 </table>
 

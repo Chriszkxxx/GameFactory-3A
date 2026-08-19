@@ -232,7 +232,7 @@ def _preflight_tasks(
 
 def _backend_kwargs(backend: str, runtime: str | None) -> dict[str, Any]:
     """Mirror the real runner's model settings through documented env vars."""
-    cache_dir = os.environ.get("AAAGF_API_CACHE")
+    cache_dir = os.environ.get("A3GAMEFORGE_API_CACHE")
     if backend == "seedance":
         return {
             "cache_dir": cache_dir,

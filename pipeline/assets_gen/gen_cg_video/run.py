@@ -97,7 +97,7 @@ def run_from_jsonl(
     game_filter: str | None = None,
     task_filter: str | None = None,
 ) -> list[dict]:
-    """Run every selected task from a standard AAAGameForge JSONL file."""
+    """Run every selected task from a standard A3GameForge JSONL file."""
     results = []
     for task, game_id in paths.iter_tasks(tasks_path, game_filter=game_filter):
         if task_filter and task.get("task_id") != task_filter:
@@ -127,7 +127,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run CG video generation.")
     parser.add_argument(
         "--backend",
-        default=os.environ.get("AAAGF_VIDEO_BACKEND", "seedance"),
+        default=os.environ.get("A3GAMEFORGE_VIDEO_BACKEND", "seedance"),
         choices=sorted(BACKENDS),
         help="Video model backend",
     )
@@ -139,7 +139,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--cache-dir",
-        default=os.environ.get("AAAGF_API_CACHE"),
+        default=os.environ.get("A3GAMEFORGE_API_CACHE"),
         help="Reuse identical billed requests without network traffic",
     )
     parser.add_argument("--timeout", type=int, default=1800)
@@ -265,7 +265,11 @@ def main() -> None:
         help="Ordered reference image; repeat the flag for multiple images",
     )
     parser.add_argument("--duration-sec", type=float, default=5)
-    parser.add_argument("--task-id", default="demo")
+    parser.add_argument(
+        "--task-id",
+        default=None,
+        help="Task id for single-prompt mode, or JSONL task filter in batch mode",
+    )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -322,7 +326,7 @@ def main() -> None:
     if args.prompt is not None:
         task = {
             "game_id": args.game,
-            "task_id": args.task_id,
+            "task_id": args.task_id or "demo",
             "mode": args.mode,
             "prompt": args.prompt,
             "duration_sec": args.duration_sec,
@@ -340,7 +344,12 @@ def main() -> None:
 
     tasks_path = paths.resolve_tasks_path(TASK_KIND, args.tasks, args.game)
     print(f"[run] run_id={run_id}  tasks={paths.rel_to_repo(tasks_path)}")
-    results = run_from_jsonl(str(tasks_path), operator, game_filter=args.game)
+    results = run_from_jsonl(
+        str(tasks_path),
+        operator,
+        game_filter=args.game,
+        task_filter=args.task_id,
+    )
     if not results:
         print("[run] No matching tasks — nothing to do.")
         return

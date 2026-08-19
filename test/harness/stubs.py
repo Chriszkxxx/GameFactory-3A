@@ -633,7 +633,7 @@ class StubVideoModel(_StubBase):
         })
         # Minimal MP4-like fixture: the harness checks placement and non-empty
         # artifacts, while the paid integration test checks provider decoding.
-        data = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isomaaagf-video-stub"
+        data = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isoma3gameforge-video-stub"
         self.last_call_info = {
             "provider": "stub-video",
             "model": self.model_path,

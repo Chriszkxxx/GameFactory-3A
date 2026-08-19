@@ -89,14 +89,21 @@
 
 ## CG 视频演示
 
+下方演示包括 F1 赛车游戏开场、奇幻探索 RPG 中段剧情、反恐战术 FPS 宣传片，
+以及双人对战游戏的大招演出。
+
+> 演示使用 [MiniMax H3](https://huggingface.co/Comfy-Org/MiniMax-H3)
+> 以 720P 本地生成。如有需要，可选用更高本地分辨率或 Seedance 等云端 API
+> 模型，可能获得更优效果，但成本也更高。
+
 <table>
   <tr>
-    <td width="50%"><video src="VIDEO_URL_CG_01" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_CG_02" width="100%" controls muted playsinline></video></td>
+    <td width="50%"><video src="https://github.com/user-attachments/assets/02bfe9fe-f5bf-46f2-81ab-371c57120b42" width="100%" controls muted playsinline></video></td>
+    <td width="50%"><video src="https://github.com/user-attachments/assets/4408ca34-016b-4291-a282-2219abd42192" width="100%" controls muted playsinline></video></td>
   </tr>
   <tr>
-    <td width="50%"><video src="VIDEO_URL_CG_03" width="100%" controls muted playsinline></video></td>
-    <td width="50%"><video src="VIDEO_URL_CG_04" width="100%" controls muted playsinline></video></td>
+    <td width="50%"><video src="https://github.com/user-attachments/assets/3ea93ea3-050a-44a4-a326-868943d2950e" width="100%" controls muted playsinline></video></td>
+    <td width="50%"><video src="https://github.com/user-attachments/assets/1e6d59a1-d0f2-4bf5-bfb6-70679e253760" width="100%" controls muted playsinline></video></td>
   </tr>
 </table>
 

@@ -8,7 +8,8 @@ shot, duration, and acceptance criteria.
 ## Chain, boundaries, and artifacts
 
 ```text
-Task dict / JSONL → GenCGVideoOperator → VideoGenerationInput → video backend
+Game plan → game-cg-director → cg_tasks.jsonl
+→ GenCGVideoOperator → VideoGenerationInput → video backend
 → MP4 bytes → video.mp4 + meta.json
 ```
 
@@ -18,6 +19,7 @@ Task dict / JSONL → GenCGVideoOperator → VideoGenerationInput → video back
 | Operator | `operators/gen_cg_video/` | Task fields, local image loading, artifact paths, and metadata |
 | Pipeline | `pipeline/assets_gen/gen_cg_video/` | Backend selection, CLI, JSONL batches, and summaries |
 | Harness | `test/harness/` | CPU-only, network-free chain validation |
+| Director sub-Skill | `agent_skills/asset_qa/cg_video/game-cg-director/` | Model-specific storyboard prompts and validated task rows |
 
 Standard artifact layout:
 
@@ -31,6 +33,77 @@ Do not pass local image paths into a model directly. The task/JSONL uses local
 paths; the operator resolves them and converts images to `PIL.Image.Image`.
 Python callers with images already in memory may pass image objects, but never
 provide both an image object and its corresponding path field.
+
+## Directing sub-Skill and Harness handoff
+
+Use `game-cg-director/SKILL.md` when the approved game plan defines the purpose
+of a CG clip but does not yet provide a model-ready prompt. It is a child
+capability of this Skill, not an alternative generation backend. The child
+creates and validates one directing envelope per output clip and never invokes
+a model.
+
+Select the input workspace before calling the child:
+
+```text
+test_data/test_samples/<game_id>/cg_video/
+├── requirement.txt
+├── ref_images/                  # optional
+├── ref_videos/                  # optional
+├── ref_audio/                   # optional
+└── cg_tasks.jsonl
+```
+
+Pass the child the selected `game_id`, one of `opening`, `cutscene`, `ultimate`,
+or `promo`, the planned action and acceptance criteria, optional reference
+roles and paths, model choice, duration, aspect ratio, seed, and task ID. For a
+sequence requiring several independent generations, call the child once per
+clip and preserve continuity anchors across the envelopes.
+
+The child validates its directing envelope, adds the selected workspace
+identity, and writes the complete object as one compact line directly to
+`cg_tasks.jsonl`:
+
+```text
+game_id                                      ← selected workspace
+task_id, mode, model, scene
+duration_sec, aspect_ratio, prompt, meta
+seed                                         ← when present
+first_frame_path                             ← first-frame mode only
+last_frame_path                              ← first/last-frame mode only
+reference_image_paths                        ← reference mode when present
+reference_video_paths, reference_audio_paths ← reference mode when present
+```
+
+The current Operator reads only its supported execution fields and safely
+ignores the remaining directing metadata. Do not weaken the task row because
+one backend supports fewer inputs. Preserve existing JSONL rows and replace a
+matching `task_id` only for an explicit revision.
+
+The Runner selects model and aspect ratio per process. Invoke one task at a time
+when a JSONL contains mixed execution configurations:
+
+| Envelope model | Runner selection |
+|---|---|
+| `h3` | `--backend minimax-h3 --minimax-runtime local --ckpt Comfy-Org/MiniMax-H3` |
+| `seedance` | `--backend seedance` |
+
+Pass Seedance aspect ratio with `--ratio`. For local H3, translate the ratio to
+an explicitly selected `--width` and `--height` supported by the installation;
+do not silently ignore the envelope value. Then run the standard pipeline with
+an explicit task file and run ID:
+
+```bash
+python pipeline/assets_gen/gen_cg_video/run.py \
+  --tasks test_data/test_samples/<game_id>/cg_video/cg_tasks.jsonl \
+  --task-id <task_id> \
+  --run-id <run_id> \
+  <backend-and-format-options>
+```
+
+Video and audio references may be authored now, but the current Operator blocks
+their execution until future support is implemented. The current pipeline
+produces one `video.mp4` per task; assembling several clips into one edited
+master is a separate post-production step.
 
 ## Shared modes
 
@@ -115,7 +188,7 @@ python pipeline/assets_gen/gen_cg_video/run.py \
 Example JSONL row:
 
 ```json
-{"game_id":"gameA_cyberpunk_shooter","task_id":"shot_001","mode":"first_frame_to_video","prompt":"The camera slowly moves closer.","duration_sec":5,"seed":42,"first_frame_path":"gameA_cyberpunk_shooter/cg_video/shot_001.png"}
+{"game_id":"gameA_cyberpunk_shooter","task_id":"shot_001","mode":"first_frame_to_video","prompt":"The camera slowly moves closer.","duration_sec":5,"seed":42,"first_frame_path":"test_data/test_samples/gameA_cyberpunk_shooter/cg_video/ref_images/shot_001.png"}
 ```
 
 Repository-relative image paths are resolved through `pipeline.common.paths`,
@@ -128,7 +201,7 @@ Install the shared dependency and set credentials:
 ```bash
 bash scripts/asset_env_setup/cg_video/cloud_api_install.sh
 export ARK_API_KEY="your-api-key"
-export AAAGF_API_CACHE=test_data/outputs/_api_cache
+export A3GAMEFORGE_API_CACHE=test_data/outputs/_api_cache
 ```
 
 Optional configuration:
@@ -211,8 +284,11 @@ python pipeline/assets_gen/gen_cg_video/run.py \
   --duration-sec 5
 ```
 
-The local default is 864×480 at 24 fps. Use `MINIMAX_LOCAL_FILES_ONLY=1` only
-after a complete checkpoint is available. Relevant controls include
+The local default is 864×480 at 24 fps. Both dimensions must be positive
+multiples of 32. Common presets are 832×480 (480P), 1344×736 (720P),
+1920×1088 (1080P/1K), and 2560×1440 (2K). Use
+`MINIMAX_LOCAL_FILES_ONLY=1` only after a complete checkpoint is available.
+Relevant controls include
 `COMFYUI_PATH`, `HUGGINGFACE_HUB_CACHE`, `MINIMAX_WIDTH`, `MINIMAX_HEIGHT`,
 `MINIMAX_FPS`, `MINIMAX_STEPS`, `MINIMAX_SCHEDULER`, and
 `MINIMAX_REF_IMAGE_SIZE`. Keep downloaded checkpoints outside source control,
@@ -236,7 +312,7 @@ export ARK_API_KEY="your-api-key"
 export CG_VIDEO_BACKEND=seedance
 export CG_VIDEO_TEST_TASKS=/absolute/path/to/cg_tasks.jsonl
 export CG_VIDEO_TEST_OUT_DIR=/absolute/path/to/output
-export AAAGF_API_CACHE=/absolute/path/to/api_cache
+export A3GAMEFORGE_API_CACHE=/absolute/path/to/api_cache
 python test/test_cg_video_gen.py
 ```
 
