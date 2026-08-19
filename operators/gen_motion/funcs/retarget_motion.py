@@ -149,7 +149,7 @@ def ensure_retarget_runtime(bpy_python: str, *, device: str = "cpu") -> str:
     if not executable.is_file():
         raise RuntimeError(
             f"Retarget bpy Python does not exist: {bpy_python}. "
-            "Set AAAGF_RETARGET_BPY_PYTHON or pass --bpy-python."
+            "Set A3GF_RETARGET_BPY_PYTHON or pass --bpy-python."
         )
     proc = subprocess.run(
         [

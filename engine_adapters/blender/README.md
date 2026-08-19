@@ -93,7 +93,7 @@ After a retargeted FBX is written, import/validate it with:
 ```bash
 python scripts/import_generated_asset.py \
   --src retargeted.fbx --engine blender --kind motion \
-  --blender $AAAGF_RETARGET_BPY_PYTHON
+  --blender $A3GF_RETARGET_BPY_PYTHON
 ```
 
 ## The gameplay kit (`game/`)

@@ -109,7 +109,7 @@ class MoMaskModel:
         if not python_bin.is_file():
             raise RuntimeError(
                 "MoMask Python executable does not exist: "
-                f"{python_bin}. Set AAAGF_MOMASK_PYTHON or pass "
+                f"{python_bin}. Set A3GF_MOMASK_PYTHON or pass "
                 "--momask-python."
             )
         missing = [
