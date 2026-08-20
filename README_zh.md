@@ -219,6 +219,20 @@ GameFactory-3A/
 生成产物位于 `test_data/outputs/`，并按照游戏、运行、任务类别和任务 ID
 组织。Agent 与贡献者应使用 `pipeline/common/paths.py`，不要手工拼接输出路径。
 
+## 加入我们的社区
+
+欢迎加入我们的微信群，与我们交流项目使用、开发相关问题以及反馈建议。
+
+<p align="center">
+  <img width="396" height="396" alt="微信群二维码" src="https://github.com/user-attachments/assets/dffb9c54-cd72-449a-872d-27ecca0fa1c9" />
+</p>
+
+<p align="center">
+  扫描二维码加入微信群
+</p>
+
+> 如果二维码失效，请在 GitHub Issues 中留言，我们会及时更新。
+
 ---
 
 <a id="citation"></a>
