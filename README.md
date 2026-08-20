@@ -218,6 +218,22 @@ Generated artifacts are organized by game, run, task kind, and task id under
 
 ---
 
+## Join Our Community
+
+Welcome to our WeChat group! Feel free to join us for project discussions, development support, and feedback.
+
+<p align="center">
+  <img width="396" height="396" alt="QR" src="https://github.com/user-attachments/assets/ea269ebc-9aec-48d0-8342-5268db5225c6" />
+</p>
+
+<p align="center">
+  Scan the QR code to join our WeChat group.
+</p>
+
+> If the QR code has expired, please open an issue on GitHub and we will update it.
+
+---
+
 ## Citation
 
 ```bibtex
