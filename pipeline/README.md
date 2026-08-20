@@ -20,15 +20,19 @@ pipeline/
 │   ├── gen_3d_object/{run.py, eval.py}      #   image / text → 3D object
 │   ├── gen_tpose_image/{run.py, eval.py}    #   character image → T-pose RGBA
 │   ├── gen_3d_scene/{run.py, eval.py, render.py}  # image / footage → scene mesh
-│   ├── gen_motion/{run.py, eval.py}         #   text + skeleton → animation
+│   ├── gen_motion/{run.py, eval.py}         #   text or downloaded clip + skeleton → animation
 │   ├── gen_cg_video/{run.py, eval.py}       #   text / frame → CG video
-│   ├── gen_audio/{run.py, eval.py}          #   text / reference → dialogue or game SFX
-│   └── retarget/{run.py, eval.py}           #   motion + skeleton → retargeted motion
+│   └── gen_audio/{run.py, eval.py}          #   text / reference → dialogue or game SFX
 │
-├── mechanic/{run.py, eval.py}               # spec + engine template → code + trace
-├── ui/{run.py, eval.py}                     # UI spec → UI code + screenshots
-└── full_pipeline/{run.py, eval.py}          # design doc → playable vertical slice
+└── code_gen/                                # Code generation tasks
+    ├── gen_mechanic/{run.py, eval.py}       #   spec + engine template → code + trace
+    └── gen_ui/{run.py, eval.py}             #   UI spec → UI code + screenshots
 ```
+
+An end-to-end game slice has no runner of its own: the agent orchestrates the
+task runners above by following `agent_skills/setting_overview.md`. The
+`pipeline` task kind stays registered in `common/paths.py` so slice artifacts and
+`pipeline_task.jsonl` inputs keep a stable location.
 
 ## Public asset-generation API
 
