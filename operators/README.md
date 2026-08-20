@@ -1,6 +1,6 @@
 # operators/
 
-Task **operators** — one per WorldFlex-GameBenchmark task type.
+Task **operators** — one per asset-generation task type.
 
 Each operator directory has a uniform layout:
 
@@ -14,21 +14,39 @@ operators/<task>/
 
 `metrics/` is co-located with each operator on purpose — the evaluation logic
 is tightly coupled to that operator's outputs (e.g., CG needs temporal-consistency
-metrics; 3D-object needs Chamfer + PBR checks; retarget needs foot-skate + jerk).
+metrics; 3D-object needs Chamfer + PBR checks; motion needs foot-skate + jerk).
 
 ## Operators
 
-| Operator         | Layer | Description                                                | Typical metrics                                |
-|------------------|-------|------------------------------------------------------------|------------------------------------------------|
-| `process_input`  | pre   | Parse text, preprocess image, extract character            | schema-conformance                             |
-| `gen_3d_object`  | A     | Generate a single 3D asset from image / text               | Chamfer, CLIP, tri-count, PBR completeness     |
-| `gen_3d_scene`   | A     | Reconstruct a whole 3D scene from a reference image or footage | boundary-edge ratio, largest-component share, stretch p99 |
-| `gen_motion`     | A     | Generate skeletal animation                                | FID-motion, foot-skate, jerk, loop continuity  |
-| `gen_cg_video`   | A     | Generate CG / cutscene video                               | temporal consistency, optical-flow, CLIP       |
-| `gen_audio`      | A     | Generate character dialogue and game sound effects          | intelligibility, prompt alignment, fidelity, loudness |
-| `retarget`       | A     | Retarget motion between skeletons                          | foot-skate, hand-drift, source-timing preservation |
-| `gen_mechanic`   | B     | Generate mechanic code for UE5 / Unity3D                   | build-ok, trace-replay, rubric-judge           |
-| `gen_ui`         | C     | Generate front-end / HUD code                              | resolution robustness, navigability, rubric-judge |
+| Operator | Class | Description | Steps in `funcs/` |
+|---|---|---|---|
+| `gen_tpose_image` | `GenTPoseImageOperator` | Character image → T-pose RGBA, ready for rigging | `gen_tpose_image` |
+| `gen_3d_object` | `Gen3DObjectOperator` | Generate a single 3D asset from image / text | `art_plan`, `asset_import`, `asset_pack`, `mesh_cleanup` |
+| `gen_3d_scene` | `Gen3DSceneOperator` | Reconstruct a 3D scene from a reference image, or compose ground + placed objects | `scene_mask`, `points_to_mesh`, `build_scene_mesh`, `scene_assets`, `appearance_assets` |
+| `gen_motion` | `GenMotionOperator` | Rig a character, generate or fetch a clip, and retarget it | `rig_character`, `generate_motion`, `fetch_motion`, `retarget_motion` |
+| `gen_audio` | `GenAudioOperator` | Generate character dialogue and game sound effects | `generate_dialogue`, `generate_sound_effect`, `prepare_reference_audio`, `resample_audio` |
+| `gen_cg_video` | `GenCGVideoOperator` | Generate CG / cutscene video | — |
+
+`gen_motion` covers rigging, text-to-motion, library downloads, and retargeting
+in one operator; `task_type` on the task selects the route, so there is no
+separate `retarget` operator.
+
+Two directories are reserved but not implemented yet — `operator.py` is empty in
+both, so do not import them:
+
+| Reserved | Intended scope | Current state |
+|---|---|---|
+| `process_input` | Parse text, preprocess image, extract character | Placeholder |
+| `gen_ui` | HUD / front-end generation, with `agent/`, `prompts/`, `skills/` | Placeholder; the runnable UI path is `pipeline/code_gen/gen_ui/` |
+
+Code generation for gameplay and UI has no operator layer: `pipeline/code_gen/gen_mechanic/`
+and `pipeline/code_gen/gen_ui/` drive an agent against the engine adapters directly.
+
+`metrics/` exposes a single `evaluate(result, task)` entry point per task and runs
+without a model, weights, or a GPU. Only `gen_3d_scene` (boundary-edge ratio,
+largest-component share, stretch p99) and `gen_motion` (rig, BVH, and retarget
+artifact checks) are implemented; the remaining `metrics/` packages are empty
+placeholders.
 
 ## Note on `gen_3d_scene`
 
