@@ -1,6 +1,6 @@
 # test_samples/
 
-WorldFlex-GameBenchmark test set — **one directory per game project**, plus
+3AGameFactory test set — **one directory per game project**, plus
 cross-game aggregate jsonls. Read-only input; generated artifacts go to
 `../outputs/<game_id>/...` (same first axis — see `../outputs/README.md`).
 
@@ -25,11 +25,7 @@ test_samples/
 │   ├── motion/
 │   │   ├── requirement.txt
 │   │   ├── ref_videos/
-│   │   └── motion_tasks.jsonl
-│   ├── retarget/
-│   │   ├── source_motions/
-│   │   ├── target_skeletons/
-│   │   └── retarget_tasks.jsonl
+│   │   └── motion_tasks.jsonl        ← rigging, generation, download, retarget
 │   ├── cg_video/
 │   │   ├── requirement.txt
 │   │   ├── ref_images/               ← optional image references / keyframes
@@ -59,7 +55,6 @@ test_samples/
     ├── tpose_gen_collect.jsonl
     ├── 3D_scene_gen_collect.jsonl
     ├── motion_gen_collect.jsonl
-    ├── retarget_collect.jsonl
     ├── cg_video_collect.jsonl
     ├── audio_gen_collect.jsonl
     ├── mechanic_collect.jsonl
@@ -69,7 +64,9 @@ test_samples/
 
 Directory names and task-list filenames are registered in
 `pipeline/common/paths.py` (`TASK_INPUT_DIR`, `TASK_JSONL`, `TASK_COLLECT_JSONL`).
-Renaming one here means updating that table.
+Renaming one here means updating that table. The nine task kinds in that table are
+the whole set — rigging, text-to-motion, library downloads, and retargeting all
+live under `motion/`, selected by `task_type` on the task line.
 
 ## Task line schema
 
@@ -95,7 +92,16 @@ latter by `game_id`.
 
 ## Current status
 
-Only `gameA_cyberpunk_shooter/` is scaffolded. `3D_object/` and `tpose/` have real
-task lines (in the `*_collect.jsonl`); `audio/` is a documented template for dialogue
-and sound-effect tasks; everything else is an empty placeholder. Populate
-`requirement.txt` and `*_tasks.jsonl`, then add gameB / gameC.
+The layout above is the canonical structure, not a description of what is checked
+in. Only `gameA_cyberpunk_shooter/` is scaffolded, and only these carry real
+content:
+
+- `3D_object_gen_collect.jsonl`, `tpose_gen_collect.jsonl`,
+  `3D_scene_gen_collect.jsonl`, `audio_gen_collect.jsonl` — real task lines
+- `audio/requirement.txt` + `audio/audio_tasks.jsonl` — documented template for
+  dialogue and sound-effect tasks
+- `tpose/ref_images/luffy.jpg` — the one reference image present
+
+Everything else is an empty placeholder or an empty `ref_*/` directory. There is
+no complete, ready-to-run test case yet; see `../README.md` for the agent-driven
+path that needs no prepared input.

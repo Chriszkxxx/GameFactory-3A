@@ -23,6 +23,11 @@ classification, response cache, submit → poll → download) lives in
 | `gen_cg_video` | `SeedanceModel` | `gen_cg_video/seedance_model.py` | cloud API | `$ARK_API_KEY` + `scripts/asset_env_setup/cg_video/cloud_api_install.sh` |
 | `gen_cg_video` | `MiniMaxH3Model` | `gen_cg_video/minimax_h3_model.py` | cloud API + local pruned INT8 | `$MINIMAX_API_KEY` or `scripts/asset_env_setup/cg_video/minimax_h3_install.sh` |
 | `gen_image` | `QwenEditModel` | `gen_image/qwen_edit_model.py` | local weights | GPU |
+| `gen_image` | `SeedreamModel` | `gen_image/seedream_model.py` | cloud API | `$ARK_API_KEY` + `scripts/asset_env_setup/image/cloud_api_install.sh` |
+| `gen_image` | `SDXLTurboModel` | `gen_image/sdxl_turbo.py` | local weights | GPU; concept art only, not game output |
+| `gen_audio` | `SeedAudioModel` | `gen_audio/seed_audio_model.py` | cloud API | `$SEED_AUDIO_API_KEY` + `scripts/asset_env_setup/audio/cloud_api_install.sh`; one class serves both dialogue and SFX slots |
+| `gen_audio` | `Qwen3TTSModel` | `gen_audio/qwen3_tts_model.py` | local weights | `pip install -U qwen-tts`; CustomVoice / VoiceDesign / voice clone |
+| `gen_audio` | `WooshDFlowModel` | `gen_audio/woosh_model.py` | local weights | Woosh-DFlow, Woosh-AE, TextConditionerA checkpoints; weights are CC-BY-NC |
 | `gen_motion` | `PuppeteerModel` | `gen_motion/puppeteer_model.py` | external source + local weights | CUDA rigging runtime |
 | `gen_motion` | `MoMaskModel` | `gen_motion/momask_model.py` | external source + local weights | CPU or CUDA generation runtime |
 | `tools/image_matting` | `RMBGModel`, `DepthAnythingModel` | `tools/image_matting/{rmbg_model.py,depth_anything_model.py}` | local weights | — |
@@ -68,7 +73,7 @@ the scene. Only segmentation finds it.
 | `gen_3d_scene/`  | Whole-scene / world generation       | Hunyuan-WorldPlay2, FlashWorld, FantasyWorld |
 | `gen_motion/`    | Motion generation and rigging models | Puppeteer and MoMask implemented; MDM, MLD, T2M-GPT, MotionGPT are candidates |
 | `gen_cg_video/`  | Cinematic / CG video generation      | LTX-2.3, HunyuanVideo, Wan, Mochi, CogVideoX, Open-Sora, Seedance 2, Kling 3, Veo 3, Sora 2, Runway Gen-4, Hailuo, Vidu |
-| `gen_audio/`     | Character voice, dialogue, and game sound generation | Future speech, voice, and sound-effect backends |
+| `gen_audio/`     | Character voice, dialogue, and game sound generation | Seed Audio, Qwen3-TTS, and Woosh-DFlow implemented; other speech and SFX backends are candidates |
 | `reasoning/`     | LLMs / VLMs used by the pipeline     | Claude, GPT-5.5, GLM, Kimi, DeepSeek, Gemini, Qwen, Grok, Llama, Mistral |
 | `tools/`         | Utility models (depth, RMBG, seg.)   | Depth-Anything, RMBG, SAM, etc.       |
 | `unified_model/` | Composite / multimodal pipelines     | e.g., end-to-end asset+motion models  |

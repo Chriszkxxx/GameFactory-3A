@@ -32,6 +32,8 @@
 
 ### Unity
 
+对战、FPS 与赛车游戏：对战人物全部由 Meshy 生成，并使用我们自己的 Puppeteer + MoMask 完成绑骨与动作；FPS 的枪械与赛车游戏的车辆由 Hunyuan3D 生成，其人物与动作来自 Mixamo，场景则取自 Unity 资产库。
+
 <table>
   <tr>
     <td width="33%">
@@ -51,6 +53,8 @@
 
 ### UE5
 
+对战、RPG 与 FPS 游戏：对战中我方操控人物，以及 RPG 中的人物、石碑与宝箱由 Meshy 生成，FPS 的枪械由 Hunyuan3D 生成；其余人物与全部动作来自 Mixamo 等开源资产，场景均为开源资产。
+
 <table>
   <tr>
     <td width="33%"><video src="https://github.com/user-attachments/assets/c7c0fbfe-cfbc-4a10-b279-c666ae1364da" width="100%" controls muted playsinline></video></td>
@@ -60,6 +64,8 @@
 </table>
 
 ### Blender
+
+对战与赛车游戏均使用下载的简单资产；探索游戏与 FPS 游戏则由下载的场景贴图与 Meshy 生成的物体实现。
 
 <table>
   <tr>
@@ -166,9 +172,9 @@ API 上下文。
 | 动作生成 | 骨骼、生成动作、重定向动画片段 | `pipeline/assets_gen/gen_motion/` |
 | 音频生成 | 对话、音效、环境声与 WAV 资产 | `pipeline/assets_gen/gen_audio/` |
 | CG 视频生成 | 文本、首帧、首尾帧、参考图驱动的 MP4 | `pipeline/assets_gen/gen_cg_video/` |
-| 玩法生成 | 引擎原生的机制与运行时行为 | `pipeline/mechanic/` |
-| UI 生成 | HUD、菜单、界面与交互流程 | `pipeline/ui/` |
-| 完整游戏切片 | 资产、玩法、UI 与评测的协同结果 | `pipeline/full_pipeline/` |
+| 玩法生成 | 引擎原生的机制与运行时行为 | `pipeline/code_gen/gen_mechanic/` |
+| UI 生成 | HUD、菜单、界面与交互流程 | `pipeline/code_gen/gen_ui/` |
+| 完整游戏切片 | 资产、玩法、UI 与评测的协同结果 | 由 Agent 依据 `agent_skills/setting_overview.md` 编排 |
 
 <a id="engines"></a>
 
@@ -194,21 +200,17 @@ GameFactory-3A/
 │   ├── asset_qa/               # 资产生成与视觉 QA Skill
 │   ├── code_gen/               # 将已验收资产整合为玩法和 UI 的 Skill
 │   ├── develop_harness/        # models → operators → pipeline 的贡献者契约
-│   ├── engine_context/         # UE5、Blender、Unity、three.js 与浏览器 API 上下文
-│   └── reference/              # 已迁移的任务说明与后端参考资料
+│   └── engine_context/         # UE5、Blender、Unity、three.js 与浏览器 API 上下文
 ├── engine_adapters/            # 引擎参考代码与公开 Adapter API
 ├── models/                     # 本地模型与云模型封装
 ├── operators/                  # 组合已加载模型的任务逻辑
-├── pipeline/                   # 生成、评测与完整 Pipeline 入口
+├── pipeline/                   # 生成与评测入口
 │   ├── assets_gen/             # 图片、3D、场景、动作、音频与 CG 视频任务
-│   ├── mechanic/               # 玩法代码生成
-│   ├── ui/                     # UI 代码生成
-│   └── full_pipeline/          # 端到端游戏切片编排
+│   ├── code_gen/               # 玩法（gen_mechanic）与 UI（gen_ui）代码生成
+│   └── common/                 # 共享辅助模块；paths.py 是所有输入输出路径的唯一来源
 ├── scripts/                    # 环境配置、引擎启动器与导入工具
-│   ├── asset_env_setup/        # 按资产任务组织的环境配置
-│   ├── engine_install/         # UE5、Blender、Unity、three.js 的安装与启动脚本
-│   ├── gen_motion/             # 动作运行时、固定源码与权重安装
-│   └── cloud_api_install.sh    # 各任务云 API 安装器复用的共享实现
+│   ├── asset_env_setup/        # 按资产任务组织的环境配置，含 gen_motion 运行时与权重安装
+│   └── engine_install/         # UE5、Blender、Unity、three.js 的安装与启动脚本
 ├── test/                       # 用于验证流程实际可运行的契约、集成与 smoke 脚本
 ├── test_data/                  # 示例需求；生成的游戏结果位于 outputs/
 └── third_party/                # 检出的外部仓库，例如 trimesh 与引擎材质/资产库

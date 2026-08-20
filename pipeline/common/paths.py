@@ -25,7 +25,7 @@ Full output tree::
             │   └── audio/<task_id>/            # dialogue / sound-effect audio + meta.json
             ├── mechanic/<task_id>/            # engine project + demo_outputs/ + launch.sh
             ├── ui/<task_id>/
-            ├── pipeline/<task_id>/            # full_pipeline vertical slice
+            ├── pipeline/<task_id>/            # end-to-end game-slice artifacts
             └── eval/
                 ├── <task_kind>/<task_id>/     # metrics.json · build.log · judge_log.json
                 └── summary.json               # aggregate over the whole run
