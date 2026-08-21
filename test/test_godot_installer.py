@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import stat
 import sys
 import tempfile
@@ -200,30 +201,44 @@ class GodotInstallerTests(unittest.TestCase):
             self.assertTrue(result["download_url"].startswith("https://github.com/godotengine/godot/releases/download/"))
             self.assertFalse((root / "install").exists())
 
-    def test_windows_path_shim_reuses_only_exact_managed_command(self) -> None:
+    def test_windows_managed_install_and_path_shim_are_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            executable = root / "Godot 4.5.1" / "Godot.exe"
-            executable.parent.mkdir()
+            install_root = root / "install"
+            install_dir = install_root / "4.5.1-stable" / "windows-x86_64"
+            executable = install_dir / "Godot_v4.5.1-stable_win64.exe"
+            executable.parent.mkdir(parents=True)
             executable.touch()
-            common = [
-                "--version",
-                "4.5.1",
-                "--install-root",
-                str(root / "install"),
-                "--cache-dir",
-                str(root / "cache"),
-                "--bin-dir",
-                str(root / "bin"),
-                "--config-dir",
-                str(root / "config"),
-                "--system",
-                "Windows",
-                "--machine",
-                "AMD64",
-            ]
-            parser = installer.build_parser()
-            args = parser.parse_args(common + ["--executable", str(executable)])
+            (install_dir / "a3game-install.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": installer.INSTALL_SCHEMA,
+                        "version": "4.5.1",
+                        "asset": "Godot_v4.5.1-stable_win64.exe.zip",
+                        "executable": str(executable),
+                        "sha512": "fixture-sha512",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = installer.build_parser().parse_args(
+                [
+                    "--version",
+                    "4.5.1",
+                    "--install-root",
+                    str(install_root),
+                    "--cache-dir",
+                    str(root / "cache"),
+                    "--bin-dir",
+                    str(root / "bin"),
+                    "--config-dir",
+                    str(root / "config"),
+                    "--system",
+                    "Windows",
+                    "--machine",
+                    "AMD64",
+                ]
+            )
 
             with mock.patch.object(
                 installer,
@@ -233,21 +248,17 @@ class GodotInstallerTests(unittest.TestCase):
                 first = installer.install(args)
                 second = installer.install(args)
 
-            self.assertEqual("reused-existing", first["action"])
-            self.assertEqual("reused-existing", second["action"])
+            self.assertEqual("reused-managed", first["action"])
+            self.assertEqual("reused-managed", second["action"])
             self.assertEqual(first["path_shim"], second["path_shim"])
+            self.assertEqual("fixture-sha512", second["sha512"])
             shim = Path(first["path_shim"])
             expected = (
                 "@echo off\r\n" + f'"{executable.resolve()}" %*\r\n'
             ).encode("utf-8")
             self.assertEqual(expected, shim.read_bytes())
 
-            other_executable = root / "foreign" / "Godot.exe"
-            other_executable.parent.mkdir()
-            other_executable.touch()
-            other_args = parser.parse_args(
-                common + ["--executable", str(other_executable)]
-            )
+            shim.write_bytes(expected + b"rem foreign change\r\n")
             with mock.patch.object(
                 installer,
                 "probe_executable",
@@ -257,8 +268,8 @@ class GodotInstallerTests(unittest.TestCase):
                     installer.InstallError,
                     "PATH shim already exists and is not owned",
                 ):
-                    installer.install(other_args)
-            self.assertEqual(expected, shim.read_bytes())
+                    installer.install(args)
+            self.assertEqual(expected + b"rem foreign change\r\n", shim.read_bytes())
 
     def test_atomic_publication_restores_existing_install_on_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
