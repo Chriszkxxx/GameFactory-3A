@@ -1,0 +1,22 @@
+# T-pose Generation Requirements — gameF_racing
+
+## Status: NOT APPLICABLE
+
+Racing uses one visible rigged driver, but the driver is supplied as an
+already-rigged FBX under the 3D-object task contract. The benchmark therefore
+does not generate an additional T-pose reference image.
+
+The T-pose pipeline (QwenEdit image generation → RMBG matting → 3D model
+via TRELLIS.2) is therefore **skipped** for this game.
+
+## What is used instead
+
+- Vehicle meshes are generated directly from reference images (see
+  `../3D_object/object_tasks.jsonl`).
+- Mechanical animation and the driver's seated pose are authored
+  procedurally in-engine. No generated motion clip is required for the MVP.
+
+## File
+
+`tpose_tasks.jsonl` is intentionally empty (no task lines). The pipeline
+runner skips empty JSONL files gracefully.

@@ -1,0 +1,65 @@
+# Audio Generation Requirements — gameD_forest_adventure
+
+## 概述
+
+本目录包含 gameD_forest_adventure（自由探索 ARPG）所需的全部音频生成任务。
+音频分为两大类：环境音效（ambient loop）和一次性音效（one-shot SFX）。
+所有音效通过 Woosh-DFlow 模型生成。
+
+---
+
+## 生成方式
+
+| 音频类型 | 生成方式 | 模型 | 采样率 |
+|---------|---------|------|--------|
+| 环境音 | SFX generation (ambient loop) | Woosh-DFlow | 48000 Hz |
+| 游戏音效 | SFX generation (one-shot) | Woosh-DFlow | 48000 Hz |
+
+---
+
+## 音频清单
+
+### 环境音
+
+| # | task_id | 音效名 | 类型 | prompt | duration | seed |
+|---|---------|--------|------|--------|----------|------|
+| 1 | demoForest_031 | 森林环境音 | ambient_loop | Dense fantasy forest ambient soundscape, birdsong, rustling leaves, gentle wind through trees, distant water stream, magical forest atmosphere, no music, no voice | 10.0s | 42 |
+
+### 战斗音效
+
+| # | task_id | 音效名 | 类型 | prompt | duration | seed |
+|---|---------|--------|------|--------|----------|------|
+| 2 | demoForest_032 | 挥剑破空 | one_shot | A sharp sword swing whoosh, blade cutting through air, metallic ring, fantasy combat sound effect, no music, no voice | 0.5s | 42 |
+| 3 | demoForest_033 | 弓弦拉放 | one_shot | Bowstring being drawn and released, tension creak then sharp twang, archery sound effect, fantasy combat, no music, no voice | 1.0s | 42 |
+| 4 | demoForest_034 | 光箭发射 | one_shot | A magical glowing arrow being fired, ethereal whoosh with golden energy hum, fantasy projectile sound effect, no music, no voice | 0.5s | 42 |
+| 5 | demoForest_035 | 光箭命中 | one_shot | Golden magical arrow impact, burst of light energy, crystalline shatter with warm resonance, fantasy hit sound effect, no music, no voice | 0.5s | 42 |
+| 6 | demoForest_036 | 玩家受击 | one_shot | Player taking damage, painful grunt with impact thud, flesh hit sound effect, fantasy combat, no music | 0.5s | 42 |
+| 7 | demoForest_037 | 蝙蝠死亡 | one_shot | Demonic bat death screech, high pitched shriek fading into purple dissolve, creature death sound effect, fantasy monster, no music, no voice | 1.5s | 7 |
+| 8 | demoForest_038 | 哥布林死亡 | one_shot | Forest goblin death groan, low guttural moan with green dissolve, creature death sound effect, fantasy monster, no music, no voice | 1.5s | 13 |
+
+### 交互音效
+
+| # | task_id | 音效名 | 类型 | prompt | duration | seed |
+|---|---------|--------|------|--------|----------|------|
+| 9 | demoForest_039 | 宝箱开启 | one_shot | Treasure chest opening, wooden creak followed by magical chime and golden sparkle, fantasy reward sound effect, no music, no voice | 2.0s | 99 |
+| 10 | demoForest_040 | 脚步声 | one_shot | Footstep on forest ground, crunching leaves and moss, soft earthy step, fantasy adventure, no music, no voice | 0.3s | 42 |
+| 11 | demoForest_041 | 跳跃落地 | one_shot | Jump and landing on forest ground, athletic leap then soft earthy thud with leaf rustle, fantasy adventure, no music, no voice | 0.6s | 42 |
+| 12 | demoForest_042 | 拾取奖励 | one_shot | Item pickup chime, pleasant magical notification sound, collect reward jingle, fantasy UI sound effect, no music, no voice | 0.5s | 42 |
+
+---
+
+## 输出路径
+
+```
+outputs/gameD_forest_adventure/audio/<task_id>/
+  ├── audio.wav
+  └── audio.mp3
+```
+
+## 注意事项
+
+1. 环境音为循环音频，需确保首尾平滑过渡以无缝循环
+2. 所有音效均为单声道或立体声，采样率 48000 Hz
+3. 战斗音效需与动画时长匹配（如挥剑音效对应 sword_swing 动画时长）
+4. 音效不应包含背景音乐或人声（除受击音效中的短促闷哼外）
+5. 所有音效需有明确的起止，无过长静音
