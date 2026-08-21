@@ -46,6 +46,9 @@ test_data/outputs/**
 !test_data/outputs/**/
 !test_data/outputs/**/.gitkeep
 
+# Godot editor/import cache
+.godot/
+
 # Cloned code agents
 third_party/*/
 !third_party/README.md

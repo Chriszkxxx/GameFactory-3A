@@ -2,268 +2,427 @@
 
 Status: implemented `GodotClient` API version `v1` for Godot 4.x.
 
-This file is the compact public capability index. Read public method source for
-exact optional parameters and payload details.
+This is the executable capability index for an AI agent. It covers engine
+installation first, then every supported public host call. The only supported
+Python entry point is:
 
-## Hard API boundary
-
-The only supported host entry point is:
-
-```text
+```python
 from engine_adapters.godot import GodotClient
 ```
 
-Generated native code may use the installed project add-on at:
+Do not import `engine_adapters.godot._internal`, call adapter-owned GDScript
+directly, edit `.a3game` state, construct generated-output paths, or make a
+generated game depend on `engine_adapters/godot/examples/` at runtime.
 
-```text
-res://addons/a3game_playable/
+## 1. Discover, install, and validate Godot before project work
+
+An agent must establish a verified Godot executable before creating a project,
+importing an asset, or launching a game.
+
+Linux/macOS:
+
+```bash
+scripts/engine_install/godot/install.sh --dry-run --json
+scripts/engine_install/godot/install.sh --version 4.5.1 --json
 ```
 
-Do not import `engine_adapters.godot._internal`, invoke Godot binaries outside
-the Client, construct output paths manually, edit the adapter-owned runtime, or
-depend on `engine_adapters/godot/examples/` at runtime. Generated mechanic and UI
-code belongs in a separate project-local add-on.
+Windows:
 
-## Result contract
+```bat
+scripts\engine_install\godot\install.cmd --dry-run --json
+scripts\engine_install\godot\install.cmd --version 4.5.1 --json
+```
 
-Every public operation returns strict-JSON-serializable `ok`, `operation`,
-`artifacts`, `diagnostics`, `warnings`, `errors`, and `payload` fields. Public
-metadata and persistent registries reject non-standard `NaN` and infinity
-values instead of emitting JavaScript-only constants.
+Require exit code zero, `ok=true`, and an exact `verified_version`. The default
+is pinned to `4.5.1-stable`; `latest` is deliberately rejected. The installer:
 
-## Client and configuration
+- probes `--executable`, `A3GAME_GODOT_EXECUTABLE`, `A3GAME_GODOT`, legacy
+  `AAAGF_GODOT`, then `godot4`/`godot`/`godot-mono` on PATH and reuses only the
+  requested version;
+- selects Linux x86-64/x86-32/arm64/arm32, universal macOS, or Windows
+  x64/x86/arm64 official assets;
+- downloads only the official GitHub Godot release over HTTPS, requires one
+  exact asset entry in official `SHA512-SUMS.txt`, and fails on mismatch;
+- rejects unsafe archive traversal, links, duplicate paths, and special nodes;
+- extracts to a sibling staging directory, probes the staged binary, and only
+  then publishes it by rename, restoring the preserved target if replacement
+  fails;
+- writes a version/platform manifest, a `godot4` PATH shim, machine-readable
+  JSON, and sourceable `.env` or `.cmd` configuration without editing profiles;
+- is idempotent (`action=reused-managed`); a new exact `--version` installs
+  beside the old one, while `--force` replaces only that resolved target.
 
-- `GodotClient` constructs all public namespace clients.
-- `godot.api_version` reports `v1`.
-- `godot.get_environment_info` reports project, executable, runtime port, and
-  registry paths.
+The installer and adapter use Python 3.8+ standard library and do not require
+Python 3.12, pip packages, or an engine SDK package. Compatibility is gated by
+the full Godot adapter suite on Python 3.8.10. Platform details, flags, and
+failure semantics are in `scripts/engine_install/godot/README.md`.
 
-Constructor fields are `project_path`, `godot_executable`, `api_version`, and
-keyword-only `runtime_host`, `runtime_port`, `editor_timeout`, `import_timeout`.
-They resolve from `A3GAME_GODOT_*` variables. If no executable is configured,
-the adapter discovers `godot4`, `godot`, or `godot-mono` on `PATH`.
-`A3GAME_GODOT_DATA_ROOT`, `A3GAME_GODOT_ARTIFACT_REGISTRY`, and
-`A3GAME_GODOT_WORLD_REGISTRY_ROOT` override persistent state locations. Every
-existing path component must be an ordinary directory (and every managed leaf
-an ordinary file); symbolic links and special nodes fail closed.
+Configure the returned paths and validate through the public client:
 
-## Project
+```bash
+export A3GAME_GODOT_EXECUTABLE=/absolute/path/to/godot4
+export A3GAME_GODOT_PROJECT=/projects/MyGame
+scripts/engine_install/godot/create_project.sh --name MyGame
+python3 -m engine_adapters.godot \
+  --project "$A3GAME_GODOT_PROJECT" validate
+```
 
-- `godot.project.get_info` reports `project.godot`, main scene, executable, and
-  version probe evidence.
-- `godot.project.create` creates a minimal Godot 4 project and import roots
-  without concrete gameplay.
-- `godot.project.validate` checks the marker, main scene, and optional engine
-  executable. With engine checks enabled, Godot must load and instantiate the
-  resolved main scene as a `PackedScene`; static-only checks still verify text
-  scene headers.
+## 2. Client configuration and result contract
 
-`project.godot` is the project identity. Passing a directory and passing its
-`project.godot` file are equivalent.
+```python
+godot = GodotClient(
+    project_path="/projects/MyGame",       # directory or project.godot
+    godot_executable="/opt/godot/godot4", # optional after PATH setup
+    api_version="v1",
+    runtime_host="127.0.0.1",
+    runtime_port=30050,
+    editor_timeout=300,
+    import_timeout=300,
+)
+```
 
-## Assets
+Constructor precedence and state:
 
-- `godot.assets.import_asset` imports a registered task artifact by type.
-- `godot.assets.register_resource` adds an existing in-project `res://`
-  resource only after Godot 4 loads it and validates its native type and
-  spawnability. The resource must be a canonical regular file below the
-  project; traversal, symlinks, missing files, and mismatched caller claims are
-  structured failures.
-- Typed helpers: `import_avatar`, `import_motion`, `import_scene`, `import_prop`,
-  `import_weapon`, `import_material`, `import_texture`, `import_effect`, and
-  `import_audio`.
-- `godot.assets.validate` validates source identity, format, destination, and
-  containment without copying.
-- `godot.assets.resolve_source` resolves a repository task identity.
-- `godot.assets.list` and `list_registered` query imported resources.
-- `godot.assets.get_metadata` retrieves one artifact record.
+| Setting | Resolution |
+| --- | --- |
+| Project | argument → `A3GAME_GODOT_PROJECT` → legacy `AAAGF_GODOT_PROJECT` |
+| Executable | argument → `A3GAME_GODOT_EXECUTABLE` → `A3GAME_GODOT` → legacy `AAAGF_GODOT` → PATH discovery |
+| Runtime | arguments → `A3GAME_GODOT_RUNTIME_HOST` / `A3GAME_GODOT_RUNTIME_PORT` → `127.0.0.1:30050` |
+| Timeouts | arguments → `A3GAME_GODOT_EDITOR_TIMEOUT` / `A3GAME_GODOT_IMPORT_TIMEOUT` → 300 seconds |
+| Private state | `A3GAME_GODOT_DATA_ROOT` → `<project>/.a3game` |
+| Artifact registry | `A3GAME_GODOT_ARTIFACT_REGISTRY` → `<data-root>/artifacts.json` |
+| World registry | `A3GAME_GODOT_WORLD_REGISTRY_ROOT` → `<data-root>/worlds` |
 
-Malformed, unreadable, linked, or special-node artifact registries are reported
-as structured operation failures. Registry reads fail closed and never replace
-the source registry while reporting the problem.
+All managed path components must be ordinary directories and all leaves regular
+files. Symbolic links, special nodes, path escapes, malformed strict JSON,
+`NaN`, and infinity fail closed.
 
-Public asset calls consume `{game_id, run_id, task_kind, task_id, artifact_key}`
-identities. They do not accept arbitrary generated-output paths. Destinations
-must be project-relative or `res://` paths without traversal. Every identity is
-one path component and the resolved task directory must remain below the
-configured `OUTPUT_ROOT`, including after symlink resolution.
+Except `api_version` and `runtime.sessions.probe`, every public operation returns
+a strict-JSON dictionary with exactly these top-level fields:
 
-The real import lifecycle copies into `res://assets/imported/...`, runs
-`godot --headless --path <project> --import`, rejects a non-Godot-4 executable,
-nonzero exit, or import/resource corruption, parse, and dependency-image decode
-errors reported at zero exit. It then asks Godot to load the resulting resource.
-Spawnable assets must instantiate as `PackedScene`; mesh-like assets must contain
-a `MeshInstance3D`, while avatars additionally require a skinned mesh and
-Skeleton3D bones. Native class and inspection data are recorded rather than
-inferred from a filename. Default roots mirror asset types. Prefer GLB/glTF for
-meshes and animation;
-Godot-version-specific FBX import returns a portability warning. A `.gltf`
-import preflights the main resource and every referenced local buffer/image
-before copying; without `replace_existing=True`, one conflicting sidecar rejects
-the whole import without changing the project. A later native-validation
-failure restores the sources, adjacent `.import` metadata, and matching
-`.godot/imported` cache files as one transaction.
+| Field | Meaning |
+| --- | --- |
+| `ok` | Boolean success; never infer success from process exit alone |
+| `operation` | Stable operation name |
+| `artifacts` | Produced/selected artifact records |
+| `diagnostics` | Structured engine diagnostics |
+| `warnings` | Non-fatal limitations, including documented local runtime fallback |
+| `errors` | Fatal messages; non-empty on failure |
+| `payload` | Operation-specific values described below |
 
-Bare `.obj` files are rejected for spawnable asset types because Godot 4 loads
-them as `ArrayMesh`, while this adapter's runtime contract requires an
-instantiable `PackedScene`. Convert them to GLB/glTF or wrap them in a Godot
-scene before publication.
+`runtime.sessions.probe(timeout)` is the low-level UDP reachability record and
+returns `ok`, `reachable`, response/error details, and request matching evidence.
 
-## Animation and bindings
+## 3. Complete public call index
 
-- `godot.animation.import_motion` imports motion against a declared Skeleton3D
-  NodePath.
-- `godot.animation.resolve_skeleton` loads an avatar and resolves live
-  Skeleton3D paths with bones.
-- `godot.animation.validate_compatibility` reloads a motion and requires an
-  animation, a bone-targeted track, and the requested live Skeleton3D path.
-- `godot.bindings.bind_pbr_material` imports a StandardMaterial3D or creates a
-  `.tres` from an image, runs the adapter-owned Godot SceneTree script, applies
-  `material_override` to every target `MeshInstance3D`, saves bound
-  `PackedScene` resources, and atomically retargets those artifact records.
+The signatures below are authoritative for `v1`. `E0`–`E8` refer to runnable
+examples in section 4.
 
-The binding manifest under `.a3game/bindings/` is audit metadata, not the
-application mechanism. Success requires Godot to report at least one changed
-`MeshInstance3D` per target and requires each bound scene file to exist;
-otherwise material, scene, manifest, texture, and registry writes roll back.
+### Root and Project
 
-Generated glTF/GLB/FBX/DAE motion loads as `PackedScene` and is registered as
-such. Standalone `AnimationLibrary` or `Animation` resources cannot prove a
-live Skeleton3D and are not accepted by this generated-motion import path. The
-adapter does not infer or relabel native classes. These checks establish
-structural compatibility, not visual retargeting quality.
+| Call | Purpose and successful return | Failure behavior | Example |
+| --- | --- | --- | --- |
+| `godot.api_version -> str` | Returns literal `v1` | Constructor rejects unsupported API versions | E0 |
+| `godot.get_environment_info(*, probe_version=True)` | Project/executable paths, existence, engine version support, runtime endpoint and registry paths | Missing/wrong executable or unsafe state paths are represented in the result | E0 |
+| `godot.project.get_info(*, probe_version=True)` | Project marker, main scene, executable and optional `--version` evidence | Probe errors are structured; no state mutation | E0 |
+| `godot.project.create(project_path=None, *, project_name="", renderer="gl_compatibility", overwrite=False, dry_run=False)` | Creates a minimal Godot 4 `project.godot`, main scene and import roots; artifacts list written paths | Rejects unsupported renderer, linked/special targets, existing managed files without `overwrite`, partial/unsafe layouts | E1 |
+| `godot.project.validate(*, check_engine=True)` | Validates marker/main scene; with engine check, Godot loads and instantiates the resolved `PackedScene` | Missing/unloadable/UID-invalid scene, non-Godot-4 executable, import/load diagnostics or unsafe paths fail | E1 |
 
-## World
+### Assets
 
-- `godot.world.build` imports a scene and creates, validates, and optionally
-  publishes a World package.
-- `godot.world.create_draft`, `validate_draft`, `publish_draft`, and
-  `list_packages` own persistent World manifests under `.a3game/worlds/`.
+`source` is a mapping containing `{game_id, run_id, task_kind, task_id,
+artifact_key}`. Each identity is one safe path component below repository
+`OUTPUT_ROOT`; callers cannot provide an arbitrary generated-output path.
+`options` is strict-JSON metadata forwarded to import handling; common options
+include `replace_existing` and import hints.
 
-`create_draft(spec, *, draft_id="", project_id="", metadata=None)` accepts the
-same public keywords as UE, Unity, and three.js. Non-empty explicit IDs override
-the corresponding spec values; explicit metadata is merged over spec metadata.
-`list_packages(*, project_id="", world_id="")` filters by either or both IDs.
+| Call | Purpose and successful return | Failure behavior | Example |
+| --- | --- | --- | --- |
+| `godot.assets.import_asset(source, asset_type, *, destination="", options=None)` | Resolves, stages, imports, natively inspects and registers any supported type; artifact contains real `res://` path/class/capabilities | Unknown type/identity, source escape, format mismatch, conflict, import/load error or native contract mismatch rolls back files/cache/registry | E2 |
+| `godot.assets.import_avatar(source, **kwargs)` | Typed `avatar` helper; accepts `destination` and `options`; returns registered skinned `PackedScene` | Requires mesh, Skeleton3D bones and a skeleton-linked skinned mesh | E2 |
+| `godot.assets.import_motion(source, *, skeleton="", destination="", avatar_name="", options=None)` | Typed motion import with optional required live Skeleton3D path/avatar label | Requires a `PackedScene`, animation and bone-targeted track compatible with requested skeleton | E3 |
+| `godot.assets.import_scene(source, **kwargs)` | Typed spawnable scene helper; accepts `destination`/`options` | Native resource must load and instantiate as `PackedScene` | E2 |
+| `godot.assets.import_prop(source, **kwargs)` | Typed prop helper; accepts `destination`/`options` | Requires instantiable `PackedScene` with `MeshInstance3D`; bare OBJ fails | E2 |
+| `godot.assets.import_weapon(source, **kwargs)` | Typed weapon helper; accepts `destination`/`options` | Same spawnable mesh contract as prop | E2 |
+| `godot.assets.import_material(source, **kwargs)` | Typed Godot material/image import; accepts `destination`/`options` | Wrong native class, decode/import error or unsafe target fails | E2 |
+| `godot.assets.import_texture(source, **kwargs)` | Typed `Texture2D` import; accepts `destination`/`options` | Corrupt/unsupported image, missing imported resource or wrong class fails | E2 |
+| `godot.assets.import_effect(source, **kwargs)` | Typed effect resource import; accepts `destination`/`options` | Wrong source/target/native load contract fails | E2 |
+| `godot.assets.import_audio(source, **kwargs)` | Typed `AudioStream` import; accepts `destination`/`options` | Decode/load/class mismatch fails | E2 |
+| `godot.assets.validate(source, asset_type, *, destination="", options=None)` | Runs source identity, format, destination and conflict preflight without copying | Returns structured path/type/source errors and makes no changes | E2 |
+| `godot.assets.resolve_source(source, *, asset_type="")` | Resolves trusted task metadata/artifact path and returns source details | Missing metadata/key/file, identity mismatch, link or OUTPUT_ROOT escape fails | E2 |
+| `godot.assets.list(asset_type="", *, root="assets/imported")` | Lists in-project imported resources below a contained root | Traversal, external root, linked/special entries or unreadable project fails | E2 |
+| `godot.assets.list_registered(asset_type="")` | Returns registry artifacts and filtered count | Malformed/linked/special/non-strict registry fails without replacement | E2 |
+| `godot.assets.get_metadata(artifact_id)` | Returns one registered artifact and metadata | Unknown ID or invalid registry fails | E2 |
+| `godot.assets.register_resource(*, resource_path, asset_type, asset_id, source_path="", backend_class="", spawnable=None, metadata=None)` | Natively loads an existing canonical in-project `res://` resource, derives class/spawnability, and registers it; optional claims act as assertions | Traversal/link/missing resource, wrong type/class/spawnability, load/instantiate failure or ambiguous registry upsert fails without writing | E2 |
 
-Published packages point at a ready, spawnable, registered Godot `scene`
-record whose `res://` path and `PackedScene` backend class agree. Godot must
-also load and instantiate the native resource. Draft creation, validation, and
-publication recheck that contract; packages do not duplicate native scene
-content.
+Supported asset types are `avatar`, `motion`, `scene`, `environment`, `effect`,
+`material`, `texture`, `prop`, `static_mesh`, `weapon`, and `audio`. glTF main
+files and local buffers/images are one transaction. Failed native validation
+restores replaced source files, adjacent `.import` files, matching
+`.godot/imported` cache files, and the prior registry.
 
-## Plugin
+### Animation and material binding
 
-- `godot.plugin.install` installs a registered generated add-on containing
-  `plugin.cfg` under `res://addons/`.
-- `godot.plugin.install_framework` installs and enables `A3GamePlayable`.
-- `godot.plugin.list` lists installed project add-ons.
+| Call | Purpose and successful return | Failure behavior | Example |
+| --- | --- | --- | --- |
+| `godot.animation.import_motion(source, *, skeleton, destination="", avatar_name="", options=None)` | Imports a motion and requires the named live Skeleton3D NodePath | Empty/missing skeleton, absent animation/bone track or mismatched target fails/rolls back | E3 |
+| `godot.animation.resolve_skeleton(avatar)` | Reloads registered avatar and returns live Skeleton3D paths/bones | Unknown/non-avatar/unloadable/unskinned resource fails | E3 |
+| `godot.animation.validate_compatibility(motion, skeleton)` | Reloads motion and verifies animation plus bone track targeting the requested live skeleton | Structural mismatch fails; does not claim visual retargeting quality | E3 |
+| `godot.bindings.bind_pbr_material(*, asset_id, source, mesh_assets, destination="assets/imported/materials", options=None)` | Imports/creates material, applies `material_override` through Godot to every target mesh, saves bound scenes, atomically retargets records and returns manifest/artifacts | Missing target/material, zero changed meshes, engine error, unsafe state, duplicate target or any commit failure restores material/scenes/texture/manifest/registry | E3 |
 
-The installer rejects traversal and symlinks and will not replace an existing
-add-on unless explicitly requested.
+### Worlds
 
-## Build and test
+| Call | Purpose and successful return | Failure behavior | Example |
+| --- | --- | --- | --- |
+| `godot.world.build(source, *, options=None)` | Imports a scene then creates, validates and optionally publishes a World according to options | Any asset/draft/native validation failure is returned; no fabricated package | E4 |
+| `godot.world.create_draft(spec, *, draft_id="", project_id="", metadata=None)` | Writes a versioned draft pointing to a ready registered scene; explicit IDs override spec and explicit metadata merges over spec | Wrong schema/JSON, unsafe registry, missing/non-spawnable/non-`PackedScene` scene or native load failure makes no valid draft | E4 |
+| `godot.world.validate_draft(draft_id)` | Revalidates record/file identity, lifecycle and current registered/native scene | Unknown/damaged/version-mismatched/stale draft fails | E4 |
+| `godot.world.publish_draft(draft_id)` | Atomically publishes a validated package and returns package artifact | Only validated drafts publish; linked/special paths, collision or stale scene fail | E4 |
+| `godot.world.list_packages(*, project_id="", world_id="")` | Returns strict packages filtered by either/both IDs | One damaged record fails the read; records are never silently skipped/synthesized | E4 |
 
-- `godot.build.project` requires a named `export_presets.cfg` preset and runs
-  `--export-release`, `--export-debug`, or `--export-pack`. It requires the
-  requested output to exist after a successful process. Export output is first
-  written to an isolated staging directory and committed as a complete sibling
-  artifact set, preserving an existing build when Godot fails. Successful
-  commits write a signed ownership manifest with content proofs; later builds
-  replace only the unchanged, authenticated managed set. The signing key is
-  private adapter state under `A3GAME_GODOT_DATA_ROOT` or `<project>/.a3game`.
-  Edited manifests, changed/unmanaged outputs or companions, symlinked paths,
-  and paths that alias `project.godot`, `export_presets.cfg`, or the signing key
-  fail before commit. Directory output trees are inspected recursively and any
-  nested symbolic link is rejected, regardless of its target.
-- `godot.testing.run_automation_tests` runs the adapter test runner (or an
-  explicit SceneTree script), requires a fresh JSON report, and reports matched,
-  passed, failed, and skipped counts. Reports are written to a private sibling
-  staging path, schema-validated, and atomically published; destinations that
-  alias the project file, runner, or native test inputs are rejected.
+### Plugin
 
-An explicit runner may be an absolute/relative host path or a project
-`res://...` path. Project URIs are passed to Godot unchanged after containment,
-existence, and traversal checks.
+| Call | Purpose and successful return | Failure behavior | Example |
+| --- | --- | --- | --- |
+| `godot.plugin.install(source, *, install_dir="", replace_existing=False, enable=True, dry_run=False)` | Installs a registered generated add-on, natively validates `plugin.cfg`/entry, optionally enables it and returns copied files | Source escape/link/special node, unsafe name/script, missing metadata, non-`@tool EditorPlugin`, existing target or ambiguous settings fails atomically | E5 |
+| `godot.plugin.install_framework(*, replace_existing=False, enable=True, dry_run=False)` | Installs adapter-owned `A3GamePlayable` v1.1.0, enables plugin and `A3GameRuntime` autoload; payload lists copied implementation/test files | Same atomic validation, target and settings rules; conflicting autoload requires explicit replacement | E5 |
+| `godot.plugin.list()` | Lists safe installed add-on descriptors; framework gets distinct artifact type | Unreadable/linked entries are skipped with warnings; unsafe project root fails | E5 |
 
-Native test scripts under `res://tests/` start with `test_`, extend a
-constructible Godot type, and expose `run_test() -> bool | Dictionary`. A result
-dictionary requires a boolean `ok` and may include `name` and `message`.
-Missing or non-boolean `ok` values and all other return types are test failures;
-values are never coerced by truthiness. The generation Agent writes tests;
-execution/evaluation code owns running them and any success claim.
+The framework's machine-readable capability matrix and native smoke test live at
+`engine_adapters/godot/plugin/A3GamePlayable/`. It implements identity,
+normalized input, sessions/entity binding, scene loading, animation dispatch,
+ray/sphere collision probes, HUD telemetry, and material/light helpers. Native
+Godot character/rigid-body physics, VFX/audio, and game rules stay gameplay-owned.
 
-## Runtime and sessions
+### Build and test
 
-- `godot.runtime.launch_editor` / `stop_editor` manage an editor process.
-- `godot.runtime.launch_game` / `stop_game` manage a project runtime process.
-- `godot.runtime.launch_player` / `stop_player` manage an exported executable.
-- `godot.runtime.sessions.join`, `leave`, `heartbeat`, `apply_input`,
-  `snapshot`, `reset_world`, and `clear_entity` expose the game-neutral session
-  contract.
+| Call | Purpose and successful return | Failure behavior | Example |
+| --- | --- | --- | --- |
+| `godot.build.project(*, preset, output_path, debug=False, pack_only=False, extra_args=(), allow_external_output=False, timeout=None, dry_run=False)` | Runs named `--export-release`, `--export-debug` or `--export-pack`; returns full committed sibling set and ownership evidence | Missing preset/output, timeout, engine diagnostic, protected/external/unmanaged/tampered output, bad manifest/proof or nested link fails while preserving prior build | E6 |
+| `godot.testing.run_automation_tests(test_filter="", *, script="", test_root="res://tests", report_path="", timeout=None, dry_run=False)` | Runs adapter/default or explicit SceneTree runner; returns matched/passed/failed/skipped counts and validated cases | Unsafe runner/report/root, timeout, stale/missing/non-strict report, invalid schema/status or any failed case makes operation fail | E6 |
 
-The same Runtime Client can stop only processes it launched. Native runtime
-sessions use the `A3GameRuntime` UDP autoload on port `30050`; an operation
-distinguishes local registration from an engine acknowledgement. Browser Web
-sessions use iframe/canvas input and do not claim UDP delivery.
+Native `test_*.gd` files under the selected root must extend a constructible
+Godot type and return `bool` or a dictionary with boolean `ok` from `run_test()`.
+Truthiness is never used for out-of-contract values. Reports publish from a
+private sibling staging path only after schema validation.
 
-An omitted World resolves to `world_001`. `reset_world` removes only that
-resolved World's sessions on the client and in the autoload; repeated resets
-are idempotent and do not affect other Worlds. `clear_entity` always removes
-the matching session. Its `destroy_actor` flag separately controls whether the
-autoload invokes the entity's `clear_a3game_entity` hook, so `False` retains the
-node while detaching it from runtime control.
+### Runtime and sessions
 
-When no UDP response arrives, operations may use documented local-only fallback
-with a warning (unless `require_runtime=True`). Any received NACK, invalid JSON,
-mismatched request/operation, or malformed acknowledgement fails without
-changing local session or input state; response fields cannot override the
-client's reachability observation.
+| Call | Purpose and successful return | Failure behavior | Example |
+| --- | --- | --- | --- |
+| `godot.runtime.launch_editor(*, scene_path="", extra_args=(), dry_run=False)` | Starts configured editor in its own process group; returns managed process ID | Missing project/executable, unsafe scene or launch error fails | E7 |
+| `godot.runtime.stop_editor(process_id)` | Stops only an editor launched by this client | Unknown/wrong process ID or bounded termination failure returns error | E7 |
+| `godot.runtime.launch_game(*, scene_path="", headless=False, extra_args=(), dry_run=False)` | Starts project/main or selected scene; returns managed process ID | Same ownership/path/launch checks | E7 |
+| `godot.runtime.stop_game(process_id)` | Stops only a managed game process group | Unknown/wrong PID or stop failure returns error | E7 |
+| `godot.runtime.launch_player(build_path, *, extra_args=(), dry_run=False)` | Launches a regular exported executable/file and returns managed process ID | Linked/special/missing/non-executable build or launch error fails | E7 |
+| `godot.runtime.stop_player(process_id)` | Stops only a managed exported player | Unknown/wrong PID or stop failure returns error | E7 |
+| `godot.runtime.sessions.join(*, world_id="", participant_id="", user_id="", avatar_artifact_id="", idle_motion_artifact_id="", move_motion_artifact_id="", controller_kind="human", transform=None, parameters=None, require_runtime=False)` | Resolves optional assets, creates/reconnects controller/entity and returns session plus bridge evidence | Bad mapping/JSON/artifact/type, participant bound to different entity, reachable NACK/protocol error, or required unreachable runtime fails without local registration | E7 |
+| `godot.runtime.sessions.leave(*, participant_id="", controller_id="")` | Deactivates current binding and returns session/bridge record | Unknown session or reachable NACK fails without false deactivation | E7 |
+| `godot.runtime.sessions.heartbeat(controller_id)` | Updates/returns an active local session | Unknown, inactive or offline controller fails | E7 |
+| `godot.runtime.sessions.apply_input(controller_id, *, move_x=0.0, move_y=0.0, run=False, jump=False, yaw=0.0, pitch=0.0, seq=0, require_runtime=False)` | Sends finite normalized input and records it only after acceptable bridge outcome | Non-finite values, unknown/inactive controller, reachable NACK/malformed/mismatched response or required unreachable bridge fails without state mutation | E7 |
+| `godot.runtime.sessions.snapshot(*, world_id="")` | Returns defensive session list, count and active count, optionally one World | Invalid World conversion/registry state fails | E7 |
+| `godot.runtime.sessions.reset_world(*, world_id="")` | Removes only resolved World (`world_001` default) locally/natively; idempotent counts returned | Reachable native rejection fails without local removal | E7 |
+| `godot.runtime.sessions.clear_entity(*, participant_id="", controller_id="", entity_id="", destroy_actor=True)` | Removes all bindings for resolved entity; native result distinguishes matched and destroy-queued nodes | Non-boolean flag, unknown entity or reachable rejection fails without removal | E7 |
+| `godot.runtime.sessions.probe(timeout=0.25)` | Raw UDP status/reachability/protocol evidence, not the seven-field result envelope | Timeout/unreachable/malformed/mismatched response is explicit in returned record | E7 |
 
-`A3GameRuntimeEntity` exposes an `a3game_entity_id`, a `runtime_input` signal,
-and `apply_a3game_input`. Generated gameplay turns normalized inputs into its
-own movement and actions. The framework defines no character, weapon, vehicle,
-camera, game rule, or HUD.
+With `require_runtime=False`, no UDP response allows documented local-only state
+with a warning. Once any response arrives, NACK or malformed/mismatched protocol
+data is fatal and cannot mutate local state. Reconnect preserves entity ID,
+replaces the old controller, and emits `session_reconnected`; `session_left`
+means control detached, not entity destruction.
 
-The autoload emits `session_joined` only when gameplay must create a node for a
-previously absent entity ID. Replacing a participant's controller, or joining
-after a controller-only leave while the node remains, emits
-`session_reconnected(previous_session, session)` without a synthetic
-`session_left` / `session_joined` cycle. Generated gameplay can use
-`A3GameRuntime.find_entity(entity_id)` to retrieve that retained node.
-`session_left` means control was detached; destroy an entity through
-`clear_entity()` or explicit game-owned World cleanup instead.
+### Reflection and observation
 
-## Reflection and observation
+| Call | Purpose and successful return | Failure behavior | Example |
+| --- | --- | --- | --- |
+| `godot.reflection.inspect_artifact(artifact_id, *, live=True, timeout=60.0)` | Returns registry metadata; live mode asks Godot for resource class, PackedScene nodes, skeletons, skins, animations/tracks and load evidence | Unknown artifact, bad registry, timeout, unloadable/corrupt/wrong resource or malformed native report fails | E8 |
+| `godot.observe.check_status(*, timeout=5.0, check_runtime=False)` | Reports project/executable/version and optional UDP runtime readiness | Invalid environment or requested runtime failure is explicit; no mutation | E8 |
 
-- `godot.reflection.inspect_artifact` returns registry metadata and optionally
-  runs Godot to load a resource, enumerate a PackedScene node tree, and list
-  animations.
-- `godot.observe.check_status` reports executable, version, project, and
-  optional runtime-bridge readiness.
+## 4. Runnable call patterns
 
-## Browser serving
+### E0 — environment
 
-The registered Godot backend exports or reuses a Web preset, returns the
-engine-neutral `stream_url`, and owns its HTTP process lifecycle. Its dedicated
-static server emits cross-origin isolation headers, but the engine-neutral
-Gateway does not impose COEP on its parent page because existing Unity WebGL
-and UE streaming pages may be served from other origins without CORP. The
-verified embedded path therefore uses a non-threaded Web preset and does not
-claim `SharedArrayBuffer` or cross-origin-isolated iframe support;
-threaded/PWA exports are not a verified bundled capability. Configure the
-backend with `A3GAME_GODOT_WEB_BUILD` and `A3GAME_GODOT_WEB_PRESET` (default
-`Web`).
+```python
+godot = GodotClient(project_path="/projects/MyGame")
+assert godot.api_version == "v1"
+environment = godot.get_environment_info(probe_version=True)
+assert environment["ok"], environment["errors"]
+```
 
-Godot Web owns keyboard and pointer input inside its iframe canvas. The bundled
-backend advertises browser session/stream lifecycle but deliberately advertises
-`runtime_character_configuration=false`, `runtime_world_loading=false`, and
-`runtime_input=false`: an exported build cannot be rewritten through those
-Gateway calls. Unsupported character, animation, World, normalized-input, and
-preview-camera calls return explicit failures instead of recording a false
-success; configure the Godot project and export again for those changes.
+### E1 — create and validate a project
 
-## Coordinate system
+```python
+created = godot.project.create(project_name="MyGame", renderer="gl_compatibility")
+assert created["ok"], created["errors"]
+validated = godot.project.validate(check_engine=True)
+assert validated["ok"], validated["errors"]
+```
 
-Godot 3D is right-handed, Y-up, and uses `-Z` as forward. glTF shares Y-up and
-metre units. Keep imported facing/scale metadata explicit; do not add a blanket
-axis conversion after Godot's importer has already converted a source format.
+### E2 — resolve, validate, import, query, or register an asset
+
+```python
+source = {
+    "game_id": "game101",
+    "run_id": "run_001",
+    "task_kind": "3d_object",
+    "task_id": "crate",
+    "artifact_key": "glb_path",
+}
+assert godot.assets.resolve_source(source, asset_type="prop")["ok"]
+assert godot.assets.validate(source, "prop")["ok"]
+imported = godot.assets.import_prop(source, destination="assets/imported/props")
+assert imported["ok"], imported["errors"]
+artifact_id = imported["artifacts"][0]["artifact_id"]
+assert godot.assets.get_metadata(artifact_id)["ok"]
+assert godot.assets.list_registered("prop")["ok"]
+
+existing = godot.assets.register_resource(
+    resource_path="res://scenes/arena.tscn",
+    asset_type="scene",
+    asset_id="arena",
+    backend_class="PackedScene",  # assertion, never trusted inference
+    spawnable=True,
+)
+assert existing["ok"], existing["errors"]
+```
+
+### E3 — motion and material binding
+
+```python
+motion = godot.animation.import_motion(
+    source,
+    skeleton="Character/Skeleton3D",
+    avatar_name="hero",
+)
+assert motion["ok"], motion["errors"]
+assert godot.animation.resolve_skeleton("hero_avatar")["ok"]
+assert godot.animation.validate_compatibility(
+    motion["artifacts"][0]["artifact_id"], "Character/Skeleton3D"
+)["ok"]
+
+bound = godot.bindings.bind_pbr_material(
+    asset_id="hero_material",
+    source=source,
+    mesh_assets=["hero_avatar"],
+)
+assert bound["ok"], bound["errors"]
+```
+
+### E4 — World lifecycle
+
+```python
+draft = godot.world.create_draft({
+    "draft_id": "arena_draft",
+    "world_id": "arena",
+    "scene_artifact_id": "arena",
+})
+assert draft["ok"], draft["errors"]
+assert godot.world.validate_draft("arena_draft")["ok"]
+assert godot.world.publish_draft("arena_draft")["ok"]
+packages = godot.world.list_packages(world_id="arena")
+assert packages["ok"], packages["errors"]
+```
+
+### E5 — framework and generated add-ons
+
+```python
+framework = godot.plugin.install_framework()
+assert framework["ok"], framework["errors"]
+
+generated_addon = godot.plugin.install({
+    "game_id": "game101",
+    "run_id": "run_001",
+    "task_kind": "mechanic",
+    "task_id": "gameplay_addon",
+})
+assert generated_addon["ok"], generated_addon["errors"]
+assert godot.plugin.list()["ok"]
+```
+
+### E6 — native tests and export
+
+```python
+tests = godot.testing.run_automation_tests(
+    test_root="res://tests",
+    report_path="reports/godot-tests.json",
+)
+assert tests["ok"], tests["errors"]
+
+build = godot.build.project(
+    preset="Linux/X11",
+    output_path="builds/game.x86_64",
+)
+assert build["ok"], build["errors"]
+```
+
+### E7 — runtime lifecycle and control
+
+```python
+launched = godot.runtime.launch_game(headless=False)
+assert launched["ok"], launched["errors"]
+
+joined = godot.runtime.sessions.join(
+    world_id="arena",
+    participant_id="player_1",
+    avatar_artifact_id="hero_avatar",
+)
+assert joined["ok"], joined["errors"]
+controller = joined["payload"]["controller_id"]
+assert godot.runtime.sessions.apply_input(
+    controller, move_y=1.0, run=True, yaw=0.2, seq=1
+)["ok"]
+assert godot.runtime.sessions.heartbeat(controller)["ok"]
+assert godot.runtime.sessions.snapshot(world_id="arena")["ok"]
+assert godot.runtime.sessions.leave(controller_id=controller)["ok"]
+assert godot.runtime.stop_game(launched["payload"]["process_id"])["ok"]
+```
+
+### E8 — inspect and observe
+
+```python
+inspection = godot.reflection.inspect_artifact("hero_avatar", live=True)
+assert inspection["ok"], inspection["errors"]
+status = godot.observe.check_status(check_runtime=True)
+assert status["ok"], status["errors"]
+```
+
+## 5. Native lifecycle details
+
+### Import
+
+Imports copy only validated task artifacts under `res://assets/imported/`, run
+`godot --headless --path <project> --import`, reject non-Godot-4 binaries,
+nonzero exits and known corruption/parse/dependency-image errors even at exit
+zero, then load the result with Godot. Spawnable mesh types must instantiate as
+`PackedScene` with `MeshInstance3D`; avatars additionally need real skeleton
+bones and linked skin. Bare OBJ loads as `ArrayMesh`, so use GLB/glTF or wrap it
+in a scene.
+
+### Builds and reports
+
+Exports and test reports are staged privately, validated, and atomically
+published. Builds record a signed ownership manifest and hashes of the complete
+sibling set; the key stays under private adapter state. A later build may replace
+only unchanged authenticated members. Project inputs, state keys, altered or
+unmanaged outputs, edited manifests, links and special nodes fail closed.
+
+### Examples and proof projects
+
+`engine_adapters/godot/examples/` contains three complete native projects:
+
+- `NeonDodge2D`: arcade survival, input, UI, monitored collisions and state loop;
+- `SolarRally3D`: chase-camera racing, physical track, checkpoints, PBR materials,
+  directional/omni light, lap/win loop;
+- `OrbitPinball2D`: rigid-body pinball, static colliders, animated flippers,
+  impulses, combo/lives loop.
+
+Each has a real main `PackedScene`, deterministic unattended driver, manual
+keyboard mode, and a Godot smoke script that advances live physics. Their
+`mechanic_contract.json` maps to reviewer copies under
+`my_code/AAAGameForge/test_data/outputs/gameXXX/godot/`.
+
+## 6. Coordinate system
+
+Godot 3D is right-handed, Y-up, with `-Z` forward. glTF shares Y-up and metre
+units. Record source facing/scale explicitly; do not apply a blanket conversion
+after Godot has already imported the source format.

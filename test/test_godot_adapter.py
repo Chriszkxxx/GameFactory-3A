@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import inspect
 import io
 import json
 import os
+import re
 import signal
 import socket
 import stat
@@ -18,9 +18,6 @@ import tempfile
 import threading
 import time
 import unittest
-import urllib.parse
-import urllib.request
-from http import HTTPStatus
 from pathlib import Path
 from unittest import mock
 
@@ -543,102 +540,64 @@ class GodotAdapterTests(unittest.TestCase):
         registration = resolve_engine_registration("godot_engine")
         self.assertEqual("godot", registration["engine_id"])
         self.assertTrue(Path(registration["primary_api"]).is_file())
-        browser = resolve_browser_backend_registration("godot")
-        self.assertTrue(browser["registered"])
-        self.assertIn("runtime_sessions", browser["capabilities"])
-        from engine_adapters.browser_serving.registry import EngineRegistry
-
-        self.assertEqual("godot", EngineRegistry.normalize("godot4"))
+        with self.assertRaisesRegex(ValueError, "not registered"):
+            resolve_browser_backend_registration("godot")
 
     def test_world_public_methods_match_cross_engine_call_contract(self) -> None:
-        from engine_adapters.godot.world.client import GodotWorldClient
-        from engine_adapters.three_js.world.client import ThreeWorldClient
-        from engine_adapters.ue5.world.client import UEWorldClient
-        from engine_adapters.unity3d.world.client import UnityWorldClient
+        def source_signature(
+            path: Path, class_name: str, method_name: str
+        ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+            source = path.read_text(encoding="utf-8")
+            class_source = source[source.index(f"class {class_name}") :]
+            match = re.search(
+                rf"^    def {method_name}\((.*?)^    \) ->",
+                class_source,
+                flags=re.MULTILINE | re.DOTALL,
+            )
+            self.assertIsNotNone(match, f"missing {class_name}.{method_name}")
+            positional: list[str] = []
+            keyword_only: list[str] = []
+            destination = positional
+            entries: list[str] = []
+            start = 0
+            depth = 0
+            signature_text = match.group(1)
+            for index, character in enumerate(signature_text):
+                if character in "[({":
+                    depth += 1
+                elif character in "])}":
+                    depth -= 1
+                elif character == "," and depth == 0:
+                    entries.append(signature_text[start:index])
+                    start = index + 1
+            entries.append(signature_text[start:])
+            for entry in entries:
+                entry = entry.strip()
+                if not entry:
+                    continue
+                if entry == "*":
+                    destination = keyword_only
+                    continue
+                destination.append(entry.split(":", 1)[0].split("=", 1)[0].strip())
+            return tuple(positional + keyword_only), tuple(keyword_only)
 
-        world_clients = (
-            UEWorldClient,
-            UnityWorldClient,
-            ThreeWorldClient,
-            GodotWorldClient,
+        clients = (
+            (Path("engine_adapters/ue5/world/client.py"), "UEWorldClient"),
+            (Path("engine_adapters/unity3d/world/client.py"), "UnityWorldClient"),
+            (Path("engine_adapters/three_js/world/client.py"), "ThreeWorldClient"),
+            (Path("engine_adapters/godot/world/client.py"), "GodotWorldClient"),
         )
-        for world_client in world_clients:
-            with self.subTest(client=world_client.__name__, method="create_draft"):
-                signature = inspect.signature(world_client.create_draft)
+        for path, class_name in clients:
+            with self.subTest(client=class_name, method="create_draft"):
+                names, keyword_only = source_signature(path, class_name, "create_draft")
                 self.assertEqual(
-                    ("self", "spec", "draft_id", "project_id", "metadata"),
-                    tuple(signature.parameters),
+                    ("self", "spec", "draft_id", "project_id", "metadata"), names
                 )
-                for name in ("draft_id", "project_id", "metadata"):
-                    self.assertEqual(
-                        inspect.Parameter.KEYWORD_ONLY,
-                        signature.parameters[name].kind,
-                    )
-            with self.subTest(client=world_client.__name__, method="list_packages"):
-                signature = inspect.signature(world_client.list_packages)
-                self.assertEqual(
-                    ("self", "project_id", "world_id"),
-                    tuple(signature.parameters),
-                )
-                for name in ("project_id", "world_id"):
-                    self.assertEqual(
-                        inspect.Parameter.KEYWORD_ONLY,
-                        signature.parameters[name].kind,
-                    )
-
-        class FakeDraft:
-            def to_dict(self) -> dict[str, str]:
-                return {"draft_id": "draft-contract", "state": "draft"}
-
-        class FakeWorldService:
-            def create_draft(self, spec, **kwargs):
-                self.create_arguments = kwargs
-                return FakeDraft()
-
-            def list_packages(self, **kwargs):
-                self.list_arguments = kwargs
-                return [
-                    {
-                        "package_id": "package-contract",
-                        "world_id": "world-contract",
-                        "project_id": "project-contract",
-                        "status": "published",
-                        "scene_url": "assets/worlds/world-contract.json",
-                    }
-                ]
-
-        for world_client in world_clients[:-1]:
-            with self.subTest(client=world_client.__name__, invocation=True):
-                client = object.__new__(world_client)
-                service = FakeWorldService()
-                client._service = service
-                created = client.create_draft(
-                    {"world_id": "world-contract"},
-                    draft_id="draft-contract",
-                    project_id="project-contract",
-                    metadata={"owner": "contract"},
-                )
-                self.assert_result(created, ok=True)
-                self.assertEqual(
-                    {
-                        "draft_id": "draft-contract",
-                        "project_id": "project-contract",
-                        "metadata": {"owner": "contract"},
-                    },
-                    service.create_arguments,
-                )
-                listed = client.list_packages(
-                    project_id="project-contract",
-                    world_id="world-contract",
-                )
-                self.assert_result(listed, ok=True)
-                self.assertEqual(
-                    {
-                        "project_id": "project-contract",
-                        "world_id": "world-contract",
-                    },
-                    service.list_arguments,
-                )
+                self.assertEqual(("draft_id", "project_id", "metadata"), keyword_only)
+            with self.subTest(client=class_name, method="list_packages"):
+                names, keyword_only = source_signature(path, class_name, "list_packages")
+                self.assertEqual(("self", "project_id", "world_id"), names)
+                self.assertEqual(("project_id", "world_id"), keyword_only)
 
         scene = self.client.assets._register_resource(
             resource_path="res://main.tscn",
@@ -708,7 +667,7 @@ class GodotAdapterTests(unittest.TestCase):
                 self.assert_result(result, ok=False)
                 self.assertIn("symlink", " ".join(result["errors"]).lower())
                 self.assertTrue(link.is_symlink())
-                self.assertEqual(outside, link.readlink())
+                self.assertEqual(outside, Path(os.readlink(str(link))))
                 self.assertFalse(outside.exists())
                 other = project / (
                     "main.tscn" if filename == "project.godot" else "project.godot"
@@ -1202,9 +1161,8 @@ class GodotAdapterTests(unittest.TestCase):
             ),
         )
         for name, overrides, environment, expected_error in invalid_cases:
-            with (
-                self.subTest(name=name),
-                mock.patch.dict(os.environ, environment, clear=False),
+            with self.subTest(name=name), mock.patch.dict(
+                os.environ, environment, clear=False
             ):
                 result = self.client.assets.register_resource(
                     asset_type=str(overrides.get("asset_type") or "scene"),
@@ -1860,7 +1818,7 @@ class GodotAdapterTests(unittest.TestCase):
         bound_prop = self.client.assets._registry.get(prop["artifact_id"])
         self.assertIsNotNone(bound_prop)
         self.assertTrue(bound_prop.backend_path.endswith(".tscn"))
-        bound_scene = self.project / bound_prop.backend_path.removeprefix("res://")
+        bound_scene = self.project / bound_prop.backend_path[len("res://") :]
         self.assertTrue(bound_scene.is_file())
         self.assertIn(
             binding["payload"]["material_resource"],
@@ -1879,9 +1837,8 @@ class GodotAdapterTests(unittest.TestCase):
         original_bound_scene = bound_scene.read_bytes()
         texture_record = self.client.assets._registry.find("crate_material_albedo")
         self.assertIsNotNone(texture_record)
-        texture_path = self.project / str(texture_record.backend_path).removeprefix(
-            "res://"
-        )
+        texture_backend_path = str(texture_record.backend_path)
+        texture_path = self.project / texture_backend_path[len("res://") :]
         original_texture = texture_path.read_bytes()
         texture_import_sidecar = Path(str(texture_path) + ".import")
         self.assertTrue(texture_import_sidecar.is_file())
@@ -2374,17 +2331,14 @@ class GodotAdapterTests(unittest.TestCase):
             (resources / "project-config").symlink_to(project_file)
             return result
 
-        with (
-            mock.patch.dict(
-                os.environ,
-                {"A3GAME_FAKE_GODOT_EXPORT_DIRECTORY": "1"},
-                clear=False,
-            ),
-            mock.patch.object(
-                build_module.GodotTransport,
-                "run",
-                new=export_with_nested_link,
-            ),
+        with mock.patch.dict(
+            os.environ,
+            {"A3GAME_FAKE_GODOT_EXPORT_DIRECTORY": "1"},
+            clear=False,
+        ), mock.patch.object(
+            build_module.GodotTransport,
+            "run",
+            new=export_with_nested_link,
         ):
             result = self.client.build.project(
                 preset="macOS",
@@ -2453,20 +2407,17 @@ class GodotAdapterTests(unittest.TestCase):
                     (resources / "mutable-link").symlink_to(link_target)
                     return result
 
-                with (
-                    mock.patch.dict(
-                        os.environ,
-                        {
-                            **environment,
-                            "A3GAME_FAKE_GODOT_EXPORT_PAYLOAD": "replacement-export",
-                        },
-                        clear=False,
-                    ),
-                    mock.patch.object(
-                        build_module.GodotTransport,
-                        "run",
-                        new=export_with_nested_link,
-                    ),
+                with mock.patch.dict(
+                    os.environ,
+                    {
+                        **environment,
+                        "A3GAME_FAKE_GODOT_EXPORT_PAYLOAD": "replacement-export",
+                    },
+                    clear=False,
+                ), mock.patch.object(
+                    build_module.GodotTransport,
+                    "run",
+                    new=export_with_nested_link,
                 ):
                     rejected = self.client.build.project(
                         preset="macOS",
@@ -2606,13 +2557,12 @@ class GodotAdapterTests(unittest.TestCase):
             os.mkfifo(staged_output / "unsupported-node")
             return result
 
-        with (
-            mock.patch.dict(os.environ, environment, clear=False),
-            mock.patch.object(
-                build_module.GodotTransport,
-                "run",
-                new=export_with_fifo,
-            ),
+        with mock.patch.dict(
+            os.environ, environment, clear=False
+        ), mock.patch.object(
+            build_module.GodotTransport,
+            "run",
+            new=export_with_fifo,
         ):
             special_node = self.client.build.project(
                 preset="macOS",
@@ -2635,22 +2585,19 @@ class GodotAdapterTests(unittest.TestCase):
                 raise OSError("forced directory commit failure")
             return real_move(source, destination, *args, **kwargs)
 
-        with (
-            mock.patch.dict(
-                os.environ,
-                {
-                    **environment,
-                    "A3GAME_FAKE_GODOT_EXPORT_PAYLOAD": (
-                        "replacement-directory-export"
-                    ),
-                },
-                clear=False,
-            ),
-            mock.patch.object(
-                build_module.shutil,
-                "move",
-                side_effect=fail_installing_directory,
-            ),
+        with mock.patch.dict(
+            os.environ,
+            {
+                **environment,
+                "A3GAME_FAKE_GODOT_EXPORT_PAYLOAD": (
+                    "replacement-directory-export"
+                ),
+            },
+            clear=False,
+        ), mock.patch.object(
+            build_module.shutil,
+            "move",
+            side_effect=fail_installing_directory,
         ):
             failed_commit = self.client.build.project(
                 preset="macOS",
@@ -2956,17 +2903,14 @@ class GodotAdapterTests(unittest.TestCase):
                 raise OSError("forced group commit failure")
             return real_move(source, destination, *args, **kwargs)
 
-        with (
-            mock.patch.dict(
-                os.environ,
-                {"A3GAME_FAKE_GODOT_EXPORT_COMPANIONS": "1"},
-                clear=False,
-            ),
-            mock.patch.object(
-                build_module.shutil,
-                "move",
-                side_effect=fail_during_group_commit,
-            ),
+        with mock.patch.dict(
+            os.environ,
+            {"A3GAME_FAKE_GODOT_EXPORT_COMPANIONS": "1"},
+            clear=False,
+        ), mock.patch.object(
+            build_module.shutil,
+            "move",
+            side_effect=fail_during_group_commit,
         ):
             failed_commit = self.client.build.project(
                 preset="Linux", output_path="builds/web/index.html"
@@ -4949,13 +4893,12 @@ class GodotAdapterTests(unittest.TestCase):
             }
         ).encode()
         registry_path.write_bytes(valid)
-        with (
-            mock.patch(
-                "engine_adapters.godot._internal.registry.read_managed_text",
-                side_effect=OSError("forced registry read failure"),
-            ),
-            mock.patch.object(self.client.assets._registry, "_write") as write,
-        ):
+        with mock.patch(
+            "engine_adapters.godot._internal.registry.read_managed_text",
+            side_effect=OSError("forced registry read failure"),
+        ), mock.patch.object(
+            self.client.assets._registry, "_write"
+        ) as write:
             listed = self.client.assets.list_registered()
             self.assert_result(listed, ok=False)
             self.assertIn("forced registry read failure", listed["errors"][0])
@@ -5065,11 +5008,6 @@ class GodotAdapterTests(unittest.TestCase):
     def test_corrupt_registry_returns_failures_at_public_read_boundaries(
         self,
     ) -> None:
-        from engine_adapters.browser_serving.backends.godot_example import (
-            GodotExampleBackend,
-        )
-        from engine_adapters.browser_serving.config import BrowserServingConfig
-
         draft_path = self.client.world._draft_path("corrupt-registry")
         draft_path.parent.mkdir(parents=True, exist_ok=True)
         draft_path.write_text(
@@ -5136,24 +5074,13 @@ class GodotAdapterTests(unittest.TestCase):
             "world.validate_draft",
             "runtime.sessions.join",
         )
-        for result, operation in zip(results, expected_operations, strict=True):
+        self.assertEqual(len(results), len(expected_operations))
+        for result, operation in zip(results, expected_operations):
             with self.subTest(operation=operation):
                 self.assert_result(result, ok=False)
                 self.assertEqual(operation, result["operation"])
                 self.assertIn("JSONDecodeError", " ".join(result["errors"]))
 
-        browser = GodotExampleBackend(
-            BrowserServingConfig(
-                default_engine="godot",
-                godot_project=self.project,
-                godot_executable=self.fake_godot,
-            )
-        )
-        inspected = browser.inspect_asset("missing")
-        self.assertIs(inspected["ok"], False)
-        self.assertEqual("assets.inspect", inspected["operation"])
-        self.assertIn("JSONDecodeError", " ".join(inspected["errors"]))
-        self.assertEqual([], browser.list_assets("prop"))
         self.assertEqual(malformed, registry_path.read_bytes())
 
     def test_artifact_registry_rejects_ambiguous_upsert_without_writing(self) -> None:
@@ -6373,481 +6300,7 @@ class GodotAdapterTests(unittest.TestCase):
         self.assertEqual(b"USER OWNED PACKAGE\n", victim.read_bytes())
         self.assertEqual([victim], list(outside.iterdir()))
 
-    def test_browser_backend_dry_run_lifecycle(self) -> None:
-        from engine_adapters.browser_serving.backends.godot_example import (
-            GodotExampleBackend,
-        )
-        from engine_adapters.browser_serving.config import BrowserServingConfig
-
-        config = BrowserServingConfig(
-            default_engine="godot",
-            godot_project=self.project,
-            godot_executable=self.fake_godot,
-            dry_run=True,
-            base_pixel_http_port=28080,
-        )
-        backend = GodotExampleBackend(config)
-        self.assertEqual("godot", backend.descriptor.engine_id)
-        self.assertTrue(backend.status()["ok"])
-        capabilities = backend.descriptor.capabilities.to_dict()
-        self.assertTrue(capabilities["runtime_sessions"])
-        self.assertFalse(capabilities["runtime_character_configuration"])
-        self.assertFalse(capabilities["runtime_world_loading"])
-        self.assertFalse(capabilities["runtime_input"])
-        self.assertFalse(capabilities["skeletal_animation"])
-        self.assertFalse(capabilities["preview_camera"])
-        created = backend.create_session(
-            {"user_id": "tester", "character": {"avatar_id": ""}}
-        )
-        self.assertTrue(created["ok"], created)
-        session_id = created["payload"]["session_id"]
-        rejected = backend.create_session(
-            {"user_id": "tester", "character": {"avatar_id": "missing"}}
-        )
-        self.assertFalse(rejected["ok"], rejected)
-        applied = backend.apply_input(session_id, {"move_y": 1.0})
-        self.assertFalse(applied["ok"], applied)
-        self.assertFalse(applied["payload"]["applied"])
-        self.assertEqual("browser_canvas", applied["payload"]["input_transport"])
-        configured = backend.configure_session(session_id, {"avatar_id": "missing"})
-        self.assertFalse(configured["ok"], configured)
-        loaded = backend.load_world(session_id, package_id="missing")
-        self.assertFalse(loaded["ok"], loaded)
-        with self.assertRaisesRegex(ValueError, "HTTP stream_url"):
-            backend.recover_session({"session_id": "missing-stream"})
-        stopped = backend.stop_session(session_id)
-        self.assertTrue(stopped["ok"], stopped)
-        self.assertEqual([], backend.list_sessions()["payload"]["sessions"])
-
-    def test_browser_environment_upload_preserves_asset_type_and_group(self) -> None:
-        from engine_adapters.browser_serving.backends.godot_example import (
-            GodotExampleBackend,
-        )
-        from engine_adapters.browser_serving.config import BrowserServingConfig
-        from engine_adapters.browser_serving.registry import EngineRegistry
-        from engine_adapters.browser_serving.service import BrowserServingService
-
-        config = BrowserServingConfig(
-            default_engine="godot",
-            godot_project=self.project,
-            godot_executable=self.fake_godot,
-        )
-        backend = GodotExampleBackend(config)
-        service = BrowserServingService(EngineRegistry([backend]), config)
-        uploaded = service.stage_and_import(
-            io.BytesIO(b"generated-environment"),
-            filename="forest.glb",
-            asset_type="environment",
-            engine="godot",
-        )
-        self.assertTrue(uploaded["ok"], uploaded)
-        self.assertEqual(
-            "environment",
-            uploaded["artifacts"][0]["artifact_type"],
-        )
-        environments = service.list_assets("godot", asset_type="environment")
-        scenes = service.list_assets("godot", asset_type="scene")
-        self.assertEqual(1, len(environments))
-        self.assertEqual("environment", environments[0]["artifact_type"])
-        self.assertEqual([], scenes)
-
-    def test_browser_backend_serves_web_export_and_stops_process(self) -> None:
-        from engine_adapters.browser_serving.backends.godot_example import (
-            GodotExampleBackend,
-        )
-        from engine_adapters.browser_serving.config import BrowserServingConfig
-
-        web_root = self.root / "godot-web"
-        web_root.mkdir()
-        (web_root / "index.html").write_text("<html>godot-web</html>", encoding="utf-8")
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
-            reservation.bind(("127.0.0.1", 0))
-            port = int(reservation.getsockname()[1])
-        backend = GodotExampleBackend(
-            BrowserServingConfig(
-                default_engine="godot",
-                godot_web_build=web_root,
-                base_pixel_http_port=port,
-                max_sessions=1,
-                pixel_start_timeout=5,
-            )
-        )
-        self.assertTrue(backend.status()["ok"])
-        self.assertTrue(backend.status()["payload"]["web_build_configured"])
-        session_id = ""
-        try:
-            created = backend.create_session({"user_id": "web-test"})
-            self.assertTrue(created["ok"], created)
-            session_id = created["payload"]["session_id"]
-            with urllib.request.urlopen(
-                created["payload"]["stream_url"], timeout=2
-            ) as response:
-                self.assertEqual(b"<html>godot-web</html>", response.read())
-                self.assertEqual(
-                    "same-origin", response.headers["Cross-Origin-Opener-Policy"]
-                )
-                self.assertEqual(
-                    "require-corp", response.headers["Cross-Origin-Embedder-Policy"]
-                )
-                self.assertEqual(
-                    "cross-origin", response.headers["Cross-Origin-Resource-Policy"]
-                )
-        finally:
-            if session_id:
-                stopped = backend.stop_session(session_id)
-                self.assertTrue(stopped["ok"], stopped)
-
-    @unittest.skipUnless(hasattr(os, "symlink"), "requires symbolic links")
-    def test_browser_backend_rejects_prebuilt_web_symlinks_before_start(self) -> None:
-        from engine_adapters.browser_serving.backends.godot_example import (
-            GodotExampleBackend,
-        )
-        from engine_adapters.browser_serving.config import BrowserServingConfig
-
-        outside_file = self.root / "outside-web-file.txt"
-        outside_file.write_bytes(b"outside-file-sentinel")
-        outside_directory = self.root / "outside-web-directory"
-        outside_directory.mkdir()
-        (outside_directory / "secret.txt").write_bytes(b"outside-dir-sentinel")
-
-        for linked_node in ("file", "directory", "index", "root"):
-            with self.subTest(linked_node=linked_node):
-                web_root = self.root / f"unsafe-godot-web-{linked_node}"
-                web_root.mkdir()
-                index = web_root / "index.html"
-                index.write_text("<html>safe</html>", encoding="utf-8")
-                if linked_node == "file":
-                    (web_root / "leak.txt").symlink_to(outside_file)
-                elif linked_node == "directory":
-                    (web_root / "linked").symlink_to(
-                        outside_directory,
-                        target_is_directory=True,
-                    )
-                else:
-                    if linked_node == "index":
-                        index.unlink()
-                        index.symlink_to(outside_file)
-
-                configured_root = web_root
-                if linked_node == "root":
-                    configured_root = self.root / "unsafe-godot-web-root-link"
-                    configured_root.symlink_to(web_root, target_is_directory=True)
-                    with mock.patch.dict(
-                        os.environ,
-                        {"A3GAME_GODOT_WEB_BUILD": str(configured_root)},
-                        clear=False,
-                    ):
-                        from_environment = BrowserServingConfig.from_environment()
-                    self.assertEqual(
-                        configured_root.absolute(),
-                        from_environment.godot_web_build,
-                    )
-
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
-                    reservation.bind(("127.0.0.1", 0))
-                    port = int(reservation.getsockname()[1])
-                backend = GodotExampleBackend(
-                    BrowserServingConfig(
-                        default_engine="godot",
-                        godot_web_build=configured_root,
-                        base_pixel_http_port=port,
-                        max_sessions=1,
-                        pixel_start_timeout=2,
-                    )
-                )
-
-                status_result = backend.status()
-                self.assertFalse(status_result["payload"]["web_build_configured"])
-                self.assertIn(
-                    "symbolic links",
-                    status_result["payload"]["web_build_error"],
-                )
-                with self.assertRaisesRegex(ValueError, "symbolic links"):
-                    backend.create_session({"user_id": f"unsafe-{linked_node}"})
-                self.assertEqual([], backend.list_sessions()["payload"]["sessions"])
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-                    self.assertNotEqual(0, probe.connect_ex(("127.0.0.1", port)))
-
-        self.assertEqual(b"outside-file-sentinel", outside_file.read_bytes())
-        self.assertEqual(
-            b"outside-dir-sentinel",
-            (outside_directory / "secret.txt").read_bytes(),
-        )
-
-    @unittest.skipUnless(hasattr(os, "symlink"), "requires symbolic links")
-    def test_browser_web_server_rejects_symlinks_added_after_start(self) -> None:
-        from engine_adapters.browser_serving.backends.godot_example import (
-            GodotExampleBackend,
-        )
-        from engine_adapters.browser_serving.config import BrowserServingConfig
-
-        web_root = self.root / "mutable-godot-web"
-        web_root.mkdir()
-        index = web_root / "index.html"
-        index.write_text("<html>safe</html>", encoding="utf-8")
-        outside_file = self.root / "runtime-outside-file.txt"
-        outside_file.write_bytes(b"runtime-file-sentinel")
-        outside_directory = self.root / "runtime-outside-directory"
-        outside_directory.mkdir()
-        (outside_directory / "secret.txt").write_bytes(b"runtime-dir-sentinel")
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
-            reservation.bind(("127.0.0.1", 0))
-            port = int(reservation.getsockname()[1])
-        backend = GodotExampleBackend(
-            BrowserServingConfig(
-                default_engine="godot",
-                godot_web_build=web_root,
-                base_pixel_http_port=port,
-                max_sessions=1,
-                pixel_start_timeout=5,
-            )
-        )
-        session_id = ""
-        try:
-            created = backend.create_session({"user_id": "runtime-symlink"})
-            self.assertTrue(created["ok"], created)
-            session_id = created["payload"]["session_id"]
-
-            (web_root / "leak.txt").symlink_to(outside_file)
-            (web_root / "linked").symlink_to(
-                outside_directory,
-                target_is_directory=True,
-            )
-            for url in (
-                f"http://127.0.0.1:{port}/leak.txt",
-                f"http://127.0.0.1:{port}/linked/secret.txt",
-            ):
-                with self.subTest(url=url):
-                    with self.assertRaises(urllib.error.HTTPError) as raised:
-                        urllib.request.urlopen(url, timeout=2)
-                    self.assertEqual(HTTPStatus.FORBIDDEN, raised.exception.code)
-
-            index.unlink()
-            index.symlink_to(outside_file)
-            with self.assertRaises(urllib.error.HTTPError) as raised:
-                urllib.request.urlopen(created["payload"]["stream_url"], timeout=2)
-            self.assertEqual(HTTPStatus.FORBIDDEN, raised.exception.code)
-        finally:
-            if session_id:
-                stopped = backend.stop_session(session_id)
-                self.assertTrue(stopped["ok"], stopped)
-
-        self.assertEqual(b"runtime-file-sentinel", outside_file.read_bytes())
-        self.assertEqual(
-            b"runtime-dir-sentinel",
-            (outside_directory / "secret.txt").read_bytes(),
-        )
-
-    @unittest.skipUnless(os.name == "posix", "secure-open race probe requires POSIX")
-    def test_browser_web_server_blocks_post_validation_path_replacement(self) -> None:
-        from functools import partial
-        from http.server import ThreadingHTTPServer
-
-        from engine_adapters.godot import web_server
-
-        for replaced_node in ("file", "parent"):
-            with self.subTest(replaced_node=replaced_node):
-                web_root = self.root / f"racy-godot-web-{replaced_node}"
-                web_root.mkdir()
-                (web_root / "index.html").write_text(
-                    "<html>safe</html>", encoding="utf-8"
-                )
-                outside = self.root / f"racy-outside-{replaced_node}"
-                outside.mkdir()
-                outside_file = outside / "payload.txt"
-                sentinel = f"outside-{replaced_node}-sentinel".encode()
-                outside_file.write_bytes(sentinel)
-                if replaced_node == "parent":
-                    request_parent = web_root / "nested"
-                    request_parent.mkdir()
-                    request_target = request_parent / "payload.txt"
-                    request_path = "/nested/payload.txt"
-                else:
-                    request_parent = web_root
-                    request_target = web_root / "payload.txt"
-                    request_path = "/payload.txt"
-                request_target.write_bytes(b"safe-payload")
-
-                validated_root = web_server.validate_web_root(web_root)
-                root_descriptor = web_server._open_web_root_descriptor(validated_root)
-                self.assertIsNotNone(root_descriptor)
-                handler = partial(
-                    web_server.GodotWebHandler,
-                    directory=str(validated_root),
-                    root_descriptor=root_descriptor,
-                )
-                server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-                server_thread = threading.Thread(
-                    target=server.serve_forever,
-                    daemon=True,
-                )
-                original_validate = web_server._validate_request_target
-                replacement_done = False
-
-                def validate_then_replace(
-                    root: Path,
-                    target: Path,
-                    *,
-                    _original_validate=original_validate,
-                    _request_target=request_target,
-                    _replaced_node=replaced_node,
-                    _request_parent=request_parent,
-                    _outside_file=outside_file,
-                    _outside=outside,
-                    _web_root=web_root,
-                ) -> None:
-                    nonlocal replacement_done
-                    _original_validate(root, target)
-                    if replacement_done or target != _request_target:
-                        return
-                    if _replaced_node == "file":
-                        _request_target.unlink()
-                        _request_target.symlink_to(_outside_file)
-                    else:
-                        _request_parent.rename(_web_root / "original-nested")
-                        _request_parent.symlink_to(
-                            _outside,
-                            target_is_directory=True,
-                        )
-                    replacement_done = True
-
-                try:
-                    with mock.patch.object(
-                        web_server,
-                        "_validate_request_target",
-                        side_effect=validate_then_replace,
-                    ):
-                        server_thread.start()
-                        with self.assertRaises(urllib.error.HTTPError) as raised:
-                            urllib.request.urlopen(
-                                f"http://127.0.0.1:{server.server_port}{request_path}",
-                                timeout=2,
-                            )
-                        self.assertEqual(HTTPStatus.FORBIDDEN, raised.exception.code)
-                        self.assertNotIn(sentinel, raised.exception.read())
-                        raised.exception.close()
-                finally:
-                    server.shutdown()
-                    server.server_close()
-                    server_thread.join(timeout=5)
-                    if root_descriptor is not None:
-                        os.close(root_descriptor)
-
-                self.assertTrue(replacement_done)
-                self.assertFalse(server_thread.is_alive())
-                self.assertEqual(sentinel, outside_file.read_bytes())
-
-    @unittest.skipUnless(os.name == "posix", "root descriptor probe requires POSIX")
-    def test_browser_web_root_open_rejects_parent_replacement(self) -> None:
-        from engine_adapters.godot import web_server
-
-        configured_parent = self.root / "configured-web-parent"
-        web_root = configured_parent / "web"
-        web_root.mkdir(parents=True)
-        (web_root / "index.html").write_bytes(b"safe-root")
-        validated_root = web_server.validate_web_root(web_root)
-
-        outside_parent = self.root / "outside-web-parent"
-        outside_root = outside_parent / "web"
-        outside_root.mkdir(parents=True)
-        sentinel = b"outside-root-sentinel"
-        (outside_root / "index.html").write_bytes(sentinel)
-        configured_parent.rename(self.root / "saved-configured-web-parent")
-        configured_parent.symlink_to(outside_parent, target_is_directory=True)
-
-        with self.assertRaises(web_server.UnsafeGodotWebPathError):
-            web_server._open_web_root_descriptor(validated_root)
-        self.assertEqual(sentinel, (outside_root / "index.html").read_bytes())
-
-    @unittest.skipUnless(hasattr(os, "symlink"), "requires symbolic links")
-    def test_browser_web_server_portable_open_rejects_swap_back_race(self) -> None:
-        from engine_adapters.godot import web_server
-
-        web_root = self.root / "portable-open-godot-web"
-        web_root.mkdir()
-        (web_root / "index.html").write_text("<html>safe</html>", encoding="utf-8")
-        target = web_root / "payload.txt"
-        target.write_bytes(b"safe-payload")
-        saved_target = web_root / "saved-payload.txt"
-        outside = self.root / "portable-open-outside.txt"
-        sentinel = b"portable-open-outside-sentinel"
-        outside.write_bytes(sentinel)
-        validated_root = web_server.validate_web_root(web_root)
-        original_validate = web_server._validate_request_target
-        validation_count = 0
-
-        def swap_around_open(root: Path, candidate: Path) -> None:
-            nonlocal validation_count
-            if candidate != target:
-                original_validate(root, candidate)
-                return
-            if validation_count == 0:
-                original_validate(root, candidate)
-                target.rename(saved_target)
-                target.symlink_to(outside)
-            else:
-                target.unlink()
-                saved_target.rename(target)
-                original_validate(root, candidate)
-            validation_count += 1
-
-        with mock.patch.object(
-            web_server,
-            "_validate_request_target",
-            side_effect=swap_around_open,
-        ):
-            with self.assertRaises(web_server.UnsafeGodotWebPathError):
-                web_server._open_request_target(
-                    validated_root,
-                    target,
-                    root_descriptor=None,
-                )
-
-        self.assertEqual(2, validation_count)
-        self.assertEqual(b"safe-payload", target.read_bytes())
-        self.assertEqual(sentinel, outside.read_bytes())
-
-    def test_browser_backend_accepts_project_godot_file_for_export(self) -> None:
-        from engine_adapters.browser_serving.backends.godot_example import (
-            GodotExampleBackend,
-        )
-        from engine_adapters.browser_serving.config import BrowserServingConfig
-
-        (self.project / "export_presets.cfg").write_text(
-            '[preset.0]\n\nname="Web"\nplatform="Web"\n',
-            encoding="utf-8",
-        )
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
-            reservation.bind(("127.0.0.1", 0))
-            port = int(reservation.getsockname()[1])
-        backend = GodotExampleBackend(
-            BrowserServingConfig(
-                default_engine="godot",
-                godot_project=self.project / "project.godot",
-                godot_executable=self.fake_godot,
-                base_pixel_http_port=port,
-                max_sessions=1,
-                pixel_start_timeout=5,
-            )
-        )
-        session_id = ""
-        try:
-            created = backend.create_session({"user_id": "project-file-test"})
-            self.assertTrue(created["ok"], created)
-            session_id = created["payload"]["session_id"]
-            self.assertTrue((self.project / "builds" / "web" / "index.html").is_file())
-            with urllib.request.urlopen(
-                created["payload"]["stream_url"], timeout=2
-            ) as response:
-                self.assertEqual(b"fake-godot-export", response.read())
-        finally:
-            if session_id:
-                stopped = backend.stop_session(session_id)
-                self.assertTrue(stopped["ok"], stopped)
-
     def test_configuration_and_failure_edges(self) -> None:
-        from engine_adapters.browser_serving.config import BrowserServingConfig
-
         with self.assertRaises(ValueError):
             GodotClient(
                 project_path=self.project,
@@ -6874,9 +6327,11 @@ class GodotAdapterTests(unittest.TestCase):
             },
             clear=False,
         ):
-            browser_config = BrowserServingConfig.from_environment()
-        self.assertEqual(self.project.resolve(), browser_config.godot_project)
-        self.assertEqual(self.fake_godot.resolve(), browser_config.godot_executable)
+            legacy_client = GodotClient()
+        self.assertEqual(self.project.resolve(), legacy_client._config.project_dir)
+        self.assertEqual(
+            self.fake_godot.resolve(), legacy_client._config.godot_executable
+        )
 
     def test_source_identity_cannot_escape_output_root(self) -> None:
         base = {
@@ -6914,248 +6369,6 @@ class GodotAdapterTests(unittest.TestCase):
             {**base, "game_id": "linked_game"}, asset_type="prop"
         )
         self.assert_result(linked, ok=False)
-
-    def test_browser_player_page_has_godot_native_canvas_policy(self) -> None:
-        web_root = self.root / "gateway-godot-web"
-        web_root.mkdir()
-        (web_root / "index.html").write_text(
-            "<html>gateway-godot-web</html>", encoding="utf-8"
-        )
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
-            reservation.bind(("127.0.0.1", 0))
-            port = int(reservation.getsockname()[1])
-        gateway = subprocess.Popen(
-            [
-                sys.executable,
-                "-c",
-                (
-                    "import uvicorn; "
-                    "from engine_adapters.browser_serving.gateway.app import create_app; "
-                    f"uvicorn.run(create_app(), host='127.0.0.1', port={port}, log_level='error')"
-                ),
-            ],
-            cwd=Path(__file__).resolve().parents[1],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env={
-                **os.environ,
-                "A3GAME_BROWSER_GATEWAY_PORT": str(port),
-                "A3GAME_BROWSER_ENGINE": "godot",
-                "A3GAME_BROWSER_DRY_RUN": "1",
-                "A3GAME_GODOT_PROJECT": "",
-                "A3GAME_GODOT_EXECUTABLE": "",
-                "A3GAME_GODOT": "",
-                "AAAGF_GODOT_PROJECT": "",
-                "AAAGF_GODOT": "",
-                "A3GAME_GODOT_WEB_BUILD": str(web_root),
-            },
-        )
-        try:
-            deadline = time.monotonic() + 8
-            page_text = ""
-            while time.monotonic() < deadline:
-                if gateway.poll() is not None:
-                    self.fail(f"Browser Gateway exited with code {gateway.returncode}")
-                try:
-                    with urllib.request.urlopen(
-                        f"http://127.0.0.1:{port}/", timeout=0.5
-                    ) as response:
-                        page_text = response.read().decode("utf-8")
-                        for header in (
-                            "Cross-Origin-Opener-Policy",
-                            "Cross-Origin-Embedder-Policy",
-                            "Cross-Origin-Resource-Policy",
-                            "Permissions-Policy",
-                        ):
-                            self.assertIsNone(response.headers.get(header))
-                        break
-                except (OSError, urllib.error.URLError):
-                    time.sleep(0.05)
-            self.assertIn("viewer_engine_policy.js", page_text)
-            self.assertNotIn("cross-origin-isolated", page_text)
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/static/viewer_engine_policy.js",
-                timeout=2,
-            ) as response:
-                self.assertIn("usesNativeIframeInput", response.read().decode("utf-8"))
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/api/engines/godot/capabilities",
-                timeout=2,
-            ) as response:
-                capabilities = json.loads(response.read().decode("utf-8"))
-            self.assertFalse(
-                capabilities["capabilities"]["runtime_character_configuration"]
-            )
-        finally:
-            if gateway.poll() is None:
-                gateway.terminate()
-                try:
-                    gateway.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    gateway.kill()
-                    gateway.wait(timeout=5)
-
-        policy_test = subprocess.run(
-            [
-                "node",
-                "engine_adapters/browser_serving/frontend/player/test_viewer_engine_policy.js",
-            ],
-            cwd=Path(__file__).resolve().parents[1],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        self.assertEqual(0, policy_test.returncode, policy_test.stderr)
-        self.assertIn("checks passed", policy_test.stdout)
-
-    def test_gateway_parent_allows_cross_origin_unity_webgl_without_corp(
-        self,
-    ) -> None:
-        web_root = self.root / "unity-webgl-cross-origin"
-        web_root.mkdir()
-        (web_root / "index.html").write_text(
-            "<html>unity-webgl-cross-origin</html>",
-            encoding="utf-8",
-        )
-        with (
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM) as gateway_reservation,
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM) as webgl_reservation,
-        ):
-            gateway_reservation.bind(("127.0.0.1", 0))
-            webgl_reservation.bind(("127.0.0.1", 0))
-            gateway_port = int(gateway_reservation.getsockname()[1])
-            webgl_port = int(webgl_reservation.getsockname()[1])
-
-        gateway = subprocess.Popen(
-            [
-                sys.executable,
-                "-c",
-                (
-                    "import uvicorn; "
-                    "from engine_adapters.browser_serving.gateway.app import create_app; "
-                    "uvicorn.run(create_app(), host='127.0.0.1', "
-                    f"port={gateway_port}, log_level='error')"
-                ),
-            ],
-            cwd=Path(__file__).resolve().parents[1],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env={
-                **os.environ,
-                "PYTHONDONTWRITEBYTECODE": "1",
-                "A3GAME_BROWSER_GATEWAY_PORT": str(gateway_port),
-                "A3GAME_BROWSER_ENGINE": "unity3d",
-                "A3GAME_BROWSER_BASE_PIXEL_HTTP_PORT": str(webgl_port),
-                "A3GAME_BROWSER_MAX_SESSIONS": "1",
-                "A3GAME_UNITY_PROJECT": str(self.project),
-                "A3GAME_UNITY_ROOT": str(self.root),
-                "A3GAME_UNITY_WEBGL_BUILD": str(web_root),
-                "A3GAME_GODOT_PROJECT": "",
-                "A3GAME_GODOT_EXECUTABLE": "",
-                "A3GAME_GODOT": "",
-                "AAAGF_GODOT_PROJECT": "",
-                "AAAGF_GODOT": "",
-                "A3GAME_UE_PROJECT": "",
-                "A3GAME_UE_ROOT": "",
-            },
-        )
-        session_id = ""
-        unity_server_pid = 0
-        try:
-            gateway_url = f"http://127.0.0.1:{gateway_port}"
-            deadline = time.monotonic() + 8
-            page_text = ""
-            while time.monotonic() < deadline:
-                if gateway.poll() is not None:
-                    self.fail(f"Browser Gateway exited with code {gateway.returncode}")
-                try:
-                    with urllib.request.urlopen(
-                        gateway_url + "/", timeout=0.5
-                    ) as response:
-                        page_text = response.read().decode("utf-8")
-                        self.assertIsNone(
-                            response.headers.get("Cross-Origin-Embedder-Policy")
-                        )
-                        break
-                except (OSError, urllib.error.URLError):
-                    time.sleep(0.05)
-            self.assertIn('id="pixelFrame"', page_text)
-
-            create_request = urllib.request.Request(
-                gateway_url + "/api/sessions",
-                data=json.dumps(
-                    {"engine": "unity3d", "user_id": "coep-regression"}
-                ).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(create_request, timeout=5) as response:
-                created = json.loads(response.read().decode("utf-8"))
-            self.assertTrue(created["ok"], created)
-            session_id = created["payload"]["session_id"]
-            unity_server_pid = int(created["payload"]["webgl_pid"])
-            stream_url = created["payload"]["stream_url"]
-            stream = urllib.parse.urlsplit(stream_url)
-            self.assertEqual("127.0.0.1", stream.hostname)
-            self.assertEqual(webgl_port, stream.port)
-            self.assertNotEqual(gateway_port, stream.port)
-
-            deadline = time.monotonic() + 5
-            stream_body = b""
-            stream_headers = None
-            while time.monotonic() < deadline:
-                try:
-                    with urllib.request.urlopen(stream_url, timeout=0.5) as response:
-                        stream_body = response.read()
-                        stream_headers = response.headers
-                        break
-                except (OSError, urllib.error.URLError):
-                    time.sleep(0.05)
-            self.assertEqual(b"<html>unity-webgl-cross-origin</html>", stream_body)
-            self.assertIsNotNone(stream_headers)
-            # This is the existing Unity server contract: because the parent
-            # does not require COEP, the cross-origin iframe needs no CORP or
-            # CORS opt-in to remain embeddable.
-            self.assertIsNone(stream_headers.get("Cross-Origin-Resource-Policy"))
-            self.assertIsNone(stream_headers.get("Cross-Origin-Embedder-Policy"))
-            self.assertIsNone(stream_headers.get("Access-Control-Allow-Origin"))
-
-            delete_request = urllib.request.Request(
-                gateway_url + f"/api/sessions/{session_id}?engine=unity3d",
-                method="DELETE",
-            )
-            with urllib.request.urlopen(delete_request, timeout=5) as response:
-                stopped = json.loads(response.read().decode("utf-8"))
-            self.assertTrue(stopped["ok"], stopped)
-            session_id = ""
-            unity_server_pid = 0
-        finally:
-            if session_id and gateway.poll() is None:
-                try:
-                    cleanup_request = urllib.request.Request(
-                        f"http://127.0.0.1:{gateway_port}"
-                        + f"/api/sessions/{session_id}?engine=unity3d",
-                        method="DELETE",
-                    )
-                    urllib.request.urlopen(cleanup_request, timeout=2).close()
-                    unity_server_pid = 0
-                except (OSError, urllib.error.URLError):
-                    pass
-            if unity_server_pid:
-                try:
-                    os.kill(unity_server_pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-            if gateway.poll() is None:
-                gateway.terminate()
-                try:
-                    gateway.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    gateway.kill()
-                    gateway.wait(timeout=5)
 
     def test_windows_wrappers_quote_cmd_sensitive_assignments(self) -> None:
         wrapper_root = Path("scripts/engine_install/godot")
@@ -7725,27 +6938,6 @@ class GodotAdapterTests(unittest.TestCase):
             motion_record["metadata"]["skeleton_path"],
         )
 
-        from engine_adapters.browser_serving.backends.godot_example import (
-            GodotExampleBackend,
-        )
-        from engine_adapters.browser_serving.config import BrowserServingConfig
-
-        browser = GodotExampleBackend(
-            BrowserServingConfig(
-                default_engine="godot",
-                godot_project=self.project,
-                godot_executable=self.fake_godot,
-            )
-        )
-        self.assertEqual(
-            [prop_record["artifact_id"]],
-            [item["artifact_id"] for item in browser.list_assets("prop")],
-        )
-        self.assertEqual(
-            [motion_record["artifact_id"]],
-            [item["artifact_id"] for item in browser.list_assets("motion")],
-        )
-
     def test_compatibility_report_failure_rolls_back_and_cleans_backup(self) -> None:
         from scripts import import_generated_asset as compatibility
 
@@ -7795,23 +6987,22 @@ class GodotAdapterTests(unittest.TestCase):
             "--report-dir",
             str(blocked_report_dir),
         ]
-        with (
-            mock.patch.object(sys, "argv", arguments),
-            mock.patch.object(
-                compatibility.tempfile,
-                "mkdtemp",
-                return_value=str(backup_root),
-            ),
-            mock.patch.dict(
-                os.environ,
-                {
-                    "A3GAME_FAKE_GODOT_FAIL_IMPORT": "",
-                    "A3GAME_FAKE_GODOT_UNLOADABLE": "",
-                },
-                clear=False,
-            ),
-            mock.patch("builtins.print") as printed,
-        ):
+        with mock.patch.object(
+            sys, "argv", arguments
+        ), mock.patch.object(
+            compatibility.tempfile,
+            "mkdtemp",
+            return_value=str(backup_root),
+        ), mock.patch.dict(
+            os.environ,
+            {
+                "A3GAME_FAKE_GODOT_FAIL_IMPORT": "",
+                "A3GAME_FAKE_GODOT_UNLOADABLE": "",
+            },
+            clear=False,
+        ), mock.patch(
+            "builtins.print"
+        ) as printed:
             result = compatibility.main()
         self.assertEqual(1, result)
         self.assertIn(

@@ -59,7 +59,7 @@ def _native_test_inputs(project_dir: Path, test_root: str) -> list[Path]:
     if not value:
         return []
     if value.startswith("res://"):
-        raw_relative = value.removeprefix("res://").replace("\\", "/")
+        raw_relative = value[len("res://") :].replace("\\", "/")
         relative = PurePosixPath(raw_relative)
         if relative.is_absolute() or ".." in relative.parts:
             return []
@@ -230,7 +230,7 @@ class GodotTestingClient:
             ).to_dict()
         raw_script = str(script).strip()
         if raw_script.startswith("res://"):
-            raw_relative = raw_script.removeprefix("res://").replace("\\", "/")
+            raw_relative = raw_script[len("res://") :].replace("\\", "/")
             relative = PurePosixPath(raw_relative)
             if (
                 not raw_relative

@@ -46,14 +46,6 @@ The Unity path was validated with the FPS generated-game example: Browser
 Serving returned a `unity_webgl` session, the page loaded the WebGL player in
 the iframe, and keyboard/mouse input reached the Unity canvas.
 
-The same engine-neutral page accepts `engine=godot` when the Gateway has a
-configured Godot backend. That path serves an existing or freshly exported
-Godot Web build with `godot_web_http`; no real Godot browser run is claimed by
-this example's existing Unity validation evidence. Input stays inside the
-Godot iframe canvas. The bundled Godot backend intentionally rejects
-post-export character, animation, World, normalized-input, and preview-camera
-mutations; prepare those in the project before Web export.
-
 Run the static contract test with:
 
 ```text

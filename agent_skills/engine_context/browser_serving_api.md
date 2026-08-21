@@ -16,13 +16,12 @@ Browser UI -> Browser Serving API -> EngineBackend -> Engine Client -> Engine
 
 Browser UI and generated Browser Play source must not import concrete
 backends, call Engine clients directly, or branch on Engine names. Registered
-Backends and the Gateway composition root may access UE5, Unity, and Godot only
+Backends and the Gateway composition root may access UE5 and Unity only
 through their public clients:
 
 ```python
 from engine_adapters.ue5 import UEClient
 from engine_adapters.unity3d import UnityClient
-from engine_adapters.godot import GodotClient
 ```
 
 The allowed call direction is:
@@ -35,8 +34,8 @@ Browser Play HTTP/fetch
                 -> Engine runtime
 ```
 
-Browser Play never constructs an `EngineBackend`, `UEClient`, `UnityClient`, or
-`GodotClient`. A game-specific backend or recording preset belongs in the
+Browser Play never constructs an `EngineBackend`, `UEClient`, or
+`UnityClient`. A game-specific backend or recording preset belongs in the
 execution composition root that registers the backend, not in generated
 Browser Play or an `<REPO_PATH>/engine_adapters/*/examples` directory.
 
@@ -180,10 +179,6 @@ from `payload`, and reads the playable Engine URL from session
 - `world_build` - Backend builds or publishes Worlds.
 - `world_catalog` - Backend lists runtime Worlds.
 - `runtime_sessions` - Backend supports browser-owned sessions.
-- `runtime_character_configuration` - A live session accepts Avatar/Motion
-  configuration after startup.
-- `runtime_world_loading` - A live session can select, join, and leave Worlds.
-- `runtime_input` - The Gateway can deliver normalized input to the Engine.
 - `skeletal_animation` - Backend supports Avatar/Motion selection.
 - `streaming` - Backend returns a browser-embeddable `stream_url`.
 - `pixel_streaming` - Backend provides UE-compatible Pixel Streaming.
@@ -231,28 +226,12 @@ not an API that generated Browser Play code implements or imports.
 - `create_unity3d_example_backend` - Creates the Unity3D backend, maps
   operations to `UnityClient`, and exposes a Unity WebGL page through
   `stream_url`.
-- `create_godot_example_backend` - Creates the Godot backend, maps operations
-  to `GodotClient`, exports or reuses a Godot Web build, and exposes its page
-  through `stream_url`.
 
 UE5 sessions use Pixel Streaming and deliver normalized input through the UE
 runtime session. Unity browser sessions use `runtime_kind=unity_webgl`,
 `streaming_transport=unity_webgl_http`, and
 `input_transport=browser_canvas`; keyboard and pointer events are delivered
 directly to the Unity canvas, not through UE-compatible Pixel Streaming.
-Godot browser sessions use `streaming_transport=godot_web_http` and
-`input_transport=browser_canvas`; the bundled static server emits isolation
-headers, while the engine-neutral Gateway deliberately does not impose COEP on
-its parent page because Unity WebGL and UE streaming pages may be cross-origin
-without CORP. Automated coverage verifies the non-threaded embedded path but
-does not claim `SharedArrayBuffer` or cross-origin-isolated iframe support;
-threaded/PWA exports are not claimed. The Browser
-Player recognizes Godot `PackedScene` Avatars and `AnimationLibrary` Motions,
-removes its input overlay, and focuses the iframe so the Godot canvas receives
-keyboard and pointer events. The bundled backend does not claim post-export
-character, animation, World, preview-camera, or normalized-input injection:
-its specific runtime capability flags are false and direct calls fail
-explicitly.
 
 Bundled backends are implementation references and registered backend
 implementations. Generated Browser UI must not import them. A project-specific
@@ -298,17 +277,12 @@ the native Engine UI and the Mechanic contract.
 - `A3GAME_UE_PROJECT` / `A3GAME_UE_ROOT` - Configure the UE5 backend.
 - `A3GAME_UNITY_PROJECT` / `A3GAME_UNITY_ROOT` - Configure the Unity backend.
 - `A3GAME_UNITY_WEBGL_BUILD` - Selects an existing Unity WebGL build.
-- `A3GAME_GODOT_PROJECT` / `A3GAME_GODOT_EXECUTABLE` - Configure the Godot 4
-  backend. The project value may be its directory or `project.godot`; the
-  default Web export is `<project>/builds/web/index.html`.
-- `A3GAME_GODOT_WEB_BUILD` - Selects an existing Godot Web export directory.
-- `A3GAME_GODOT_WEB_PRESET` - Selects the Godot export preset (default `Web`).
 - `A3GAME_BROWSER_DRY_RUN` - Validates Serving lifecycle without real Engine
   rendering.
 
 Default ports are `7860` for Admin, `7870` for Gateway, `18080+` for session
 pages, and `18888+` for UE streamer WebSockets. Unity WebGL does not use the UE
-streamer WebSocket ports; neither does Godot Web.
+streamer WebSocket ports.
 
 Launch scripts may set these documented environment variables and delegate to
 the Browser Serving Gateway. They must not implement a replacement backend,

@@ -12,15 +12,6 @@ def _path_env(name: str) -> Path | None:
     return Path(value).expanduser().resolve(strict=False) if value else None
 
 
-def _lexical_path_env(name: str) -> Path | None:
-    """Read a path without erasing link components needed for validation."""
-
-    value = os.environ.get(name, "").strip()
-    if not value:
-        return None
-    return Path(os.path.abspath(str(Path(value).expanduser())))
-
-
 def _flag(name: str, default: bool) -> bool:
     value = os.environ.get(name, "").strip().lower()
     if not value:
@@ -48,11 +39,6 @@ class BrowserServingConfig:
     unity_host: str = "127.0.0.1"
     unity_port: int = 30010
     unity_webgl_build: Path | None = None
-    godot_project: Path | None = None
-    godot_executable: Path | None = None
-    godot_web_build: Path | None = None
-    godot_web_preset: str = "Web"
-    godot_runtime_host: str = "127.0.0.1"
     runtime_host: str = "127.0.0.1"
     base_runtime_port: int = 31020
     pixel_host: str = "127.0.0.1"
@@ -68,7 +54,7 @@ class BrowserServingConfig:
     pixel_start_timeout: float = 120.0
 
     @classmethod
-    def from_environment(cls) -> BrowserServingConfig:
+    def from_environment(cls) -> "BrowserServingConfig":
         gateway_host = os.environ.get(
             "A3GAME_BROWSER_GATEWAY_HOST",
             "127.0.0.1",
@@ -123,24 +109,6 @@ class BrowserServingConfig:
             ),
             unity_webgl_build=_path_env(
                 "A3GAME_UNITY_WEBGL_BUILD"
-            ),
-            godot_project=_path_env("A3GAME_GODOT_PROJECT")
-            or _path_env("AAAGF_GODOT_PROJECT"),
-            godot_executable=_path_env(
-                "A3GAME_GODOT_EXECUTABLE"
-            )
-            or _path_env("A3GAME_GODOT")
-            or _path_env("AAAGF_GODOT"),
-            godot_web_build=_lexical_path_env(
-                "A3GAME_GODOT_WEB_BUILD"
-            ),
-            godot_web_preset=os.environ.get(
-                "A3GAME_GODOT_WEB_PRESET",
-                "Web",
-            ),
-            godot_runtime_host=os.environ.get(
-                "A3GAME_GODOT_RUNTIME_HOST",
-                "127.0.0.1",
             ),
             runtime_host=os.environ.get(
                 "A3GAME_UNITY_RUNTIME_HOST",

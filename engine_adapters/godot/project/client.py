@@ -94,7 +94,7 @@ def _project_resource_file(project_dir: Path, resource_path: str) -> Path:
     raw = str(resource_path or "").strip().replace("\\", "/")
     if not raw.startswith("res://"):
         raise ValueError(f"Godot resource path must use res://: {resource_path}")
-    relative = PurePosixPath(raw.removeprefix("res://"))
+    relative = PurePosixPath(raw[len("res://") :])
     if (
         not relative.parts
         or relative.is_absolute()

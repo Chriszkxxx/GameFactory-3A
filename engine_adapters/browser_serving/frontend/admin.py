@@ -65,9 +65,7 @@ def _asset_rows(
                     group,
                     _asset_name(asset),
                     str(native.get("class") or ""),
-                    str(
-                        metadata.get("skeleton_path") or metadata.get("skeleton") or ""
-                    ),
+                    str(metadata.get("skeleton_path") or ""),
                     str(native.get("path") or ""),
                     str(asset.get("artifact_id") or ""),
                 ]
@@ -360,15 +358,11 @@ def build_admin_app(
         gr.Markdown("# 3AGameFactory 资产上传 / 导入调试页")
         gr.Markdown(
             "此页面只调用 Browser Serving API。引擎通过 backend contract "
-            "接入，UE5、Unity3D 与 Godot 提供 example backend。"
+            "接入，UE5 是当前 example backend。"
         )
         with gr.Row():
             engine = gr.Dropdown(
-                choices=[
-                    ("Unreal Engine 5 Example", "ue5"),
-                    ("Unity3D", "unity3d"),
-                    ("Godot 4", "godot"),
-                ],
+                choices=[("Unreal Engine 5 Example", "ue5")],
                 value=resolved.default_engine,
                 label="Engine",
             )

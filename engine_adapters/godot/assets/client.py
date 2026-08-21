@@ -922,7 +922,8 @@ class GodotAssetsClient:
 
     def _destination(self, value: str) -> tuple[Path, str]:
         raw = str(value or "").strip().replace("\\", "/")
-        raw = raw.removeprefix("res://")
+        if raw.startswith("res://"):
+            raw = raw[len("res://") :]
         path = PurePosixPath(raw)
         if not raw or path.is_absolute() or ".." in path.parts:
             raise ValueError(

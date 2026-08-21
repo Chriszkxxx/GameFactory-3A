@@ -47,16 +47,17 @@ URP and HDRP material conversion is untested.
 
 | Requirement | How |
 |---|---|
-| Project | Use a directory containing `project.godot`; create a minimal project with `scripts/engine_install/godot/create_project.sh` or `.cmd` |
+| Engine install | Run `scripts/engine_install/godot/install.sh --json` or `install.cmd --json`; the pinned official archive is SHA-512 verified, atomically installed/reused, version-probed, and emitted as PATH/config output |
+| Project | Use a directory containing `project.godot`; after engine validation, create a minimal project with `scripts/engine_install/godot/create_project.sh` or `.cmd` |
 | Editor binary | Set `A3GAME_GODOT_EXECUTABLE`; `A3GAME_GODOT` and legacy `AAAGF_GODOT` are fallbacks, followed by `godot4`, `godot`, or `godot-mono` on `PATH` |
 | Import | Godot's built-in glTF/GLB importer needs no addon; the adapter stages the file under `res://` and runs `godot --headless --path <project> --import` |
-| Web build | Add a non-threaded `export_presets.cfg` preset (default name `Web`) and install the matching Godot export templates; threaded/PWA browser embedding is not verified by the bundled tests |
+| Python | Python 3.8+ standard library; the adapter does not require Python 3.12 or an engine SDK package |
 
 Use GLB when practical. A `.gltf` file may reference sidecar buffers and images;
 the public `GodotClient.assets` path and compatibility launcher validate and
 stage those sidecars together. Successful compatibility imports also write the
 project's Godot artifact registry, so they are immediately visible through
-`GodotClient`, Browser Serving, World, and Runtime; registry failure rolls the
+`GodotClient`, World, and Runtime; registry failure rolls the
 filesystem import back.
 See `scripts/engine_install/godot/README.md` and
 `engine_adapters/godot/import_generated/README.md`.

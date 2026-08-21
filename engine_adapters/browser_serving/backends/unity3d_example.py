@@ -7,12 +7,11 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock
 from time import time
-from typing import Any
+from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from engine_adapters.unity3d import UnityClient
@@ -233,8 +232,6 @@ class Unity3DExampleBackend:
                 world_build=True,
                 world_catalog=True,
                 runtime_sessions=True,
-                runtime_character_configuration=True,
-                runtime_world_loading=True,
                 skeletal_animation=True,
                 streaming=True,
                 # Unity's supported browser path is a WebGL player served by

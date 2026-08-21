@@ -17,6 +17,17 @@ It exposes the same eleven namespaces as the other full adapters: `project`,
 `runtime`, `reflection`, and `observe`. Every operation returns the shared
 `{ok, operation, artifacts, diagnostics, warnings, errors, payload}` shape.
 
+Install or reuse a pinned official editor before constructing the client:
+
+```bash
+scripts/engine_install/godot/install.sh --version 4.5.1 --json
+```
+
+The cross-platform installer is non-interactive, architecture-aware, verifies
+the official SHA-512, stages atomically, probes the exact version, and emits
+PATH/configuration output. It and this adapter support Python 3.8+; Python 3.12
+is not required. See `scripts/engine_install/godot/README.md`.
+
 ## Configuration
 
 - `A3GAME_GODOT_PROJECT`: project directory or `project.godot`; the legacy
@@ -123,8 +134,11 @@ explicit metadata is merged over spec metadata. `world.list_packages(*,
 project_id="", world_id="")` applies both optional filters.
 
 `plugin.install_framework()` installs `A3GamePlayable` as a project add-on. Its
-autoload receives game-neutral session and normalized input messages. Generated
-gameplay owns concrete movement, combat, camera, UI, and rules. Custom add-ons
+autoload receives game-neutral session and normalized input messages. The add-on
+also implements identity/entity binding, scene loading, animation dispatch,
+collision probes, telemetry HUD, and PBR/light helpers, with a capability matrix
+and native smoke test. Generated gameplay owns concrete movement, combat, camera,
+game-specific UI, vehicles, score, and rules. Custom add-ons
 must declare the Godot-required `name`, `author`, `version`, `description`, and
 `script` strings in `plugin.cfg`, with one safe, source-local script path. Before
 copying or enabling an add-on, the configured Godot executable parses that
@@ -155,26 +169,10 @@ warning (unless `require_runtime=True`). Once a response is received, a NACK or
 malformed/mismatched protocol response fails without registering, deactivating,
 removing, or updating local session state.
 
-Browser Serving exports or reuses a Web build. Its dedicated static server
-emits cross-origin isolation headers, but the engine-neutral Gateway does not
-impose COEP on the parent page because existing Unity WebGL and UE streaming
-pages may be served from other origins without CORP. The Browser Player leaves
-keyboard/pointer input to the Godot iframe canvas. The bundled backend accepts
-either the project directory or its `project.godot` file and defaults new Web
-exports to `<project>/builds/web/index.html`. Repository automation verifies
-the non-threaded embedded path, not `SharedArrayBuffer` or a
-cross-origin-isolated iframe. Threaded/PWA exports remain outside the verified
-bundled-browser capability. A reused Web export must contain only regular files
-and directories: the backend rejects symbolic links and special nodes before
-starting its server. On platforms with directory-descriptor support, each HTTP
-file is opened component by component from a pinned export-root descriptor
-without following links; the portable fallback verifies the opened handle
-against the in-root path before sending it. A file or parent-directory swap
-between validation and opening therefore fails instead of serving outside-root
-content. The backend
-does not inject characters, animations, Worlds, normalized input, or preview
-camera changes after export; those capability flags are false and such calls
-fail explicitly rather than pretending to mutate the running build.
+Three complete, engine-validated gameplay references live under `examples/`:
+2D arcade survival, 3D chase-camera racing, and 2D rigid-body pinball. Each is a
+standalone project with interactive input, an unattended demo driver, UI/state,
+meaningful collision/physics, and a native dynamic smoke script.
 
 Use `python -m engine_adapters.godot --help` for the CLI and
-`scripts/engine_install/godot/` for thin launch wrappers.
+`scripts/engine_install/godot/` for verified installation and launch wrappers.

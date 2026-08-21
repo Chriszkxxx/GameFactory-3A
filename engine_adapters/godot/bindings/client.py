@@ -377,7 +377,11 @@ class GodotBindingsClient:
                 for item in report_bindings
                 if isinstance(item, Mapping)
             }
-            for record, binding in zip(resolved_meshes, mesh_bindings, strict=True):
+            if len(resolved_meshes) != len(mesh_bindings):
+                raise RuntimeError(
+                    "Godot material binding target count changed during validation"
+                )
+            for record, binding in zip(resolved_meshes, mesh_bindings):
                 target_resource = str(binding["target_resource"])
                 applied = by_target.get(target_resource)
                 target_file = Path(binding["target_file"])
@@ -496,7 +500,7 @@ class GodotBindingsClient:
             raise ValueError(
                 f"Godot mesh asset must use a project resource path: {resource_path}"
             )
-        relative = PurePosixPath(raw.removeprefix("res://"))
+        relative = PurePosixPath(raw[len("res://") :])
         if relative.is_absolute() or ".." in relative.parts or not relative.parts:
             raise ValueError(f"Godot mesh resource path is unsafe: {resource_path}")
         project_dir = self._assets._project_dir()

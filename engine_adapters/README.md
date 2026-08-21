@@ -9,7 +9,7 @@ mechanic / UI code, and used at runtime for RPC-style asset delivery.
 |-------------|------------------------------------------------------------|
 | `ue5/`      | UE5 Blueprint templates, C++ modules, Python-remote scripts, importer helpers |
 | `unity3d/`  | Unity3D C# templates, Editor scripts, PackageManager manifests |
-| `godot/`    | Godot 4 public Client, GDScript runtime plugin, import/export/test helpers, Web export serving |
+| `godot/`    | Godot 4 public Client, full GDScript runtime plugin, import/export/test helpers, native gameplay references |
 | `blender/`  | Blender Python (`bpy`) importers, rig / retarget helpers, headless render scripts, a playable session |
 | `three_js/` | Web runtime: `ThreeClient` Python API, `A3GamePlayable` JS framework, glTF loaders, scene scaffolds, HUD overlays |
 
@@ -68,10 +68,13 @@ README.
 Prerequisites: Unity needs `com.unity.cloud.gltfast` in the project; UE needs the
 `PythonScriptPlugin` enabled, and is driven through the full editor rather than a
 commandlet (the UE README explains why). Blender needs no project or licence, and
-`pip install bpy` satisfies it if no application is installed. Godot needs a Godot
-4 editor binary and an existing `project.godot`; set `A3GAME_GODOT_EXECUTABLE`
-and `A3GAME_GODOT_PROJECT`, or pass the corresponding CLI options. The executable
-fallback order is `A3GAME_GODOT`, legacy `AAAGF_GODOT`, then `PATH`.
+`pip install bpy` satisfies it if no application is installed. Install/reuse a
+pinned Godot 4 editor with `scripts/engine_install/godot/install.sh --json` or
+`install.cmd --json`; it verifies the official SHA-512 and exact engine version.
+Godot host code supports Python 3.8+ and does not require Python 3.12. Set
+`A3GAME_GODOT_EXECUTABLE` and `A3GAME_GODOT_PROJECT`, or pass the corresponding
+CLI options. The executable fallback order is `A3GAME_GODOT`, legacy
+`AAAGF_GODOT`, then `PATH`.
 Godot material binding also runs an adapter-owned SceneTree script and succeeds
 only after bound `PackedScene` files with changed `MeshInstance3D` nodes are
 reported and persisted.

@@ -10,9 +10,11 @@ signal world_reset(world_id: String)
 const DEFAULT_PORT := 30050
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_WORLD_ID := "world_001"
+const INPUT_STATE = preload("res://addons/a3game_playable/input_state.gd")
 
 var _peer := PacketPeerUDP.new()
 var _sessions: Dictionary = {}
+var _last_inputs: Dictionary = {}
 var _port := DEFAULT_PORT
 var _host := DEFAULT_HOST
 
@@ -67,7 +69,14 @@ func find_entity(entity_id: String) -> Node:
 func _handle_message(message: Dictionary) -> Dictionary:
 	var operation := str(message.get("operation", ""))
 	if operation == "status":
-		return {"ok": true, "operation": operation, "host": _host, "port": _port, "sessions": _sessions.size()}
+		return {
+			"ok": true,
+			"operation": operation,
+			"host": _host,
+			"port": _port,
+			"sessions": _sessions.size(),
+			"capabilities": ["identity", "normalized_input", "world_sessions", "entity_binding"],
+		}
 	if operation == "session.join":
 		var controller_id := str(message.get("controller_id", ""))
 		if controller_id.is_empty():
@@ -124,7 +133,15 @@ func _handle_message(message: Dictionary) -> Dictionary:
 			return {"ok": false, "operation": operation, "error": "Unknown controller_id"}
 		var session: Dictionary = _sessions[controller_id]
 		var entity_id := str(session.get("entity_id", ""))
-		var input_state: Dictionary = message.get("input", {})
+		var normalized_input: Dictionary = INPUT_STATE.normalize(message.get("input", {}))
+		if normalized_input.get("ok") != true:
+			return {
+				"ok": false,
+				"operation": operation,
+				"error": normalized_input.get("error", "invalid input state"),
+			}
+		var input_state: Dictionary = normalized_input["input"]
+		_last_inputs[entity_id] = input_state.duplicate(true)
 		input_received.emit(entity_id, input_state)
 		for node in get_tree().get_nodes_in_group("a3game_runtime_entity"):
 			if str(node.get("a3game_entity_id")) == entity_id and node.has_method("apply_a3game_input"):
@@ -135,14 +152,18 @@ func _handle_message(message: Dictionary) -> Dictionary:
 		if world_id.is_empty():
 			world_id = DEFAULT_WORLD_ID
 		var controllers_to_remove: Array = []
+		var entities_to_remove: Array = []
 		for controller_id in _sessions:
 			var session: Dictionary = _sessions[controller_id]
 			if str(session.get("world_id", DEFAULT_WORLD_ID)) == world_id:
 				controllers_to_remove.append(controller_id)
+				entities_to_remove.append(str(session.get("entity_id", "")))
 		for controller_id in controllers_to_remove:
 			var previous: Dictionary = _sessions.get(controller_id, {})
 			_sessions.erase(controller_id)
 			session_left.emit(previous)
+		for entity_id in entities_to_remove:
+			_last_inputs.erase(entity_id)
 		world_reset.emit(world_id)
 		return {
 			"ok": true,
@@ -168,6 +189,7 @@ func _handle_message(message: Dictionary) -> Dictionary:
 			var previous: Dictionary = _sessions.get(controller_id, {})
 			_sessions.erase(controller_id)
 			session_left.emit(previous)
+		_last_inputs.erase(entity_id)
 		var matched_nodes := 0
 		var destroy_queued_nodes := 0
 		for node in get_tree().get_nodes_in_group("a3game_runtime_entity"):
@@ -187,3 +209,35 @@ func _handle_message(message: Dictionary) -> Dictionary:
 			"sessions": _sessions.size(),
 		}
 	return {"ok": false, "operation": operation, "error": "Unsupported runtime operation"}
+
+
+func sessions_snapshot(world_id: String = "") -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for session in _sessions.values():
+		if world_id.is_empty() or str(session.get("world_id", DEFAULT_WORLD_ID)) == world_id:
+			result.append(session.duplicate(true))
+	return result
+
+
+func last_input_for(entity_id: String) -> Dictionary:
+	return Dictionary(_last_inputs.get(entity_id, {})).duplicate(true)
+
+
+func bind_entity(node: Node, entity_id: String) -> Dictionary:
+	var normalized_id := entity_id.strip_edges()
+	if node == null:
+		return {"ok": false, "error": "node is required"}
+	if normalized_id.is_empty():
+		return {"ok": false, "error": "entity_id is required"}
+	if not node.has_method("apply_a3game_input"):
+		return {"ok": false, "error": "node must implement apply_a3game_input"}
+	var has_identity_property := false
+	for property in node.get_property_list():
+		if str(property.get("name", "")) == "a3game_entity_id":
+			has_identity_property = true
+			break
+	if not has_identity_property:
+		return {"ok": false, "error": "node must expose a3game_entity_id"}
+	node.set("a3game_entity_id", normalized_id)
+	node.add_to_group("a3game_runtime_entity")
+	return {"ok": true, "entity_id": normalized_id, "node_path": str(node.get_path())}

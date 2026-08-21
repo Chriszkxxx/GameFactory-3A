@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import importlib
 import re
+import importlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -15,6 +15,7 @@ from pipeline.common.artifacts import (
     read_json,
     resolve_repo_path,
 )
+
 
 CONTEXT_USED_SCHEMA = "gamefactory3a.context_used.v1"
 EXAMPLE_REFERENCE_PURPOSES = (
@@ -92,9 +93,6 @@ _ENGINE_DEFINITIONS = (
             "world_build",
             "world_catalog",
             "runtime_sessions",
-            "runtime_character_configuration",
-            "runtime_world_loading",
-            "runtime_input",
             "skeletal_animation",
             "streaming",
             "pixel_streaming",
@@ -130,8 +128,6 @@ _ENGINE_DEFINITIONS = (
             "world_build",
             "world_catalog",
             "runtime_sessions",
-            "runtime_character_configuration",
-            "runtime_world_loading",
             "skeletal_animation",
             "streaming",
             "webgl_streaming",
@@ -153,29 +149,6 @@ _ENGINE_DEFINITIONS = (
         ),
         "ui_example_roots": (
             "engine_adapters/godot/examples",
-        ),
-        "browser_backend_example_roots": (
-            "engine_adapters/browser_serving/backends",
-        ),
-        "browser_backend_example_paths": (
-            (
-                "engine_adapters/browser_serving/backends/"
-                "godot_example.py"
-            ),
-        ),
-        "browser_backend_entry_point": (
-            "engine_adapters.browser_serving.backends:"
-            "create_godot_example_backend"
-        ),
-        "browser_backend_capabilities": (
-            "asset_upload",
-            "asset_import",
-            "asset_inspection",
-            "world_build",
-            "world_catalog",
-            "runtime_sessions",
-            "streaming",
-            "web_export_streaming",
         ),
     },
     {
@@ -558,7 +531,6 @@ def resolve_browser_play_registration(
         "viewer.html",
         "viewer.js",
         "viewer.css",
-        "viewer_engine_policy.js",
     )
     for filename in required_files:
         path = (frontend_root / filename).resolve(

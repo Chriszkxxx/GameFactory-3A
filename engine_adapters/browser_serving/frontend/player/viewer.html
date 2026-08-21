@@ -26,8 +26,8 @@
   <main class="layout">
     <section class="viewport-panel">
       <div class="runtime-hint">
-        每个浏览器窗口拥有独立 Runtime Session；浏览器原生导出直接在内嵌画布接收键鼠输入。
-        <a id="pixelDirectLink" href="#" target="_blank" rel="noreferrer" hidden>打开 Engine 画面页面</a>
+        每个浏览器窗口拥有独立 Runtime Session。进入场景后，本页面捕获 WASD 控制当前玩家。
+        <a id="pixelDirectLink" href="#" target="_blank" rel="noreferrer" hidden>打开 Pixel Streaming 页面</a>
       </div>
       <iframe id="pixelFrame" title="Runtime streaming viewport" allow="fullscreen; autoplay; clipboard-read; clipboard-write; pointer-lock" hidden></iframe>
       <div id="viewportInputOverlay" class="viewport-input-overlay" hidden>
@@ -35,7 +35,7 @@
       </div>
       <div id="pixelFallback" class="fallback">
         <h2>等待玩家客户端</h2>
-        <p id="pixelMessage">正在检查 Engine 画面配置。</p>
+        <p id="pixelMessage">正在检查 Pixel Streaming 配置。</p>
         <p>点击右侧 <code>启动客户端</code> 后，Runtime 会根据所选引擎创建独立会话与画面地址。</p>
         <p>端口分工：<code>7860</code> 是资产上传页，<code>7870</code> 是玩家控制页，<code>18080+</code> 是每个玩家客户端的画面页。</p>
       </div>
@@ -47,7 +47,7 @@
         <button id="refreshAssetsBtn" class="primary">刷新 Avatar / Motion / Scene</button>
         <p class="muted-text">Runtime 只加载已发布资产；上传、导入和构建属于 Admin/Engine 流程。</p>
         <label>
-          Avatar（Engine-native scene/mesh）
+          Avatar（SkeletalMesh）
           <select id="avatarSelect"></select>
         </label>
         <label>
@@ -78,7 +78,7 @@
 
       <section class="card">
         <h2>Player Runtime</h2>
-        <p class="muted-text">可用步骤由所选 Engine 的运行时能力决定；不支持的动态控制会自动禁用。</p>
+        <p class="muted-text">按顺序启动客户端、预览角色和动作，确认后再选择场景进入。</p>
         <div class="button-grid two">
           <button id="playerSessionCreateBtn" class="primary">1. 启动客户端</button>
           <button id="playerSessionRefreshBtn">刷新客户端状态</button>
@@ -208,7 +208,6 @@
     </aside>
   </main>
 
-  <script src="/static/viewer_engine_policy.js?v=engine-policy-v1"></script>
-  <script src="/static/viewer.js?v=runtime-scene-flow-v31"></script>
+  <script src="/static/viewer.js?v=runtime-scene-flow-v30"></script>
 </body>
 </html>

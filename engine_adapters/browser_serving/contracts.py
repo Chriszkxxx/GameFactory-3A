@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, BinaryIO, Protocol
+from typing import Any, BinaryIO, Mapping, Protocol
+
 
 API_VERSION = "v1"
 
@@ -18,9 +18,6 @@ class EngineCapabilities:
     world_build: bool = False
     world_catalog: bool = False
     runtime_sessions: bool = False
-    runtime_character_configuration: bool = False
-    runtime_world_loading: bool = False
-    runtime_input: bool = False
     skeletal_animation: bool = False
     streaming: bool = False
     pixel_streaming: bool = False
@@ -60,7 +57,7 @@ class AssetRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> AssetRecord:
+    def from_dict(cls, data: Mapping[str, Any]) -> "AssetRecord":
         payload = dict(data)
         return cls(
             artifact_id=str(payload.get("artifact_id") or ""),
@@ -111,7 +108,7 @@ class WorldRecord:
     manifest: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> WorldRecord:
+    def from_dict(cls, data: Mapping[str, Any]) -> "WorldRecord":
         payload = dict(data)
         return cls(
             package_id=str(

@@ -89,7 +89,6 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
-const ENGINE_POLICY = window.A3GameViewerEnginePolicy;
 const RUNTIME_STORAGE_KEY = "openwl_runtime_session_v1";
 const RUNTIME_TAB_KEY = "openwl_runtime_tab_id_v1";
 const PLAYER_SESSION_STORAGE_KEY = "openwl_player_session_v1";
@@ -176,10 +175,6 @@ function selectedEngineId() {
   return state.engine.id || "ue5";
 }
 
-function usesNativeIframeInput() {
-  return Boolean(ENGINE_POLICY?.usesNativeIframeInput(selectedEngineId()));
-}
-
 function sessionUrl(suffix = "", params = {}) {
   const query = new URLSearchParams({
     engine: selectedEngineId(),
@@ -190,27 +185,10 @@ function sessionUrl(suffix = "", params = {}) {
 
 function applyEngineCapabilities() {
   const capabilities = state.engine.capabilities || {};
-  const characterConfiguration = Boolean(
-    capabilities.runtime_character_configuration ?? capabilities.skeletal_animation
-  );
-  const worldLoading = Boolean(
-    capabilities.runtime_world_loading ?? capabilities.world_catalog
-  );
   $("playerSessionCreateBtn").disabled = !capabilities.runtime_sessions;
   $("refreshAssetsBtn").disabled = !capabilities.asset_inspection;
-  $("playerPreviewBtn").disabled = !characterConfiguration;
-  $("playerPreviewAnimationBtn").disabled = !characterConfiguration;
-  $("motionSelect").disabled = !characterConfiguration;
-  $("idleMotionSelect").disabled = !characterConfiguration;
-  $("moveMotionSelect").disabled = !characterConfiguration;
-  $("worldSelect").disabled = !worldLoading;
-  $("playerLoadWorldBtn").disabled = !worldLoading;
-  $("playerJoinWorldBtn").disabled = !worldLoading;
-  $("playerLeaveWorldBtn").disabled = !worldLoading;
   if (!capabilities.streaming && !capabilities.pixel_streaming) {
     $("pixelMessage").textContent = "当前引擎不提供浏览器画面能力。";
-  } else if (usesNativeIframeInput()) {
-    $("pixelMessage").textContent = "该引擎在嵌入画布内直接接收键盘和鼠标输入。";
   }
 }
 
@@ -251,13 +229,9 @@ function artifactReference(asset) {
 }
 
 function assetSkeletonPath(asset) {
-  const policyPath = ENGINE_POLICY?.assetSkeletonPath?.(asset);
-  if (policyPath) {
-    return String(policyPath);
-  }
   const metadata = asset?.metadata || {};
-  if (metadata.skeleton_path || metadata.skeleton) {
-    return String(metadata.skeleton_path || metadata.skeleton);
+  if (metadata.skeleton_path) {
+    return String(metadata.skeleton_path);
   }
   const dependency = (metadata.dependencies || []).find(
     (item) => item?.type === "skeleton"
@@ -342,17 +316,14 @@ function hasTechnicalAvatarName(asset) {
 
 function isPlayerAvatarAsset(asset) {
   return Boolean(artifactReference(asset))
-    && Boolean(ENGINE_POLICY?.acceptsAvatar(
-      selectedEngineId(),
-      assetClass(asset),
-      Boolean(assetSkeletonPath(asset)),
-      hasTechnicalAvatarName(asset)
-    ));
+    && assetClass(asset) === "SkeletalMesh"
+    && Boolean(assetSkeletonPath(asset))
+    && !hasTechnicalAvatarName(asset);
 }
 
 function isPlayerMotionAsset(asset) {
   return Boolean(artifactReference(asset))
-    && Boolean(ENGINE_POLICY?.acceptsMotion(selectedEngineId(), assetClass(asset)));
+    && assetClass(asset) === "AnimSequence";
 }
 
 function selectedAvatar() {
@@ -387,20 +358,7 @@ function filteredMotionsForSelectedAvatar() {
   if (!avatar) {
     return [];
   }
-  if (ENGINE_POLICY?.filterMotionsForAvatar) {
-    return ENGINE_POLICY.filterMotionsForAvatar(
-      selectedEngineId(), avatar, motions
-    );
-  }
   const skeletonPath = normalizeAssetPath(assetSkeletonPath(avatar));
-  if (!ENGINE_POLICY?.requiresSkeletonMatch(selectedEngineId())) {
-    return skeletonPath
-      ? motions.filter((motion) => {
-        const motionSkeleton = normalizeAssetPath(assetSkeletonPath(motion));
-        return !motionSkeleton || motionSkeleton === skeletonPath;
-      })
-      : motions;
-  }
   if (!skeletonPath) {
     return [];
   }
@@ -589,7 +547,7 @@ function setPixelFrameUrl(url) {
     directLink.hidden = false;
   }
   if (activePixelFrameUrl === frameUrl && !frame.hidden) {
-    if (VIEWER_EDITOR_MODE || usesNativeIframeInput()) {
+    if (VIEWER_EDITOR_MODE) {
       focusPixelFrame();
     } else {
       focusControlSurface();
@@ -605,11 +563,11 @@ function setPixelFrameUrl(url) {
 function pixelPlaybackUrl(url, embedded = true) {
   try {
     const playbackUrl = new URL(url, window.location.href);
-    // Browser-native Engine exports receive events in their own canvas. UE5
-    // keeps its Pixel Streaming transport and uses the parent control bridge.
+    // Unity WebGL receives browser events in its canvas. UE5 keeps its
+    // Pixel Streaming transport, so only Unity needs native iframe input.
     const useNativeInput = VIEWER_EDITOR_MODE
       || !embedded
-      || usesNativeIframeInput();
+      || selectedEngineId() === "unity3d";
     playbackUrl.searchParams.set("AutoConnect", "true");
     playbackUrl.searchParams.set("AutoPlayVideo", "true");
     playbackUrl.searchParams.set("StartVideoMuted", "true");
@@ -647,7 +605,7 @@ function clearPixelFrame() {
 
 function focusPixelFrameSoon(delay = 250) {
   window.setTimeout(
-    (VIEWER_EDITOR_MODE || usesNativeIframeInput())
+    (VIEWER_EDITOR_MODE || selectedEngineId() === "unity3d")
       ? focusPixelFrame
       : focusControlSurface,
     delay
@@ -690,8 +648,8 @@ function waitForPixelPage(url, frameUrl = url) {
   }
   let attempts = 0;
   setPill($("pixelStatus"), true, "Client stream: starting");
-  const streamLabel = usesNativeIframeInput()
-    ? `${selectedEngineId() === "godot" ? "Godot Web" : "Unity WebGL"} 页面`
+  const streamLabel = selectedEngineId() === "unity3d"
+    ? "Unity WebGL 页面"
     : "Pixel Streaming 画面服务";
   $("pixelMessage").textContent = `正在启动${streamLabel}: ${url}`;
   pixelReadyTimer = window.setInterval(async () => {
@@ -707,13 +665,13 @@ function waitForPixelPage(url, frameUrl = url) {
       fallback.hidden = true;
       updateViewportInputOverlay();
       frame.addEventListener("load", () => {
-        if (VIEWER_EDITOR_MODE || usesNativeIframeInput()) {
+        if (VIEWER_EDITOR_MODE || selectedEngineId() === "unity3d") {
           focusPixelFrame();
         } else {
           focusControlSurface();
         }
       }, { once: true });
-      if (VIEWER_EDITOR_MODE || usesNativeIframeInput()) {
+      if (VIEWER_EDITOR_MODE || selectedEngineId() === "unity3d") {
         focusPixelFrame();
       } else {
         focusControlSurface();
@@ -726,8 +684,8 @@ function waitForPixelPage(url, frameUrl = url) {
       window.clearInterval(pixelReadyTimer);
       pixelReadyTimer = null;
       setPill($("pixelStatus"), false, "Client stream: unreachable");
-      $("pixelMessage").textContent = usesNativeIframeInput()
-        ? `浏览器 Engine 页面仍不可达，请确认构建和 HTTP 服务: ${url}`
+      $("pixelMessage").textContent = selectedEngineId() === "unity3d"
+        ? `Unity WebGL 页面仍不可达，请确认构建和 HTTP 服务: ${url}`
         : `画面服务仍不可达，请确认 Pixel Streaming 窗口是否启动: ${url}`;
     }
   }, 1000);
@@ -1288,9 +1246,9 @@ function updateViewportInputOverlay() {
     }
     return;
   }
-  // Browser-native players own keyboard and pointer events inside their
-  // canvas. Keeping the generic overlay above the iframe would swallow them.
-  if (usesNativeIframeInput()) {
+  // Unity WebGL owns keyboard and pointer events inside its canvas. Keeping
+  // the generic overlay above the iframe would swallow those events.
+  if (selectedEngineId() === "unity3d" && isPlayerInWorld()) {
     overlay.hidden = true;
     const frame = $("pixelFrame");
     if (frame) frame.style.pointerEvents = "auto";
@@ -1554,13 +1512,6 @@ function activatePlayerInput() {
   if (!isPlayerInWorld()) {
     return;
   }
-  if (usesNativeIframeInput()) {
-    state.playerSession.pageInputEnabled = false;
-    stopPlayerInputTimer();
-    updateViewportInputOverlay();
-    focusPixelFrame();
-    return;
-  }
   state.playerSession.pageInputEnabled = true;
   startPlayerInputTimer();
   updateViewportInputOverlay();
@@ -1817,8 +1768,8 @@ async function createPlayerSession() {
   applyPlayerSessionResult(result);
   focusPixelFrameSoon(500);
   log(
-    usesNativeIframeInput()
-      ? `${selectedEngineId() === "godot" ? "Godot Web" : "Unity WebGL"} 玩家已启动`
+    selectedEngineId() === "unity3d"
+      ? "Unity WebGL 玩家已启动"
       : "玩家客户端已启动，UE Client 正在打开预览场景",
     result
   );
