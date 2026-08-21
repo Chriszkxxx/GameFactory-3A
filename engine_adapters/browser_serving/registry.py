@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from .contracts import EngineBackend, UnknownEngineError
 
-
 _ALIASES = {
     "ue": "ue5",
     "unreal": "ue5",
     "unreal_engine": "ue5",
+    "godot4": "godot",
+    "godot_engine": "godot",
 }
 
 

@@ -7,8 +7,9 @@ import logging
 import os
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from fastapi import (
     FastAPI,
@@ -34,7 +35,6 @@ from ..contracts import (
 )
 from ..registry import EngineRegistry
 from ..service import BrowserServingService
-
 
 logger = logging.getLogger("gamefactory3a.browser_serving")
 PLAYER_DIR = (
@@ -198,6 +198,7 @@ def create_app(
     if service is None:
         if backends is None:
             from ..backends import (
+                create_godot_example_backend,
                 create_ue5_example_backend,
                 create_unity3d_example_backend,
             )
@@ -207,6 +208,12 @@ def create_app(
                 backends.append(create_ue5_example_backend(resolved_config))
             if resolved_config.unity_project or resolved_config.unity_root:
                 backends.append(create_unity3d_example_backend(resolved_config))
+            if (
+                resolved_config.godot_project
+                or resolved_config.godot_executable
+                or resolved_config.godot_web_build
+            ):
+                backends.append(create_godot_example_backend(resolved_config))
             if not backends:
                 backends = [create_ue5_example_backend(resolved_config)]
         service = BrowserServingService(
@@ -238,6 +245,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
     if PLAYER_DIR.is_dir():
         app.mount(
             "/static",

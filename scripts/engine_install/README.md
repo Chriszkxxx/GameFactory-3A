@@ -1,14 +1,14 @@
 # Engine prerequisites for importing generated assets
 
-What a UE5 or Unity project needs before
+What a UE5, Unity, or Godot project needs before
 `scripts/import_generated_asset.py` can put a generated mesh into it. Nothing
-here is installed by a script — both are editor-side settings, done once per
+here installs an engine; these are editor/project settings, done once per
 project.
 
 > The agent-facing summary of the engine interfaces belongs in
-> `agent_skills/engine_context/{ue5,unity3d}_api.md`; this file is the setup
+> `agent_skills/engine_context/{ue5,unity3d,godot}_api.md`; this file is the setup
 > checklist that goes with the importers in
-> `engine_adapters/{ue5,unity3d}/import_generated/`.
+> `engine_adapters/{ue5,unity3d,godot}/import_generated/`.
 
 ## UE5
 
@@ -42,6 +42,24 @@ generate FBX instead: `MeshyModel(output_format="fbx")`.
 
 Verified against Unity 6000.5.2f1 with glTFast 6.16.0, built-in render pipeline.
 URP and HDRP material conversion is untested.
+
+## Godot 4
+
+| Requirement | How |
+|---|---|
+| Project | Use a directory containing `project.godot`; create a minimal project with `scripts/engine_install/godot/create_project.sh` or `.cmd` |
+| Editor binary | Set `A3GAME_GODOT_EXECUTABLE`; `A3GAME_GODOT` and legacy `AAAGF_GODOT` are fallbacks, followed by `godot4`, `godot`, or `godot-mono` on `PATH` |
+| Import | Godot's built-in glTF/GLB importer needs no addon; the adapter stages the file under `res://` and runs `godot --headless --path <project> --import` |
+| Web build | Add a non-threaded `export_presets.cfg` preset (default name `Web`) and install the matching Godot export templates; threaded/PWA browser embedding is not verified by the bundled tests |
+
+Use GLB when practical. A `.gltf` file may reference sidecar buffers and images;
+the public `GodotClient.assets` path and compatibility launcher validate and
+stage those sidecars together. Successful compatibility imports also write the
+project's Godot artifact registry, so they are immediately visible through
+`GodotClient`, Browser Serving, World, and Runtime; registry failure rolls the
+filesystem import back.
+See `scripts/engine_install/godot/README.md` and
+`engine_adapters/godot/import_generated/README.md`.
 
 ## Both
 
