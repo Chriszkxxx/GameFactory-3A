@@ -1,0 +1,69 @@
+================================================================================
+ 3D Object Generation Requirements — gameE_fps_tactical_unity
+================================================================================
+
+生成方式: 参考图 → 3D 模型 (TRELLIS.2 / Hunyuan3D-2.1 / TripoSG)
+输出格式: GLB (含 PBR 纹理)
+
+所有路径相对仓库根目录。image_path 指向 ref_images/ 下的概念参考图。
+
+--------------------------------------------------------------------------------
+ 资产清单 (Asset List)
+--------------------------------------------------------------------------------
+
+1. 战术手枪 (Tactical Pistol)
+   - 模型面数: ≤15,000 tris
+   - 纹理: PBR 2048×2048
+   - 风格: 写实军事，黑色哑光表面
+   - 用途: 第一人称手持武器模型
+   - prompt: "Modern tactical pistol, black matte finish, game-ready, high
+     detail, PBR textures, 2048"
+
+2. 突击步枪 (Assault Rifle)
+   - 模型面数: ≤20,000 tris
+   - 纹理: PBR 2048×2048
+   - 风格: 写实军事，战术导轨系统，黑棕配色
+   - 用途: 第一人称手持武器模型
+   - prompt: "Modern assault rifle, tactical rail system, black and tan color
+     scheme, game-ready, high detail, PBR textures, 2048"
+
+3. 战术霰弹枪 (Tactical Combat Shotgun)
+   - 模型面数: ≤15,000 tris
+   - 纹理: PBR 2048×2048
+   - 风格: 写实军事，泵动式，黑色表面
+   - 用途: 第一人称手持武器模型
+   - prompt: "Tactical combat shotgun, pump action, black finish, game-ready,
+     high detail, PBR textures, 2048"
+
+4. 恐怖分子角色 (Terrorist Fighter) — T-pose 全身模型
+   - 模型面数: ≤80,000 tris
+   - 纹理: PBR 2048×2048
+   - 风格: 写实军事，穿黑色战术背心，戴头套 (balaclava)
+   - 用途: 敌人角色，需绑定骨骼用于动作
+   - prompt: "Terrorist fighter in black tactical vest and balaclava, holding
+     rifle, realistic military style, T-pose, game-ready, PBR textures"
+
+5. 简易爆炸装置 (Improvised Explosive Device / Bomb)
+   - 模型面数: ≤10,000 tris
+   - 纹理: PBR 2048×2048
+   - 风格: 写实，带定时器、导线和 C4
+   - 用途: 场景中的炸弹任务目标
+   - prompt: "Improvised explosive device with timer, wires and C4, realistic,
+     game-ready, PBR textures"
+
+6. 弹药箱 (Ammunition Crate)
+   - 模型面数: ≤10,000 tris
+   - 纹理: PBR 2048×2048
+   - 风格: 写实军事，绿色金属箱
+   - 用途: 场景道具，可拾取弹药
+   - prompt: "Military ammunition crate, green metal box, game-ready, PBR
+     textures"
+
+--------------------------------------------------------------------------------
+ 质量要求 (Quality Requirements)
+--------------------------------------------------------------------------------
+- 所有武器模型需为第一人称视角优化，枪口朝前
+- 恐怖分子角色为 T-pose 全身模型，便于后续骨骼绑定和动作 retarget
+- 所有模型使用 PBR 材质 (albedo, normal, metallic, roughness)
+- 模型需 game-ready，无多余几何体
+- decimation_target 为网格抽取前的目标面数 (TRELLIS 输出密度较高)
