@@ -42,9 +42,46 @@ class GodotInstallerTests(unittest.TestCase):
         self.assertEqual("macos.universal", mac.asset_label)
         self.assertEqual(Path("Godot.app/Contents/MacOS/Godot"), mac.executable_relative("4.5.1-stable"))
         windows = installer.resolve_target("Windows", "aarch64")
-        self.assertEqual("windows.arm64.exe", windows.asset_label)
+        self.assertEqual("windows_arm64.exe", windows.asset_label)
+        self.assertEqual(
+            "Godot_v4.5.1-stable_windows_arm64.exe.zip",
+            windows.asset_name("4.5.1-stable"),
+        )
+        self.assertEqual(
+            Path("Godot_v4.5.1-stable_windows_arm64.exe"),
+            windows.executable_relative("4.5.1-stable"),
+        )
         with self.assertRaises(installer.InstallError):
             installer.resolve_target("Plan9", "mips")
+
+    def test_supported_targets_match_official_4_5_1_editor_archives(self) -> None:
+        official_archives = {
+            "Godot_v4.5.1-stable_linux.arm32.zip",
+            "Godot_v4.5.1-stable_linux.arm64.zip",
+            "Godot_v4.5.1-stable_linux.x86_32.zip",
+            "Godot_v4.5.1-stable_linux.x86_64.zip",
+            "Godot_v4.5.1-stable_macos.universal.zip",
+            "Godot_v4.5.1-stable_win32.exe.zip",
+            "Godot_v4.5.1-stable_win64.exe.zip",
+            "Godot_v4.5.1-stable_windows_arm64.exe.zip",
+        }
+        supported_hosts = (
+            ("Linux", "armv7l"),
+            ("Linux", "aarch64"),
+            ("Linux", "i686"),
+            ("Linux", "AMD64"),
+            ("Darwin", "x86_64"),
+            ("Darwin", "arm64"),
+            ("Windows", "x86"),
+            ("Windows", "AMD64"),
+            ("Windows", "ARM64"),
+        )
+
+        resolved_archives = {
+            installer.resolve_target(system, machine).asset_name("4.5.1-stable")
+            for system, machine in supported_hosts
+        }
+        self.assertEqual(official_archives, resolved_archives)
 
     def test_checksum_parser_is_exact_and_fails_closed(self) -> None:
         digest = "a" * 128
@@ -162,6 +199,66 @@ class GodotInstallerTests(unittest.TestCase):
             )
             self.assertTrue(result["download_url"].startswith("https://github.com/godotengine/godot/releases/download/"))
             self.assertFalse((root / "install").exists())
+
+    def test_windows_path_shim_reuses_only_exact_managed_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "Godot 4.5.1" / "Godot.exe"
+            executable.parent.mkdir()
+            executable.touch()
+            common = [
+                "--version",
+                "4.5.1",
+                "--install-root",
+                str(root / "install"),
+                "--cache-dir",
+                str(root / "cache"),
+                "--bin-dir",
+                str(root / "bin"),
+                "--config-dir",
+                str(root / "config"),
+                "--system",
+                "Windows",
+                "--machine",
+                "AMD64",
+            ]
+            parser = installer.build_parser()
+            args = parser.parse_args(common + ["--executable", str(executable)])
+
+            with mock.patch.object(
+                installer,
+                "probe_executable",
+                return_value="4.5.1.stable.official.fixture",
+            ):
+                first = installer.install(args)
+                second = installer.install(args)
+
+            self.assertEqual("reused-existing", first["action"])
+            self.assertEqual("reused-existing", second["action"])
+            self.assertEqual(first["path_shim"], second["path_shim"])
+            shim = Path(first["path_shim"])
+            expected = (
+                "@echo off\r\n" + f'"{executable.resolve()}" %*\r\n'
+            ).encode("utf-8")
+            self.assertEqual(expected, shim.read_bytes())
+
+            other_executable = root / "foreign" / "Godot.exe"
+            other_executable.parent.mkdir()
+            other_executable.touch()
+            other_args = parser.parse_args(
+                common + ["--executable", str(other_executable)]
+            )
+            with mock.patch.object(
+                installer,
+                "probe_executable",
+                return_value="4.5.1.stable.official.fixture",
+            ):
+                with self.assertRaisesRegex(
+                    installer.InstallError,
+                    "PATH shim already exists and is not owned",
+                ):
+                    installer.install(other_args)
+            self.assertEqual(expected, shim.read_bytes())
 
     def test_atomic_publication_restores_existing_install_on_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

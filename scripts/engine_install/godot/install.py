@@ -120,7 +120,7 @@ def resolve_target(
         labels = {
             "x86_64": "win64.exe",
             "x86_32": "win32.exe",
-            "arm64": "windows.arm64.exe",
+            "arm64": "windows_arm64.exe",
         }
         if architecture not in labels:
             raise InstallError(f"Unsupported Windows architecture: {resolved_machine}")
@@ -387,7 +387,22 @@ def _create_path_shim(
 ) -> Path:
     bin_dir.mkdir(parents=True, exist_ok=True)
     shim = bin_dir / ("godot4.cmd" if target.system == "Windows" else "godot4")
+    windows_contents = (
+        ("@echo off\r\n" + f'"{executable}" %*\r\n').encode("utf-8")
+        if target.system == "Windows"
+        else b""
+    )
     if shim.exists() or shim.is_symlink():
+        if (
+            target.system == "Windows"
+            and shim.is_file()
+            and not shim.is_symlink()
+        ):
+            try:
+                if shim.read_bytes() == windows_contents:
+                    return shim
+            except OSError:
+                pass
         if target.system != "Windows" and shim.is_symlink():
             if shim.resolve(strict=False) == executable.resolve(strict=False):
                 return shim
@@ -400,10 +415,7 @@ def _create_path_shim(
             raise InstallError(f"Refusing to replace directory PATH shim: {shim}")
         shim.unlink()
     if target.system == "Windows":
-        shim.write_text(
-            "@echo off\r\n" + f'"{executable}" %*\r\n',
-            encoding="utf-8",
-        )
+        shim.write_bytes(windows_contents)
     else:
         shim.symlink_to(executable)
     return shim
