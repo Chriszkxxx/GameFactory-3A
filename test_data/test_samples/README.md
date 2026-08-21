@@ -105,3 +105,20 @@ content:
 Everything else is an empty placeholder or an empty `ref_*/` directory. There is
 no complete, ready-to-run test case yet; see `../README.md` for the agent-driven
 path that needs no prepared input.
+
+## Reference images and assets
+
+Some task JSONL files reference `ref_images/` paths under `test_data/test_samples/`.
+These images are **not** stored in the repository to keep it lightweight.
+
+Reference images for all test sample games are collected in the GitHub issue:
+**[#47 — Reference images for test samples](https://github.com/OpenDCAI/GameFactory-3A/issues/47)**
+
+Download and place them into the corresponding `ref_images/` directories to match
+the paths referenced in the task JSONL files.
+
+Additional free character and motion assets can be downloaded from
+[Mixamo](https://www.mixamo.com/) (Adobe, free Adobe ID required). Mixamo
+provides public rigged characters and a large library of motion clips that can
+be used as alternative or supplementary inputs for the 3D object, T-pose, and
+motion tasks.
