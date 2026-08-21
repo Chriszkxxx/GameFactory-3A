@@ -1,0 +1,8 @@
+# CG Video Requirements - gameF_racing_unity
+
+## Status: DEFERRED
+
+The opening racing cinematic is outside the first racing MVP.
+`cg_tasks.jsonl` is intentionally empty. CG generation and Unity video playback
+will be integrated only after the asset, mechanic, UI and Play Mode workflow is
+validated.

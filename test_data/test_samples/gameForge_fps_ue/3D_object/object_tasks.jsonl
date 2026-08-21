@@ -1,0 +1,3 @@
+{"game_id": "gameForge_fps_ue", "task_id": "fps_player", "description": "Cyber Prison FPS asset: fps_player", "source_mode": "provided_or_reused_local_fixture"}
+{"game_id": "gameForge_fps_ue", "task_id": "fps_enemy", "description": "Cyber Prison FPS asset: fps_enemy", "source_mode": "provided_or_reused_local_fixture"}
+{"game_id": "gameForge_fps_ue", "task_id": "fps_rifle", "description": "Cyber Prison FPS asset: fps_rifle", "source_mode": "provided_or_reused_local_fixture"}

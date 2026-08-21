@@ -1,0 +1,121 @@
+# gameForge_fps_ue — General Requirement
+
+## Game Overview
+- **Game ID**: gameForge_fps_ue
+- **Genre**: First-person tactical shooter (第一人称射击)
+- **Visual Reference**: Call of Duty (使命召唤) — realistic military style
+- **Engine**: Unreal Engine 5
+- **Player**: Single player vs AI enemies
+
+## Core Gameplay
+- First-person perspective with mouse look
+- Player is a counter-terrorism operative in tactical gear
+- Enemies are terrorists dressed in all black
+- Weapon: generated shotgun (霰弹枪)
+- Weapon hold: one hand on the pistol grip, one hand on the foregrip/stock area
+- Clear all enemies in the area to win
+- Movement, shooting, reload mechanics
+- Win condition: eliminate all enemies
+- Lose condition: player HP reaches 0
+
+## Characters
+
+### Player — Counter-Terrorism Operative (反恐特战)
+- Wears counter-terrorism tactical vest and gear
+- First-person view: only hands and weapon visible
+- Hands positioned: one on pistol grip (rear), one on foregrip/stock area (front)
+
+### Enemy — Terrorist (恐怖分子)
+- Dressed in all black clothing
+- Holds rifle, patrols the area
+- Has idle, walk, shoot, hit reaction, and death animations
+- Death animation: falls forward or backward
+
+## Weapon
+- **Shotgun (霰弹枪)**: Generated 3D model
+- Pump-action shotgun with tactical black finish
+- High detail, PBR textures
+- One hand on pistol grip, one hand on foregrip/stock position
+- Fire: spread pellet shots, high close-range damage
+- Reload: pump action animation
+
+## Motion Set
+### Enemy Motions (5 actions)
+1. idle - standing with rifle, alert stance
+2. walk - walking with rifle shouldered
+3. shoot - firing rifle
+4. hit_react - stagger from bullet impact
+5. death - falls forward/backward
+
+### Player Hand Motions (3 actions)
+1. shotgun_idle - hands holding shotgun in ready position
+2. shotgun_shoot - fire shotgun, recoil
+3. shotgun_reload - pump action reload
+
+## Scene
+- Imported open-source abandoned prison map
+- Indoor corridors, cell blocks, open common areas
+- Dark, atmospheric lighting with contrast shadows
+- Destructible environment props (barrels, crates)
+- Doors that can be opened
+- Realistic concrete and metal materials
+
+## VFX (Visual Effects)
+- Muzzle flash: fire particle on each shot
+- Bullet impact: spark particles on walls, blood on enemies
+- Shotgun pellet spread: multiple impact points
+- Damage vignette: red screen edge when player takes damage
+
+## Game Mechanics (UE5 Blueprint / C++)
+- FPSPlayerController — first-person movement (walk, run, jump, crouch)
+- WeaponSystem — shotgun firing, reload, recoil, spread
+- FPSHitSystem — hit detection, headshot multiplier, damage zones
+- EnemyAI — patrol, detect player, shoot, seek cover
+- EnemySpawner — enemy spawn management
+- FPSDamageSystem — player health, damage vignette, death
+- FPSHUDController — ammo, health, objective display
+
+## UI Design
+- Crosshair: center screen, shotgun spread indicator
+- Ammo: bottom-right, "shells remaining / reserve"
+- Health: bottom-left or screen-edge red vignette
+- Objective: top-left "Eliminate all enemies"
+- Kill notification: center "KILL +100"
+- Game over screen: "Mission Complete" / "You Died" + restart prompt
+
+## Controls
+
+| Action | Key |
+|--------|-----|
+| Move | WASD |
+| Run | Shift |
+| Jump | Space |
+| Crouch | Ctrl |
+| Shoot | Left Mouse |
+| Aim | Right Mouse |
+| Reload | R |
+| Interact (doors) | E |
+| Pause | Esc |
+
+## MVP Playable Loop
+Launch → Spawn → Find Enemies → Combat → Clear Area → Mission Complete → Restart
+
+## Acceptance Criteria
+- UE5 launches without compilation errors
+- Player spawns with shotgun visible in first person
+- WASD moves player, mouse controls view
+- Left click fires shotgun with muzzle flash
+- Shotgun has spread pattern (multiple pellets)
+- R reloads shotgun
+- Enemies spawn in the scene
+- Enemies patrol when player not detected
+- Enemies shoot at player when detected
+- Shooting enemy causes damage and hit reaction
+- Headshot causes extra damage
+- Enemy death animation plays
+- All enemies killed → mission complete
+- Player takes damage from enemy fire
+- Player death → game over screen
+- Crosshair, ammo count, health indicator visible
+- Kill notification appears
+- Restart works from game over screen
