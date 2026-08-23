@@ -8,12 +8,17 @@ test_data/
 
 ## Status
 
-`test_samples/` provides the **basic test structure** only — the directory
-layout, the task-list filenames, and the `*_tasks.jsonl` / `*_collect.jsonl`
-line schema (see [`test_samples/README.md`](test_samples/README.md)). We do
-**not** ship a complete, ready-to-run test case input yet: most
-`requirement.txt` and `*_tasks.jsonl` files under
-`test_samples/gameA_cyberpunk_shooter/` are still empty placeholders.
+`test_samples/` provides several game-project test cases, including fighting,
+exploration RPG, tactical FPS, and racing examples, for users to try the
+pipelines and reproduce the demo results.
+
+Each game directory contains its requirements and task lists; the corresponding
+`*_collect.jsonl` files support running a task type across multiple games. Some
+tasks reference external media or earlier generated artifacts, so place the
+required files in the documented paths before running them.
+
+`outputs/` is created at runtime under `outputs/<game_id>/<run_id>/...` to store
+the generated artifacts and evaluation results.
 
 ## You do not need a prepared test case
 
