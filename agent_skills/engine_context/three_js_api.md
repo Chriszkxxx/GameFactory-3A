@@ -5,12 +5,6 @@ Status: implemented `ThreeClient` API version `v1`.
 Validated engine baseline: three.js r185 (`three@0.185.0`), Node 20,
 Vite 6.
 
-> **Version notice:** Engine APIs may differ across three.js versions. The
-> signatures and behaviors documented here are validated against the baseline
-> version above. When a function's signature or semantics have changed in other
-> versions, the affected entry is annotated with a `@since` or `@changed` tag
-> and the corresponding version number.
-
 This file is a compact index of implemented public capabilities. It lists
 public names and their functions only. Read the current source when exact
 parameters or result payload fields are required.
