@@ -169,10 +169,16 @@ warning (unless `require_runtime=True`). Once a response is received, a NACK or
 malformed/mismatched protocol response fails without registering, deactivating,
 removing, or updating local session state.
 
-Three complete, engine-validated gameplay references live under `examples/`:
-2D arcade survival, 3D chase-camera racing, and 2D rigid-body pinball. Each is a
-standalone project with interactive input, an unattended demo driver, UI/state,
-meaningful collision/physics, and a native dynamic smoke script.
+Six complete, engine-validated gameplay references live under `examples/`:
+2D arcade survival, 3D chase-camera racing, 2D rigid-body pinball, first-person
+shooting, second-person arena combat, and third-person RPG exploration. Each is
+a standalone project with interactive input, an unattended demo driver,
+UI/state, meaningful collision/physics, and a native dynamic smoke script. The
+RPG project also imports a real skinned glTF and proves its bone animation is
+advancing, covering the 3D-asset/motion boundary that procedural meshes cannot.
 
 Use `python -m engine_adapters.godot --help` for the CLI and
-`scripts/engine_install/godot/` for verified installation and launch wrappers.
+`scripts/engine_install/godot/` only for verified engine installation. Project
+creation, task-identity asset import, tests, builds, and launches all use the
+adapter CLI so agents need one lifecycle interface rather than per-command
+shell/batch wrappers.

@@ -10,19 +10,26 @@ runtime.
 | `NeonDodge2D/` | Fixed 2D arcade survival | `CharacterBody2D`, keyboard input, monitored hazards/pickups, HUD, score/shield, win/failure/restart state |
 | `SolarRally3D/` | Third-person chase racing | `CharacterBody3D`, static collision, ordered checkpoints, PBR/emissive materials, directional/omni lighting, chase camera, laps/win state |
 | `OrbitPinball2D/` | Fixed 2D physics pinball | `RigidBody2D`, static colliders, animated flippers, contact impulses, combo/lives state and procedural trails |
+| `FpsArena3D/` | First-person shooter | Player-owned camera, camera-relative movement, physics hitscan, health targets, magazine/reload state and crosshair HUD |
+| `ArenaDuel3D/` | Second-person arena combat | Match-owned framing camera, facing-locked fighters, attack windows, health, rounds and score |
+| `RpgExplorer3D/` | Third-person RPG exploration | Camera-relative movement, follow camera, uneven traversal, quest pickups, stamina, and a skinned glTF actor with imported bone animation |
 
 This split is intentional: camera and physics ownership change the core code far
-more than cosmetic genre labels. The examples use no downloaded assets, so a
-reviewer can reproduce them without credentials or an asset pipeline.
+more than cosmetic genre labels. The first five examples use procedural
+content. `RpgExplorer3D` additionally vendors a tiny self-contained, generated
+glTF fixture (no downloaded or licensed content) so native validation crosses
+the actual Godot 3D asset and motion importer rather than claiming import
+support from source inspection.
 
 ## Native validation
 
 Each project contains a real `project.godot`, main `PackedScene`, deterministic
 demo driver, interactive keyboard mode, and `res://scripts/smoke.gd`. Run all
-three with an installed Godot 4 editor:
+six with an installed Godot 4 editor:
 
 ```bash
-for project in NeonDodge2D SolarRally3D OrbitPinball2D; do
+for project in NeonDodge2D SolarRally3D OrbitPinball2D \
+  FpsArena3D ArenaDuel3D RpgExplorer3D; do
   godot4 --headless --path "engine_adapters/godot/examples/$project" --import
   godot4 --headless --path "engine_adapters/godot/examples/$project" \
     --script res://scripts/smoke.gd
@@ -30,8 +37,10 @@ done
 ```
 
 The smoke scripts instantiate the actual main scene, advance live physics, and
-assert motion plus game-specific entity/state contracts. A static file check
-cannot produce `A3GAME_SMOKE_OK`.
+assert motion plus game-specific entity/state contracts. The RPG probe also
+requires one imported `MeshInstance3D`, one nonempty `Skeleton3D`, the imported
+`Walk` clip, and observed animation advancement. A static file check cannot
+produce `A3GAME_SMOKE_OK`.
 
 ## Generated-output traceability
 
@@ -42,7 +51,10 @@ cannot produce `A3GAME_SMOKE_OK`.
 | `NeonDodge2D` | `my_code/AAAGameForge/test_data/outputs/game101/godot/` |
 | `SolarRally3D` | `my_code/AAAGameForge/test_data/outputs/game202/godot/` |
 | `OrbitPinball2D` | `my_code/AAAGameForge/test_data/outputs/game303/godot/` |
+| `FpsArena3D` | `my_code/AAAGameForge/test_data/outputs/game404/godot/` |
+| `ArenaDuel3D` | `my_code/AAAGameForge/test_data/outputs/game505/godot/` |
+| `RpgExplorer3D` | `my_code/AAAGameForge/test_data/outputs/game606/godot/` |
 
-Those delivery trees mirror the corresponding reference (excluding the ignored
-`.godot/` cache). `work/gan/artifacts/game-provenance.json` records their content
-hashes alongside video evidence.
+Generated-output copies are delivery artifacts, not runtime dependencies of
+these references. Reproduce source validation with the native commands above;
+use each contract's `generated_output` value when materializing a reviewer copy.

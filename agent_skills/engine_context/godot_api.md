@@ -62,9 +62,19 @@ Configure the returned paths and validate through the public client:
 ```bash
 export A3GAME_GODOT_EXECUTABLE=/absolute/path/to/godot4
 export A3GAME_GODOT_PROJECT=/projects/MyGame
-scripts/engine_install/godot/create_project.sh --name MyGame
 python3 -m engine_adapters.godot \
-  --project "$A3GAME_GODOT_PROJECT" validate
+  --project "$A3GAME_GODOT_PROJECT" create-project --name MyGame
+python3 -m engine_adapters.godot \
+  --project "$A3GAME_GODOT_PROJECT" validate-project
+```
+
+Do not search `scripts/engine_install/godot/` for project, import, or launch
+wrappers: that directory owns installation only. Use this single adapter CLI:
+
+```bash
+python3 -m engine_adapters.godot --project "$A3GAME_GODOT_PROJECT" \
+  import-asset --source-json generated-asset.json --asset-type avatar
+python3 -m engine_adapters.godot --project "$A3GAME_GODOT_PROJECT" launch-game
 ```
 
 ## 2. Client configuration and result contract
@@ -408,16 +418,24 @@ unmanaged outputs, edited manifests, links and special nodes fail closed.
 
 ### Examples and proof projects
 
-`engine_adapters/godot/examples/` contains three complete native projects:
+`engine_adapters/godot/examples/` contains six complete native projects:
 
 - `NeonDodge2D`: arcade survival, input, UI, monitored collisions and state loop;
 - `SolarRally3D`: chase-camera racing, physical track, checkpoints, PBR materials,
   directional/omni light, lap/win loop;
 - `OrbitPinball2D`: rigid-body pinball, static colliders, animated flippers,
   impulses, combo/lives loop.
+- `FpsArena3D`: first-person movement, camera-owned aim, hitscan fire, targets,
+  ammunition/reload state and crosshair HUD;
+- `ArenaDuel3D`: second-person duel with a match-owned camera, facing-locked
+  fighters, attack windows, health, rounds and score;
+- `RpgExplorer3D`: third-person camera-relative exploration, uneven terrain,
+  quest pickups, stamina and a natively imported skinned glTF `Walk` clip.
 
 Each has a real main `PackedScene`, deterministic unattended driver, manual
-keyboard mode, and a Godot smoke script that advances live physics. Their
+keyboard mode, and a Godot smoke script that advances live physics. The RPG
+smoke also proves that Godot instantiated a mesh and skeleton from glTF and is
+advancing its imported bone animation. Their
 `mechanic_contract.json` maps to reviewer copies under
 `my_code/AAAGameForge/test_data/outputs/gameXXX/godot/`.
 

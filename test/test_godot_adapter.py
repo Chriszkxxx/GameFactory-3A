@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import stat
@@ -6370,23 +6371,143 @@ class GodotAdapterTests(unittest.TestCase):
         )
         self.assert_result(linked, ok=False)
 
-    def test_windows_wrappers_quote_cmd_sensitive_assignments(self) -> None:
+    def test_install_directory_contains_only_install_entry_points(self) -> None:
         wrapper_root = Path("scripts/engine_install/godot")
-        for name in ("create_project.cmd", "import_asset.cmd", "run.cmd"):
-            with self.subTest(wrapper=name):
-                text = (wrapper_root / name).read_text(encoding="utf-8")
-                self.assertIn("if not defined A3GAME_GODOT_PROJECT", text)
-                self.assertIn('set "SCRIPT_DIR=%~dp0"', text)
-                self.assertIn('set "REPO_ROOT=%SCRIPT_DIR%..\\..\\.."', text)
-                self.assertIn('set "PYTHONPATH=%REPO_ROOT%;%PYTHONPATH%"', text)
-                self.assertIn('set "PYTHON_BIN=python"', text)
-                self.assertIn(
-                    'if defined A3GAME_PYTHON set "PYTHON_BIN=%A3GAME_PYTHON%"',
-                    text,
+        self.assertEqual(
+            {"README.md", "install.cmd", "install.py", "install.sh"},
+            {item.name for item in wrapper_root.iterdir() if item.is_file()},
+        )
+        for removed in (
+            "create_project.cmd",
+            "create_project.sh",
+            "import_asset.cmd",
+            "import_asset.sh",
+            "run.cmd",
+            "run.sh",
+        ):
+            self.assertFalse((wrapper_root / removed).exists())
+        readme = (wrapper_root / "README.md").read_text(encoding="utf-8")
+        self.assertIn("engine_adapters.godot", readme)
+        self.assertIn("create-project", readme)
+        self.assertIn("import-asset", readme)
+        self.assertIn("launch-game", readme)
+        self.assertNotIn("godot/create_project.sh", readme)
+        self.assertNotIn("godot/import_asset.sh", readme)
+        self.assertNotIn("godot/run.sh", readme)
+
+    def test_reference_examples_cover_requested_camera_genres_and_real_import(
+        self,
+    ) -> None:
+        examples_root = Path("engine_adapters/godot/examples")
+        expected = {
+            "FpsArena3D": ("first_person", "fps", "game404"),
+            "ArenaDuel3D": (
+                "second_person_match_owned",
+                "arena_fighter",
+                "game505",
+            ),
+            "RpgExplorer3D": (
+                "third_person_orbit_follow",
+                "rpg_exploration",
+                "game606",
+            ),
+        }
+        for project_name, (camera, genre, output_id) in expected.items():
+            with self.subTest(project=project_name):
+                project = examples_root / project_name
+                for relative_path in (
+                    "README.md",
+                    "project.godot",
+                    "main.tscn",
+                    "mechanic_contract.json",
+                    "scripts/main.gd",
+                    "scripts/smoke.gd",
+                ):
+                    self.assertTrue((project / relative_path).is_file())
+                contract = json.loads(
+                    (project / "mechanic_contract.json").read_text(encoding="utf-8")
                 )
-                self.assertNotIn("set SCRIPT_DIR=", text)
-                self.assertNotIn("set REPO_ROOT=", text)
-                self.assertNotIn("set PYTHONPATH=", text)
+                self.assertEqual(
+                    "gamefactory3a.godot.example.v1", contract["schema_version"]
+                )
+                self.assertEqual(camera, contract["camera"])
+                self.assertEqual(genre, contract["genre"])
+                self.assertIn(output_id, contract["generated_output"])
+                self.assertIn(
+                    "A3GAME_SMOKE_OK",
+                    (project / "scripts/smoke.gd").read_text(encoding="utf-8"),
+                )
+
+        fixture = json.loads(
+            (examples_root / "RpgExplorer3D/assets/reference_actor.gltf").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual("2.0", fixture["asset"]["version"])
+        self.assertEqual(1, len(fixture["meshes"]))
+        self.assertEqual(1, len(fixture["skins"]))
+        self.assertGreaterEqual(len(fixture["skins"][0]["joints"]), 1)
+        walk = next(item for item in fixture["animations"] if item["name"] == "Walk")
+        self.assertEqual(
+            {"translation", "rotation"},
+            {channel["target"]["path"] for channel in walk["channels"]},
+        )
+        prefix, encoded = fixture["buffers"][0]["uri"].split(",", 1)
+        self.assertEqual("data:application/octet-stream;base64", prefix)
+        self.assertEqual(
+            fixture["buffers"][0]["byteLength"], len(base64.b64decode(encoded))
+        )
+
+    @unittest.skipUnless(
+        REAL_GODOT,
+        "set A3GAME_TEST_GODOT_EXECUTABLE to inspect the reference glTF",
+    )
+    def test_real_godot_reference_actor_satisfies_avatar_and_motion_contracts(
+        self,
+    ) -> None:
+        source = Path("engine_adapters/godot/examples/RpgExplorer3D").resolve()
+        project = self.root / "RpgExplorer3D"
+        shutil.copytree(source, project, ignore=shutil.ignore_patterns(".godot"))
+        executable = Path(REAL_GODOT).expanduser().resolve(strict=True)
+        imported = subprocess.run(
+            [str(executable), "--headless", "--path", str(project), "--import"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+            env={**os.environ, "GODOT_SILENCE_ROOT_WARNING": "1"},
+        )
+        self.assertEqual(0, imported.returncode, imported.stdout + imported.stderr)
+
+        client = GodotClient(
+            project_path=project,
+            godot_executable=executable,
+            editor_timeout=30,
+            import_timeout=30,
+        )
+        for asset_type in ("avatar", "motion"):
+            with self.subTest(asset_type=asset_type):
+                registered = client.assets.register_resource(
+                    resource_path="res://assets/reference_actor.gltf",
+                    asset_type=asset_type,
+                    asset_id=f"rpg_reference_{asset_type}",
+                )
+                self.assert_result(registered, ok=True)
+                native = registered["artifacts"][0]["metadata"][
+                    "native_inspection"
+                ]
+                self.assertEqual("PackedScene", native["resource_class"])
+                self.assertEqual(1, native["skeletons"][0]["bone_count"])
+                self.assertTrue(native["skinned_meshes"][0]["skeleton_resolved"])
+                walk = next(
+                    item
+                    for item in native["animation_details"]
+                    if item["name"] == "Walk"
+                )
+                self.assertEqual(2, walk["track_count"])
+                self.assertTrue(
+                    all(track["targets_skeleton_bone"] for track in walk["tracks"])
+                )
 
     def assert_compatibility_registry_parent_link_rejected(
         self,

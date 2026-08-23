@@ -1,4 +1,4 @@
-# Automated Godot 4 installation and launchers
+# Automated Godot 4 installation
 
 This directory is the non-interactive entry point an AI agent should use. Do
 not begin with project creation or asset import: first discover/reuse or install
@@ -41,8 +41,8 @@ paths. Treat any nonzero exit or `ok=false` as a hard failure.
    requested version. Do not infer success from a downloaded archive.
 4. Source the emitted `.env` on POSIX or call the emitted `.cmd` on Windows, or
    directly set `A3GAME_GODOT_EXECUTABLE` to the returned executable.
-5. Set `A3GAME_GODOT_PROJECT`, create/validate the project, then import assets,
-   run tests, and launch.
+5. Set `A3GAME_GODOT_PROJECT`, then use the adapter CLI to create/validate the
+   project, import assets, run tests, and launch.
 
 Example with isolated, reviewable paths:
 
@@ -56,8 +56,10 @@ scripts/engine_install/godot/install.sh \
   --json
 export A3GAME_GODOT_EXECUTABLE="$PWD/.tools/bin/godot4"
 export A3GAME_GODOT_PROJECT=/projects/MyGame
-scripts/engine_install/godot/create_project.sh --name MyGame
-python3 -m engine_adapters.godot --project "$A3GAME_GODOT_PROJECT" validate
+python3 -m engine_adapters.godot --project "$A3GAME_GODOT_PROJECT" \
+  create-project --name MyGame
+python3 -m engine_adapters.godot --project "$A3GAME_GODOT_PROJECT" \
+  validate-project
 ```
 
 ## Installer guarantees
@@ -85,24 +87,33 @@ Use `--no-path-shim` when callers will consume only the absolute executable.
 Use `--dry-run --json` to inspect resolution without network or filesystem
 writes. Run `install.py --help` for all path/timeout options.
 
-## Project, asset, test, build, and run wrappers
+## Continue through the adapter
 
-After installation:
+This directory deliberately contains only the cross-platform installer. Project
+and gameplay operations belong to `engine_adapters.godot`; keeping them behind
+one CLI avoids making an agent discover and read a separate shell/batch wrapper
+for every operation.
+
+After installation, use the adapter directly on Linux, macOS, or Windows:
 
 ```bash
 export A3GAME_GODOT_EXECUTABLE=/absolute/path/to/godot4
 export A3GAME_GODOT_PROJECT=/projects/MyGame
 
-scripts/engine_install/godot/create_project.sh --name MyGame
+python3 -m engine_adapters.godot --project "$A3GAME_GODOT_PROJECT" \
+  create-project --name MyGame
 python3 -m engine_adapters.godot --project "$A3GAME_GODOT_PROJECT" \
   install-framework
-scripts/engine_install/godot/import_asset.sh --src model.glb
-scripts/engine_install/godot/run.sh
+python3 -m engine_adapters.godot --project "$A3GAME_GODOT_PROJECT" \
+  import-asset --source-json generated-asset.json --asset-type prop
+python3 -m engine_adapters.godot --project "$A3GAME_GODOT_PROJECT" launch-game
 ```
 
-Windows uses the matching `.cmd` wrappers and the same environment variables.
-The launchers choose `A3GAME_PYTHON`, then `python3`/`python` as appropriate;
-they require no third-party Python package.
+On Windows, replace `python3` with `python` or `%A3GAME_PYTHON%`. The JSON file
+passed to `--source-json` is a repository task identity with `game_id`, `run_id`,
+`task_kind`, `task_id`, and optional `artifact_key`; it is not an arbitrary host
+path. For the legacy direct-file compatibility workflow, call
+`scripts/import_generated_asset.py --engine godot` explicitly.
 
 Builds require a project-owned preset in `export_presets.cfg`:
 
