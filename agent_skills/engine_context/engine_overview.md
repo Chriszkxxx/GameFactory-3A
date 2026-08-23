@@ -56,6 +56,18 @@ a shipped game runtime. Do not mix primary Engine APIs or Examples. Browser
 Serving and VFX are supplemental contexts selected only when the task requires
 them.
 
+## Engine Version Compatibility
+
+Each Engine API document declares a `Validated engine baseline` — the exact
+engine version against which all documented signatures and behaviors have been
+tested. Engine APIs may differ across versions; signatures and semantics
+described here are guaranteed only for the baseline version.
+
+When support for additional engine versions is added, per-function version
+annotations (`@since`, `@changed`) will be added directly in the corresponding
+Engine API document. Until then, treat any deviation from the baseline version
+as unverified.
+
 ## Required Dependency Direction
 
 ```text
