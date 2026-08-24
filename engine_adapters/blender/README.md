@@ -42,10 +42,7 @@ implementation: it is the same `tick()` at the same fixed timestep, and a played
 session records its input so it can be re-rendered offline into the same run. See
 the two sections below.
 
-`playtest/` is the unattended counterpart of `--play`: it discovers the keys the
-game already listens for, drives them through `ScriptedSource`, and writes a
-clip plus `report.json`. It answers *does the game play*, not *did the policy
-pass*. See `agent_skills/engine_context/blender_api.md` § Playtest.
+`playtest/` is unattended `--play`: discovered keys, then `report.json` + clip.
 
 ## Running
 
@@ -154,11 +151,7 @@ script did, so a missing report is a failure, not a silent success.
 
 ## Playtest
 
-That run above is the game playing *itself*. A playtest instead discovers the
-keys the genre already binds and drives them through `Controls`, then writes
-`report.json`, `video.mp4` and `frames/` — evidence that the game plays, not a
-pass/fail of its policy. Pipeline routing comes later; call the adapter
-directly:
+Discovered keys through `Controls`, not the unattended policy:
 
 ```python
 from engine_adapters.blender import BlenderClient
@@ -172,8 +165,7 @@ BlenderClient(
 )
 ```
 
-`--no-render` is the cheap test take. Drop it for a Cycles clip. See
-`agent_skills/engine_context/blender_api.md` § Playtest.
+`no_render=True` skips the Cycles clip. See `blender_api.md` § Playtest.
 
 ## Playing one (`--play`)
 

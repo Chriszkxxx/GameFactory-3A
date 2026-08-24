@@ -10,14 +10,7 @@ from .playtest import BlenderPlaytestClient
 
 
 class BlenderClient:
-    """
-    Stable blender environment API.
-
-    Agent code must construct BlenderClient from
-    `engine_adapters.blender` and use its public namespace clients.
-    Internal modules are version-specific and are not part of the API
-    contract.
-    """
+    """Stable blender API. Construct from ``engine_adapters.blender``."""
 
     def __init__(
         self,

@@ -1,18 +1,4 @@
-"""Record a playtest of a blender project from host Python.
-
-This is a **fixed-timestep capture**, not screen recording. ``record.py`` is
-the blender counterpart of ``three_js/playtest/record.mjs``: it has to be
-Python because it runs inside a ``bpy`` interpreter, not Node. It drives the
-game through the same ``Controls`` surface a keyboard would, then writes
-``frames/``, ``video.mp4`` and ``report.json``.
-
-One environment input has no default on a machine like this and is therefore
-an explicit parameter rather than an assumption:
-
-- ``blender`` / ``blender_root`` - a Blender application, or a Python that
-  can ``import bpy``. ``A3GAME_BLENDER_ROOT`` / ``AAAGF_BLENDER`` / ``BLENDER``
-  are read when this is omitted.
-"""
+"""Host-side blender playtest: launch ``record.py`` and read ``report.json``."""
 
 from __future__ import annotations
 
@@ -30,13 +16,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class BlenderPlaytestClient:
-    """Drive a running game through discovered actions and record the result.
-
-    Actions are discovered from the game rather than configured, so this works
-    on a project it has never seen. In order of preference: a declared
-    ``playtest_actions`` plan; the input tables ``from_held`` dispatches on;
-    a generic keyboard plan.
-    """
+    """Discover actions on a ``game.py`` and record the take."""
 
     def __init__(self, config: BlenderClientConfig) -> None:
         self._config = config
@@ -60,16 +40,7 @@ class BlenderPlaytestClient:
         dry_run: bool = False,
         no_render: bool = False,
     ) -> dict[str, Any]:
-        """Record one playtest into ``output_dir``.
-
-        Writes ``frames/f%05d.jpg``, ``video.mp4`` and ``report.json``. The
-        report is the evidence: it names every action that was found and run,
-        and carries the game's own ``summary()`` so a reviewer can see that the
-        game responded rather than merely rendered.
-
-        ``timeout`` is generous by default because Cycles is the cost here.
-        ``no_render`` is the cheap test take: simulate and bake, skip the clip.
-        """
+        """Write ``frames/``, ``video.mp4`` and ``report.json`` into ``output_dir``."""
         project_dir = self._config.project_dir
         project_file = self._config.project_file
         if project_dir is None or project_file is None or not project_file.is_file():
@@ -172,8 +143,7 @@ class BlenderPlaytestClient:
                 else "Recorder produced no report.json"
             )
             return self._fail(reason, payload)
-        # A partial take is a real result: the recorder keeps what it captured
-        # when a renderer dies, and that is more useful than discarding it.
+        # Keep a partial take if the renderer died late.
         if not report.get("frames"):
             return self._fail(
                 report.get("error") or report.get("crash") or "Recorder captured no frames",

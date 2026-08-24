@@ -37,7 +37,7 @@ class BlenderCommandResult:
 
 
 class BlenderToolchain:
-    """Resolve and run a Blender application or a ``bpy``-carrying Python."""
+    """Run a script inside Blender or a ``bpy`` Python."""
 
     def __init__(self, config: BlenderClientConfig) -> None:
         self._config = config
@@ -60,7 +60,7 @@ class BlenderToolchain:
         environment: dict[str, str] | None = None,
         blender: Path | None = None,
     ) -> BlenderCommandResult:
-        """Run one Python script inside a ``bpy`` interpreter."""
+        """Run ``script_path`` with ``extra_args``."""
         binary = blender or self.blender
         if binary is None:
             raise FileNotFoundError(

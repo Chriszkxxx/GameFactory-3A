@@ -1,34 +1,9 @@
 #!/usr/bin/env python3
-"""Record a playtest of any A3Game blender project.
+"""bpy-side playtest recorder (counterpart of three_js/playtest/record.mjs).
 
-Python counterpart of ``engine_adapters/three_js/playtest/record.mjs``.
-Blender has no Node runtime, so this file is what the host client launches
-inside a ``bpy`` interpreter.
-
-This is **not** screen recording. The simulation is driven at a **fixed
-timestep**, exactly one baked frame is captured per step, and the result is
-encoded at that same rate — smooth at the target frame rate however long
-Cycles actually took. ``Game.run(source=...)`` exists for this.
-
-Constraints carried here because each was found by failing without it — see
-``agent_skills/engine_context/blender_api.md`` (Playtest):
-
-1. Input is delivered as **real events**: keys go through
-   ``controls.ScriptedSource`` / ``from_held``, which is the table a keyboard
-   session dispatches on. Nothing reaches in and moves an actor, because then
-   the video would be evidence of nothing.
-2. The clock is the tick, never the wall clock. One captured frame is one
-   simulation step.
-3. ``blender --background --python`` exits 0 whatever the script did, so the
-   report on disk is the result. ``AAAGF_BLENDER_EXIT_ON_DONE`` makes the
-   shell see it too.
-4. Output paths are absolute. A headless render against a relative path
-   writes nothing, returns FINISHED, and looks like a success.
-5. A crash mid-take is treated as "the video is as long as it is" rather
-   than losing the take. Partial reports are kept.
-
-Actions are **discovered**, so this works on a game it has never seen. See
-``discover_actions``.
+Fixed-timestep capture via ``Game.run(source=...)``. Input goes through
+``ScriptedSource``; do not move actors directly. The report on disk is the
+result — ``blender --python`` always exits 0.
 """
 
 from __future__ import annotations
@@ -76,20 +51,7 @@ _AXIS_NEGATIVE = {
 
 
 def discover_actions(game) -> dict[str, Any]:
-    """Turn whatever the game exposes into a uniform action list.
-
-    Ordered by how much the source knows about *this* game:
-
-    1. ``playtest_actions`` — the game says what to demonstrate.
-    2. ``BUTTON_BINDINGS`` — the game-specific verbs (fire, reload, jab).
-    3. ``AXIS_BINDINGS`` — movement. Deduplicated by action, since the
-       defaults bind both ``W`` and ``UP_ARROW`` to forward.
-    4. A keyboard smoke plan, so an unannotated game still gets a playtest.
-
-    Held versus tapped is decided by what the verb is. Movement is held; a
-    discrete verb must be released or it either does not repeat or repeats
-    forever.
-    """
+    """playtest_actions, then genre bindings, then WASD. Movement is held; verbs are tapped."""
     declared = getattr(game, "playtest_actions", None)
     try:
         if callable(declared):
@@ -185,7 +147,7 @@ def to_input_timeline(
     fps: int,
     look: bool = False,
 ) -> list[dict[str, Any]]:
-    """Encode a planned action list as the replay format ``ScriptedSource`` reads."""
+    """Map actions onto ``ScriptedSource`` spans."""
     dt = 1.0 / max(1, int(fps))
     spans: list[dict[str, Any]] = []
     t = 0.0
@@ -204,9 +166,7 @@ def to_input_timeline(
                 "keys": [str(tap)],
             })
         if look:
-            # Keep the view moving. A discovered plan cannot know where this
-            # game's targets are, and a static camera in a first-person game
-            # records a wall.
+            # FPS: a static camera records a wall.
             spans.append({
                 "from": round(t, 4),
                 "to": round(end, 4),

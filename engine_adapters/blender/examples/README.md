@@ -41,11 +41,9 @@ GAMEFACTORY3A_ROOT=$PWD blender --factory-startup \
 
 Walking up from the script also finds the repo root if the env var is unset.
 
-## Playtest (discovered input, not the policy)
+## Playtest
 
-The examples' own `--no-render` run is driven by each game's unattended
-policy. A playtest instead presses the keys the genre already binds, through
-the same `Controls` surface `--play` uses:
+Presses bound keys via `Controls`; the example's own `--no-render` run uses policy:
 
 ```python
 from engine_adapters.blender import BlenderClient
@@ -59,6 +57,4 @@ BlenderClient(
 )
 ```
 
-A game that knows what to demonstrate can set `playtest_actions` on the
-`Game` subclass; otherwise the recorder reads `AXIS_BINDINGS` /
-`BUTTON_BINDINGS` for `genre`. See `engine_adapters/blender/playtest/`.
+Optional: set `playtest_actions` on the `Game` subclass. Else genre bindings.

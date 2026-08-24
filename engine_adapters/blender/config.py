@@ -85,7 +85,7 @@ class BlenderClientConfig:
 
     @property
     def project_file(self) -> Path | None:
-        """Resolve the project's ``game.py`` descriptor."""
+        """Path to ``game.py``."""
         path = self.project_path
         if path is not None and path.suffix == ".py":
             return path if path.is_file() else None
@@ -97,7 +97,7 @@ class BlenderClientConfig:
 
     @property
     def blender_executable(self) -> Path | None:
-        """A Blender application, or a Python that can ``import bpy``."""
+        """Blender binary, or a Python with ``bpy``."""
         root = self.blender_root
         if root is not None:
             if root.is_file():
