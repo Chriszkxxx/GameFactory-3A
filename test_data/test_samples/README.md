@@ -1,14 +1,40 @@
 # test_samples/
 
-3AGameFactory test set — **one directory per game project**, plus
-cross-game aggregate jsonls. Read-only input; generated artifacts go to
+3AGameFactory test set — **one directory per game project**, plus cross-game
+aggregate jsonls. Read-only input; generated artifacts go to
 `../outputs/<game_id>/...` (same first axis — see `../outputs/README.md`).
+
+## Game projects
+
+`game_id` is `game<Letter>_<theme>_<engine>`. The **letter identifies the theme**,
+so the same game targeting two engines shares a letter and differs only in the
+engine suffix:
+
+| game_id | Genre | Visual reference | Engine |
+|---------|-------|------------------|--------|
+| `gameA_fighting_arena_unity` | 2.5D versus fighting, multi-level arena | Mortal Kombat | Unity3D 2022.3 URP |
+| `gameA_fighting_arena_ue` | 1v1 fighting, open-air arena | Mortal Kombat | Unreal Engine 5 |
+| `gameB_forest_adventure_unity` | Open-world action RPG, exploration + combat | Zelda BotW | Unity3D 2022.3 URP |
+| `gameB_forest_adventure_ue` | Third-person exploration RPG, no combat | Zelda BotW | Unreal Engine 5 |
+| `gameC_fps_tactical_unity` | FPS tactical shooter, urban counter-terrorism | Call of Duty | Unity3D 2022.3 URP |
+| `gameC_fps_tactical_ue` | FPS tactical shooter, single player vs AI | Call of Duty | Unreal Engine 5 |
+| `gameD_racing_unity` | Circuit racing, 1 player + 3 AI | — | Unity3D 2022.3 URP |
+
+Engine variants sharing a letter are **separate projects with their own art
+direction and scope**, not two builds of one game. They are kept apart because
+their `general_requirement.txt` genuinely differ (e.g. `gameA_*_unity` is a
+Japanese-courtyard arena with ninja weapons, `gameA_*_ue` a medieval arena with
+bare-fist boxing).
+
+The engine is *also* carried by the `engine` field on every `mechanic` / `ui`
+task line (`unity3d` / `ue5`); the suffix in `game_id` exists so the two variants
+can hold different requirement documents and land in different output directories.
 
 ## Layout
 
 ```
 test_samples/
-├── gameA_cyberpunk_shooter/          ← one directory per game project
+├── gameA_fighting_arena_unity/       ← one directory per game project
 │   ├── general_requirement.txt       ← overall spec of the game
 │   ├── 3D_object/
 │   │   ├── requirement.txt
@@ -47,8 +73,10 @@ test_samples/
 │       ├── design_doc.txt            ← 2-page game-design brief
 │       └── pipeline_task.jsonl       ← integrated full-pipeline task
 │
-├── gameB_fantasy_rpg/                ← (to add)
-├── gameC_pokemon_openworld/          ← (to add)
+├── gameA_fighting_arena_ue/          ← same nine task dirs, UE5 variant
+├── gameB_forest_adventure_unity/  ·  gameB_forest_adventure_ue/
+├── gameC_fps_tactical_unity/      ·  gameC_fps_tactical_ue/
+├── gameD_racing_unity/
 │
 └── *_collect.jsonl                   ← cross-game aggregate jsonls
     ├── 3D_object_gen_collect.jsonl
@@ -74,37 +102,48 @@ Every line in a `*_tasks.jsonl` / `*_collect.jsonl` should carry:
 
 | Field | Purpose |
 |-------|---------|
-| `game_id` | Which game project this task belongs to → selects the output directory. Inferred from a `test_samples/<game_id>/...` input path when absent, but be explicit. |
+| `game_id` | Which game project this task belongs to → selects the output directory. Must match the directory the file sits in. |
 | `task_id` | Unique within its `(game_id, task_kind)` → names the output directory. |
+| `engine` | `mechanic` / `ui` tasks only: `unity3d` or `ue5`. |
 
 Everything else is task-specific (`image_path`, `prompt`, `description`, `seed`, …).
 Paths are written **relative to the repo root**.
 
 ```jsonc
-{"game_id": "gameA_cyberpunk_shooter", "task_id": "cyberpunk_sword_001",
- "image_path": "test_data/test_samples/gameA_cyberpunk_shooter/3D_object/ref_images/cyberpunk_sword.png",
- "prompt": "Stylized cyberpunk energy sword, neon blue glow, game-ready", "seed": 42}
+{"game_id": "gameA_fighting_arena_unity", "task_id": "demoFighting_001",
+ "image_path": "test_data/test_samples/gameA_fighting_arena_unity/3D_object/ref_images/warrior_tpose.png",
+ "prompt": "High-detail realistic male arena fighter, clean symmetrical T-pose ...", "seed": 42}
 ```
 
 A per-game `*_tasks.jsonl` and the cross-game `*_collect.jsonl` hold the same
 lines. `run.py --game <id>` prefers the former and falls back to filtering the
 latter by `game_id`.
 
+Some task lines consume the *output* of an earlier stage — e.g. a `motion` task's
+`target_glb_path` points at
+`test_data/outputs/<game_id>/default/assets/3d_object/<task_id>/model.glb`. Those
+paths only exist after the corresponding generation step has run.
+
 ## Current status
 
-The layout above is the canonical structure, not a description of what is checked
-in. Only `gameA_cyberpunk_shooter/` is scaffolded, and only these carry real
-content:
+| game_id | 3D_object | tpose | motion | 3D_scene | cg_video | audio | mechanic | ui |
+|---------|----------:|------:|-------:|---------:|---------:|------:|---------:|---:|
+| `gameA_fighting_arena_unity` | 7 | 2 | 14 | 1 | 6 | 22 | 1 | 1 |
+| `gameA_fighting_arena_ue` | 3 | – | 10 | 1 | – | – | 1 | 1 |
+| `gameB_forest_adventure_unity` | 8 | 3 | 14 | 1 | 1 | 12 | 9 | 1 |
+| `gameB_forest_adventure_ue` | 4 | – | 11 | 1 | – | – | 1 | 1 |
+| `gameC_fps_tactical_unity` | 6 | 1 | 16 | 1 | 1 | 7 | 1 | 1 |
+| `gameC_fps_tactical_ue` | 3 | – | 8 | 1 | – | – | 1 | 1 |
+| `gameD_racing_unity` | 2 | – | – | 1 | – | – | 1 | 1 |
 
-- `3D_object_gen_collect.jsonl`, `tpose_gen_collect.jsonl`,
-  `3D_scene_gen_collect.jsonl`, `audio_gen_collect.jsonl` — real task lines
-- `audio/requirement.txt` + `audio/audio_tasks.jsonl` — documented template for
-  dialogue and sound-effect tasks
-- `tpose/ref_images/luffy.jpg` — the one reference image present
+(task-line counts; `–` = no tasks yet)
 
-Everything else is an empty placeholder or an empty `ref_*/` directory. There is
-no complete, ready-to-run test case yet; see `../README.md` for the agent-driven
-path that needs no prepared input.
+The Unity variants carry detailed asset `requirement.txt` files; the UE variants
+currently hold one-line placeholders and reuse prepared assets
+(`source_mode: provided_or_reused_local_fixture`), so their asset requirements are
+**not** authored yet. If you add asset generation to a UE variant, write its
+`requirement.txt` properly rather than copying the Unity one — the two have
+different art direction.
 
 ## Reference images and assets
 

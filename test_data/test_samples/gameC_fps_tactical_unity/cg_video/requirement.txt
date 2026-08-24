@@ -1,0 +1,42 @@
+================================================================================
+ CG Video Generation Requirements — gameC_fps_tactical_unity
+================================================================================
+
+生成方式: text → video (LTX / HunyuanVideo / Wan / Seedance)
+任务类型: text_to_video (纯文本生成视频)
+
+--------------------------------------------------------------------------------
+ CG-3: 反恐突击仓库 (Counter-Terrorism Warehouse Assault)
+--------------------------------------------------------------------------------
+
+关联游戏: FPS 战术射击 (gameC_fps_tactical_unity)
+画质参考: 使命召唤 (Call of Duty)
+时长: 25 秒
+色彩: 冷色调，写实军事风格
+
+分镜 (Storyboard):
+  1. (0-4s)   狭窄仓库外景，特警小队集结，统一防弹背心
+  2. (4-8s)   指挥官手势示意突击，队员点头确认
+  3. (8-12s)  队员快速突入仓库大门，战术动作
+  4. (12-16s) 室内交火，快速击毙恐怖分子 (不血腥，动作快)
+  5. (16-20s) 发现炸弹，开始拆除，剪线
+  6. (20-25s) 拆弹成功，队员松一口气，撤出仓库夕阳剪影
+
+统一 prompt:
+  "Counter-terrorism operation, SWAT team in matching tactical vests
+  gathers outside a narrow warehouse door, commander signals to breach,
+  operators storm inside with tactical movements, rapid gunfire
+  eliminates terrorists inside the warehouse, team discovers a bomb
+  and begins defusing, cuts the wire successfully, team exits the
+  warehouse in silhouette against sunset, Call of Duty quality,
+  realistic military style, cold color tones, 25 seconds, cinematic"
+
+--------------------------------------------------------------------------------
+ 技术参数 (Technical Parameters)
+--------------------------------------------------------------------------------
+  - 模式: text_to_video
+  - 分辨率: 720p
+  - 宽高比: 16:9
+  - 时长: 25 秒
+  - 生成音频: 是 (generate_audio: true)
+  - 水印: 否
