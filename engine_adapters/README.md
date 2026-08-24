@@ -9,7 +9,7 @@ mechanic / UI code, and used at runtime for RPC-style asset delivery.
 |-------------|------------------------------------------------------------|
 | `ue5/`      | UE5 Blueprint templates, C++ modules, Python-remote scripts, importer helpers |
 | `unity3d/`  | Unity3D C# templates, Editor scripts, PackageManager manifests |
-| `blender/`  | Blender Python (`bpy`) importers, rig / retarget helpers, headless render scripts, a playable session |
+| `blender/`  | Blender Python (`bpy`) importers, headless render, `game/` kit, `examples/` genre mechanics, `playtest/` recording |
 | `three_js/` | Web runtime: `ThreeClient` Python API, `A3GamePlayable` JS framework, glTF loaders, scene scaffolds, HUD overlays |
 
 `ue5/` and `three_js/` are the two adapters implemented to the full
@@ -24,11 +24,20 @@ gameplay extends but never edits:
 | Adapter | Framework | Generated gameplay lives in |
 |---------|-----------|------------------------------|
 | `ue5/` | `A3GamePlayable` UE plugin (C++ contracts) | a project-local Gameplay Plugin |
+| `unity3d/` | `A3GameRuntime` Unity package | a project-local gameplay assembly |
 | `three_js/` | `A3GamePlayable` npm package `@a3game/playable` | a project-local Gameplay Package under `packages/` |
+| `blender/` | `engine_adapters/blender/game` (Python kit) | a project-local `game.py`; reference copies in `blender/examples/` |
+
+`three_js/` exposes `ThreeClient`; `blender/` exposes `BlenderClient` the
+same way. Playtest recording is `client.playtest.record(...)` on either.
 
 See `three_js/MIGRATION_INVENTORY.md` for why the three.js framework also
 owns renderer, frame loop, input, animation, and collision scaffolding
 that Unreal supplies natively.
+
+Genre mechanics for Blender live under `blender/examples/`, next to
+`ue5/examples/` and `unity3d/examples/`. That keeps engine-owned samples
+out of shared `test_data/test_samples/` until a later merge.
 
 The LLM is expected to *reference / extend* these files rather than write engine
 code from scratch, which improves compile-rate and reduces hallucinated APIs.

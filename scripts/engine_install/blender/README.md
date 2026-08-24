@@ -90,7 +90,7 @@ mkdir -p "$XDG_CACHE_HOME" "$TMPDIR"
 ```bash
 "$AAAGF_TOOLS_DIR/envs/xvfb/bin/Xvfb" :99 -screen 0 1280x720x24 &
 DISPLAY=:99 "$BLENDER" --factory-startup \
-    --python operators/gen_mechanic/templates/fps_arena.py -- --play
+    --python engine_adapters/blender/examples/FPSExample/game.py -- --play
 ```
 
 This is for smoke-testing that the input path works, not for playing: software
@@ -134,16 +134,15 @@ python -c "import sys; sys.path.insert(0,'.'); import engine_adapters.blender.ga
 
 # 4. end to end, no render: writes demo_outputs/events.json in a few seconds
 "$BLENDER" -b --factory-startup \
-    --python operators/gen_mechanic/templates/fps_arena.py -- \
+    --python engine_adapters/blender/examples/FPSExample/game.py -- \
     --out-dir /tmp/aaagf_check --no-render
 ```
 
 Step 3 is expected to work with no Blender at all — the package is import-safe so
 that the launcher and `test/` can read its constants on a bare Python.
 
-Step 4 needs `operators/gen_mechanic/templates/`. Without it, the runtime is
-installed correctly but has no mechanic to run; `TemplateAgent.generate()` says
-so explicitly with `template missing: ...`.
+Step 4 needs `engine_adapters/blender/examples/`. Without it, the runtime is
+installed correctly but has no mechanic to run.
 
 ## Assets are optional
 

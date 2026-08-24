@@ -5,7 +5,7 @@ The input surface a human drives, and the two things that can produce it.
 
 Every generated mechanic already separates "what the player wants to do this
 tick" from "what the rules do about it" — the scripted policies in
-`operators/gen_mechanic/templates/` exist to fill exactly that gap. This module
+`engine_adapters/blender/examples/` exist to fill exactly that gap. This module
 makes that gap an explicit object, so the same rules can be fed by:
 
 - `KeyboardSource` — a live Blender window, keys and mouse (see `interactive.py`)
@@ -102,6 +102,10 @@ AXIS_BINDINGS: dict[str, dict[str, tuple]] = {
         # One axis, because a fighting game is a line. + is screen-right.
         "move_x": (("D", "RIGHT_ARROW"), ("A", "LEFT_ARROW")),
     },
+    "rpg": {
+        "move_y": (("W", "UP_ARROW"), ("S", "DOWN_ARROW")),
+        "move_x": (("D",), ("A",)),
+    },
 }
 
 #: `field: keys that hold it down`.
@@ -121,6 +125,11 @@ BUTTON_BINDINGS: dict[str, dict[str, tuple]] = {
         "heavy_attack": ("K", "RIGHTMOUSE"),
         "block": ("L", "LEFT_SHIFT", "RIGHT_SHIFT"),
         "jump": ("SPACE",),
+    },
+    "rpg": {
+        "fire": ("LEFTMOUSE", "SPACE"),
+        "run": ("LEFT_SHIFT", "RIGHT_SHIFT"),
+        "jump": ("E",),
     },
 }
 
