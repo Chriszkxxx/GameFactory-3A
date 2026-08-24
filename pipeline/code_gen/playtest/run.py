@@ -61,6 +61,9 @@ def record_playtest(
     output_dir: str | Path | None = None,
     url: str = "",
     action_plan: str | Path | None = None,
+    hold: str | list[str] | None = None,
+    warmup: float = 0.0,
+    look: str = "auto",
     recorder_root: str | Path | None = None,
     playwright_root: str | Path | None = None,
     browser_executable: str | Path | None = None,
@@ -92,6 +95,9 @@ def record_playtest(
         output_dir=output_dir or default_output_dir(project_path),
         url=url,
         action_plan=action_plan,
+        hold=hold,
+        warmup=warmup,
+        look=look,
         playwright_root=playwright_root or derived.get("playwright_root"),
         browser_executable=browser_executable,
         browsers_path=browsers_path or derived.get("browsers_path"),
@@ -114,7 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project", required=True, help="Game project directory or its package.json")
     parser.add_argument("--url", default="", help="Running dev server; defaults to the adapter's dev-server URL")
     parser.add_argument("--out-dir", default="", help="Defaults to <project>/.a3game/playtest/<timestamp>")
-    parser.add_argument("--action-plan", default="", help="JSON array or {actions:[...]}; overrides discovery")
+    parser.add_argument("--action-plan", default="", help="JSON array or {warmup?,hold?,look?,actions:[...]}; overrides discovery")
+    parser.add_argument("--hold", default="", help="Comma-separated actions or key codes held for the whole take")
+    parser.add_argument("--warmup", type=float, default=0.0, help="Seconds simulated but not captured, for countdowns and spawns")
+    parser.add_argument("--look", choices=("auto", "pan", "off"), default="auto", help="Camera sweep; auto disables it under drag-look")
     parser.add_argument("--recorder-root", default="", help="Supplies playwright/, browsers/ and deps/lib in one flag")
     parser.add_argument("--playwright-root", default="", help="Project containing node_modules/playwright")
     parser.add_argument("--browser-executable", default="", help="Chromium binary to use")
@@ -138,6 +147,9 @@ def main(argv: list[str] | None = None) -> int:
         output_dir=args.out_dir or None,
         url=args.url,
         action_plan=args.action_plan or None,
+        hold=args.hold or None,
+        warmup=args.warmup,
+        look=args.look,
         recorder_root=args.recorder_root or None,
         playwright_root=args.playwright_root or None,
         browser_executable=args.browser_executable or None,

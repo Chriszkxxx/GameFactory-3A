@@ -3,9 +3,9 @@
  * Record a playtest of any A3Game three.js project.
  *
  * This is **not** screen recording. There is no display and no GPU render node
- * here, so WebGL runs on SwiftShader at 0.3-6 s per frame; recording in real
- * time yields a slideshow of a game in slow motion. Instead the simulation is
- * driven at a **fixed timestep**, exactly one image is captured per step, and
+ * here, so WebGL runs on SwiftShader at a fraction of real time; recording in
+ * real time yields a slideshow of a game in slow motion. Instead the simulation
+ * is driven at a **fixed timestep**, exactly one image is captured per step, and
  * the result is encoded at that same rate — smooth at the target frame rate
  * however long each frame actually took. `A3GameRuntimeHost.tick(forcedDelta)`
  * exists for this.
@@ -29,9 +29,10 @@
  *   5. `libopenh264` is bitrate-driven (no libx264 here), and `-start_number`
  *      stops ffmpeg halting at the first gap.
  *
- * Actions are **discovered**, so this works on a game it has never seen: the
- * input router publishes `keyBindings` and `actionBindings`, which is what that
- * game actually listens for. See `discoverActions`.
+ * Nothing here is written for a particular game. What varies between games —
+ * which verbs are held, whether the camera can be swept, how long the opening
+ * ceremony lasts, what must stay pressed throughout — is either read from the
+ * running game or supplied by a plan. See `DISCOVERY` and `--action-plan`.
  */
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -75,6 +76,10 @@ const report = {
   requested_seconds: duration,
   viewport: { width, height },
   action_source: '',
+  look_mode: '',
+  warmup_seconds: 0,
+  sustained: [],
+  excluded_actions: [],
   actions: [],
   executed_actions: [],
   frames: 0,
@@ -91,59 +96,99 @@ const report = {
 const write = () => writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 
 /**
- * Turn whatever the page exposes into a uniform action list.
+ * Ask the running game what can be done in it, and how.
  *
- * Ordered by how much the source knows about *this* game:
+ * Returns a whole *recording plan*, not just a list of verbs, because three of
+ * the four things that vary between games are not per-action:
  *
- *   1. `__A3GAME_PLAYTEST__.actions` — the game says what to demonstrate.
- *   2. `input.actionBindings` — the game-specific verbs (fire, reload,
- *      weapon_2). This is the authoritative answer to "what can be done here",
- *      because it is the table the running game dispatches on.
- *   3. `input.keyBindings` — movement. Deduplicated by action, since the
- *      defaults bind both `KeyW` and `ArrowUp` to `forward` and pressing each
- *      in turn would record the same thing twice.
+ * - `sustained` — what stays pressed for the entire take. A racing game whose
+ *   throttle is released between actions records a car twitching on the start
+ *   line; the throttle is not one of the things being demonstrated, it is the
+ *   condition under which everything else is demonstrated.
+ * - `warmup` — how long to tick before capturing. Games open on a countdown or
+ *   a spawn, and a brawler drops attacks entirely until its round phase reaches
+ *   FIGHT. Recording that interval wastes the take on inputs the game ignores.
+ * - `look` — whether sweeping the camera is meaningful. In a first-person game
+ *   a static camera records a wall; in a side-scroller the camera is derived
+ *   from where the fighters are and a sweep is ignored; under drag-look a sweep
+ *   fights the game's own initial framing.
+ *
+ * Sources, in order of how much each knows about *this* game. Whichever
+ * answered is reported as `action_source`, so a take can be read back:
+ *
+ *   1. `__A3GAME_PLAYTEST__` — the game declares its own plan. Strictly better
+ *      than anything inferred: only the game knows where its enemies are.
+ *   2. `input.actionBindings` — the game's own verbs (fire, handbrake, draw).
+ *      This is the authoritative answer to "what can be done here", because it
+ *      is the table the running game dispatches on and so cannot drift from
+ *      what it actually listens for.
+ *   3. `input.keyBindings` — movement, deduplicated by action: the defaults
+ *      bind `KeyW` *and* `ArrowUp` to `forward`, and pressing each in turn
+ *      would spend half the take recording the same thing twice.
  *   4. `[data-game-action]` elements — menu-driven games.
- *   5. A keyboard smoke plan, so an unannotated game still gets a playtest.
+ *   5. A generic keyboard plan, so an unannotated game still gets a playtest.
  *
  * A binding's *code* is what gets sent, not a character: `A3GameInputRouter`
- * reads `event.code`, and Playwright accepts those names directly.
- *
- * Held versus tapped is decided by what the verb is. Movement is held — a
- * single frame of `forward` moves a character by centimetres and reads as
- * nothing. A discrete verb (fire, reload, weapon_2) must be released or it
- * either does not repeat (a semi-automatic needs the release) or repeats
- * forever.
+ * reads `event.code`, which is also what Playwright accepts.
  */
 const DISCOVERY = () => {
   const game = globalThis.__A3GAME_GAME__;
   const input = game?.input;
-  const HELD = /forward|back|left|right|run|walk|sprint|strafe|crouch|up|down|accel|brake|throttle/i;
+
+  // Held vs tapped is a property of the verb, and getting it wrong records a
+  // game that appears not to respond. A single frame of `forward` moves a
+  // character by centimetres; a charge-and-release verb (draw a bow, hold a
+  // guard, hold a handbrake) does nothing at all if released the same frame.
+  // Conversely a discrete verb must be released, or a semi-automatic weapon
+  // never fires twice and a held key auto-repeats forever.
+  const HELD = new RegExp([
+    'forward|back|left|right|up|down|strafe',          // movement
+    'run|walk|sprint|crouch|prone|swim|climb',         // locomotion modes
+    'accel|throttle|brake|boost|drift|gas',            // driving
+    'draw|charge|aim|zoom|scope|focus',                // charge-and-release
+    'block|guard|defend|shield|parry',                 // defensive holds
+  ].join('|'), 'i');
+
+  const asPlan = (source, actions, extra = {}) => ({ source, actions, ...extra });
 
   const declared = (() => {
-    let value = globalThis.__A3GAME_PLAYTEST__?.actions ?? game?.playtestActions;
+    const exposed = globalThis.__A3GAME_PLAYTEST__ ?? game?.playtestActions;
+    let value = exposed?.actions ?? exposed;
     try { if (typeof value === 'function') value = value(); } catch { return null; }
-    return Array.isArray(value) && value.length ? value : null;
+    if (!Array.isArray(value) || !value.length) return null;
+    return asPlan('declared', value, {
+      sustained: exposed?.sustained ?? exposed?.hold,
+      warmup: exposed?.warmup,
+      look: exposed?.look,
+    });
   })();
-  if (declared) return { source: 'declared', actions: declared };
+  if (declared) return declared;
 
   const actions = [];
   const seen = new Set();
   const push = (id, extra) => {
     if (!id || seen.has(id)) return;
     seen.add(id);
-    actions.push({ id, ...extra });
+    actions.push({ id, label: id, ...extra });
+  };
+  const bind = (code, action) => {
+    if (/^Mouse0$/i.test(code)) push(action, { mouse: true, hold: HELD.test(action) });
+    else if (/^Mouse/i.test(code)) return;            // only button 0 is emulable
+    else if (HELD.test(action)) push(action, { keys: [code] });
+    else push(action, { taps: [code] });
   };
   // Game verbs first: they are what distinguishes this game from any other.
-  for (const [code, action] of Object.entries(input?.actionBindings ?? {})) {
-    if (/^Mouse0$/i.test(code)) push(action, { mouse: true, label: action });
-    else if (/^Mouse/i.test(code)) continue;   // no binding for other buttons
-    else push(action, { taps: [code], label: action });
-  }
-  for (const [code, action] of Object.entries(input?.keyBindings ?? {})) {
-    push(action, HELD.test(action) ? { keys: [code], label: action } : { taps: [code], label: action });
-  }
+  for (const [code, action] of Object.entries(input?.actionBindings ?? {})) bind(code, action);
+  for (const [code, action] of Object.entries(input?.keyBindings ?? {})) bind(code, action);
+
   if (actions.length) {
-    return { source: 'input_router', actions };
+    // A game whose forward motion *is* the game — anything with a throttle —
+    // needs it held under everything else rather than demonstrated in turn.
+    const drive = actions.find((item) => /^(accel|throttle|gas|forward)$/i.test(item.id));
+    const sustained = drive && actions.some((item) => /brake|handbrake|drift|steer|respawn/i.test(item.id))
+      ? [drive.id]
+      : [];
+    return asPlan('input_router', actions, { sustained });
   }
 
   const dom = [...document.querySelectorAll('[data-game-action]')]
@@ -153,18 +198,28 @@ const DISCOVERY = () => {
       click: '[data-game-action="' + CSS.escape(node.getAttribute('data-game-action') || '') + '"]',
     }))
     .filter((item) => item.id);
-  if (dom.length) return { source: 'dom', actions: dom };
+  if (dom.length) return asPlan('dom', dom);
 
-  return {
-    source: 'fallback',
-    actions: [
-      { id: 'forward', keys: ['KeyW'] },
-      { id: 'left', keys: ['KeyA'] },
-      { id: 'right', keys: ['KeyD'] },
-      { id: 'jump', taps: ['Space'] },
-      { id: 'primary', mouse: true },
-    ],
-  };
+  return asPlan('fallback', [
+    { id: 'forward', keys: ['KeyW'] },
+    { id: 'left', keys: ['KeyA'] },
+    { id: 'right', keys: ['KeyD'] },
+    { id: 'jump', taps: ['Space'] },
+    { id: 'primary', mouse: true },
+  ]);
+};
+
+/** Map an action name back to the key code that triggers it, for `sustained`. */
+const RESOLVE = (names) => {
+  const input = globalThis.__A3GAME_GAME__?.input;
+  const table = { ...(input?.keyBindings ?? {}), ...(input?.actionBindings ?? {}) };
+  return names.map((name) => {
+    if (/^(Key|Digit|Arrow|Numpad|F\d)/.test(name) || /^(Space|Shift|Control|Alt|Tab|Enter|Escape)/.test(name)) {
+      return { name, code: name };                     // already a code
+    }
+    const code = Object.entries(table).find(([, action]) => action === name)?.[0];
+    return { name, code: code && !/^Mouse/i.test(code) ? code : null };
+  });
 };
 
 function normalize(raw, source, budgetSeconds) {
@@ -176,8 +231,9 @@ function normalize(raw, source, budgetSeconds) {
       keys: (Array.isArray(item.keys) ? item.keys : []).map(String),
       taps: (Array.isArray(item.taps) ? item.taps : []).map(String),
       mouse: Boolean(item.mouse),
+      hold: Boolean(item.hold),
       click: typeof item.click === 'string' ? item.click : '',
-      seconds: Number(item.duration) > 0 ? Number(item.duration) : 0,
+      seconds: Number(item.duration ?? item.seconds) > 0 ? Number(item.duration ?? item.seconds) : 0,
       source,
     }));
   // Share the take evenly when nothing declared a length, then clamp the whole
@@ -252,19 +308,29 @@ try {
   // show a scene still wearing its procedural stand-ins.
   await page.waitForTimeout(3_000);
 
-  report.fixed_tick = await page.evaluate(() => {
-    const host = globalThis.__A3GAME_GAME__?.host;
-    if (typeof host?.tick !== 'function') return false;
+  const runtime = await page.evaluate(() => {
+    const game = globalThis.__A3GAME_GAME__;
+    const host = game?.host;
+    if (typeof host?.tick !== 'function') return { fixedTick: false, lookMode: '', yaw: 0, pitch: 0 };
     host.stop?.();   // take over the frame loop; see the file header
     // Pointer lock needs a real gesture, which a synthetic pointerdown is not,
     // so a first-person game would sit under its own "click to lock" prompt for
     // the whole video. Correct behaviour for a human, noise in a recording.
     // The take is cleaned up; the game is not changed, and a result banner
     // still re-shows itself through onStateChanged.
-    try { globalThis.__A3GAME_GAME__.hud?.setVisible?.('banner', false); } catch { /* no HUD */ }
-    return true;
+    try { game.hud?.setVisible?.('banner', false); } catch { /* no HUD */ }
+    return {
+      fixedTick: true,
+      lookMode: String(game?.input?.lookMode ?? ''),
+      // The game's own opening framing. A sweep must start from here rather
+      // than from zero, or it throws away a deliberate choice: an exploration
+      // game that opens looking south would whip round to face north.
+      yaw: Number(game?.input?.yaw ?? 0),
+      pitch: Number(game?.input?.pitch ?? 0),
+    };
   });
-  if (!report.fixed_tick) {
+  report.fixed_tick = runtime.fixedTick;
+  if (!runtime.fixedTick) {
     report.warnings.push('No host.tick(): captured wall-clock frames, which on SwiftShader look like slow motion.');
   }
 
@@ -272,22 +338,84 @@ try {
   if (args['action-plan']) {
     const planPath = path.resolve(args['action-plan']);
     const parsed = JSON.parse(await readFile(planPath, 'utf8'));
-    plan = { source: 'plan', actions: parsed?.actions ?? parsed };
+    plan = Array.isArray(parsed)
+      ? { source: 'plan', actions: parsed }
+      : { ...parsed, source: 'plan', actions: parsed.actions ?? [] };
     report.action_plan = planPath;
   }
   const discovered = plan ?? (await page.evaluate(DISCOVERY));
   report.action_source = discovered.source;
-  report.actions = normalize(discovered.actions ?? [], discovered.source, duration);
   if (discovered.source === 'fallback') {
     report.warnings.push('Game published no bindings; recorded a generic keyboard smoke plan.');
   }
-  if (!report.actions.length) throw new Error('No actions to record');
+
+  // Sweeping the camera is meaningful only where the game reads it. Under
+  // drag-look it fights the game's own framing, and a side-scroller derives the
+  // camera from its fighters and ignores it outright.
+  const lookArg = String(args.look ?? discovered.look ?? 'auto').toLowerCase();
+  report.look_mode = lookArg !== 'auto'
+    ? lookArg
+    : (runtime.lookMode === 'drag' || !runtime.lookMode ? 'off' : 'pan');
+
+  // Ceremony before play: countdowns, spawn-ins, a brawler that drops attacks
+  // until its round reaches FIGHT. Ticked, not captured.
+  const warmup = Math.max(0, Number(args.warmup ?? discovered.warmup ?? 0));
+
+  const sustainedNames = (args.hold ? args.hold.split(',') : discovered.sustained ?? [])
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+  const sustained = sustainedNames.length ? await page.evaluate(RESOLVE, sustainedNames) : [];
+  const sustainedCodes = sustained.filter((item) => item.code).map((item) => item.code);
+  for (const item of sustained) {
+    if (!item.code) report.warnings.push(`Cannot hold "${item.name}": no key binding for it.`);
+  }
+  report.sustained = sustainedCodes;
+
+  // A sustained input states the take's premise, and that has consequences for
+  // what can be demonstrated inside it.
+  //
+  //  - The held action itself is not one of the things being shown: a racer
+  //    should not spend a slot proving its throttle works while the throttle is
+  //    already down.
+  //  - Anything that *negates* the premise cannot be shown either. Pressing
+  //    reverse while the throttle is held demonstrates neither, and the measured
+  //    result was a car crawling at 18 km/h in last place while its opponents
+  //    lapped the track. Dropped, and named in the report so the gap is visible.
+  //  - Anything that discards progress is moved to the end rather than dropped.
+  //    A respawn is worth seeing; a respawn one second in throws away the run.
+  const ANTAGONIST = [
+    [/^(forward|accel\w*|throttle|gas|boost)$/i, /^(back\w*|reverse|brake|handbrake|decel\w*)$/i],
+    [/^(draw|charge|aim|zoom|scope)$/i, /^(holster|cancel|sheathe)$/i],
+    [/^(block|guard|defend|shield)$/i, /^(dodge|roll|evade)$/i],
+  ];
+  const negates = (name) => sustainedNames.some((holdName) =>
+    ANTAGONIST.some(([a, b]) =>
+      (a.test(holdName) && b.test(name)) || (b.test(holdName) && a.test(name))));
+  const DISRUPTIVE = /^(respawn|reset|restart|retry|suicide)$/i;
+
+  const excluded = [];
+  const sequence = [];
+  const deferred = [];
+  for (const item of discovered.actions ?? []) {
+    const name = String(item.id ?? item.name ?? '');
+    if (sustainedNames.includes(name)) continue;
+    if (negates(name)) { excluded.push(name); continue; }
+    (DISRUPTIVE.test(name) ? deferred : sequence).push(item);
+  }
+  report.excluded_actions = excluded;
+  if (excluded.length) {
+    report.warnings.push(
+      `Dropped ${excluded.join(', ')}: cannot be demonstrated while holding ${sustainedNames.join(', ')}.`,
+    );
+  }
+  report.actions = normalize([...sequence, ...deferred], discovered.source, duration);
+  if (!report.actions.length && !sustainedCodes.length) throw new Error('No actions to record');
 
   const cdp = await page.context().newCDPSession(page);
   let frame = 0;
 
   async function setKeys(wanted) {
-    const target = new Set(wanted);
+    const target = new Set([...wanted, ...sustainedCodes]);
     for (const key of [...held]) {
       if (!target.has(key)) { await page.keyboard.up(key); held.delete(key); }
     }
@@ -306,7 +434,7 @@ try {
   // Advance the simulation one fixed step and capture it. The tick runs inside
   // a rAF and the capture waits one more, so the compositor has committed a
   // frame before the screenshot is asked for.
-  async function captureStep() {
+  async function step(capture) {
     await page.evaluate((dt) => new Promise((resolve) => {
       const host = globalThis.__A3GAME_GAME__?.host;
       requestAnimationFrame(() => {
@@ -314,6 +442,7 @@ try {
         requestAnimationFrame(resolve);
       });
     }), DT);
+    if (!capture) return;
     const shot = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 86 });
     await writeFile(
       path.join(framesDir, `f${String(frame).padStart(5, '0')}.jpg`),
@@ -322,13 +451,22 @@ try {
     frame += 1;
   }
 
-  // Keep the view moving. A discovered plan cannot know where this game's
-  // targets are, and a static camera in a first-person game records a wall.
+  // Sweep relative to where the game chose to look, never absolute.
   const pan = (index) =>
-    page.evaluate((i) => {
-      const input = globalThis.__A3GAME_GAME__?.input;
-      if (typeof input?.setLook === 'function') input.setLook(i * 0.012, Math.sin(i * 0.03) * 0.12);
-    }, index).catch(() => {});
+    report.look_mode !== 'pan'
+      ? Promise.resolve()
+      : page.evaluate(([i, yaw0, pitch0]) => {
+          const input = globalThis.__A3GAME_GAME__?.input;
+          if (typeof input?.setLook === 'function') {
+            input.setLook(yaw0 + i * 0.012, pitch0 + Math.sin(i * 0.03) * 0.12);
+          }
+        }, [index, runtime.yaw, runtime.pitch]).catch(() => {});
+
+  if (warmup > 0) {
+    await setKeys([]);   // sustained inputs apply from the warmup onward
+    for (let i = 0; i < Math.round(warmup * FPS); i += 1) await step(false);
+    report.warmup_seconds = warmup;
+  }
 
   const started = Date.now();
   for (const action of report.actions) {
@@ -337,18 +475,21 @@ try {
     try {
       if (action.click) await page.locator(action.click).first().click({ timeout: 2_000 });
       if (action.keys.length) await setKeys(action.keys);
+      else await setKeys([]);
       if (action.mouse) await setMouse(true);
-      for (const key of action.taps) { await page.keyboard.down(key); tapped.push(key); }
-      for (let step = 0; step < steps; step += 1) {
+      // A charge-and-release verb is held for its whole slot and released at the
+      // end — that release *is* the shot. A discrete verb gets one frame on the
+      // key: held longer it auto-repeats, and a semi-automatic weapon will not
+      // fire a second time without the release.
+      for (const key of action.taps) { await page.keyboard.down(key); if (!action.hold) tapped.push(key); }
+      for (let i = 0; i < steps; i += 1) {
         await pan(frame);
-        await captureStep();
+        await step(true);
         record.frames += 1;
-        // A tap is one frame on the key: held longer it auto-repeats, and a
-        // semi-automatic weapon will not fire a second time without a release.
         while (tapped.length) await page.keyboard.up(tapped.pop());
       }
+      if (action.hold) for (const key of action.taps) await page.keyboard.up(key).catch(() => {});
       if (action.mouse) await setMouse(false);
-      await setKeys([]);
     } catch (error) {
       record.ok = false;
       record.error = String(error.message || error).split('\n')[0].slice(0, 160);

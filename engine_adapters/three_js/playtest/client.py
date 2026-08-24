@@ -36,11 +36,24 @@ _OPERATION = "playtest.record"
 class ThreePlaytestClient:
     """Drive a running game through discovered actions and record the result.
 
-    Actions are discovered from the game rather than configured, so this works on
-    a project it has never seen. In order of preference: a declared
-    ``__A3GAME_PLAYTEST__.actions`` plan; the input router's ``actionBindings``
-    and ``keyBindings``, which are the tables the running game dispatches on;
+    Nothing here is written for a particular game. What the recorder needs to
+    know is read from the running game — the input router publishes the very
+    tables it dispatches on, so they cannot drift from what the game listens
+    for. In order of preference: a ``__A3GAME_PLAYTEST__`` plan the game
+    declares for itself; ``actionBindings`` and ``keyBindings``;
     ``[data-game-action]`` elements; a generic keyboard plan.
+
+    Three things vary per game that a *list of verbs* cannot express, so they
+    are separate inputs — inferred by default, overridable per recording:
+
+    - ``hold`` - what stays pressed for the whole take. A racing game whose
+      throttle is released between actions records a car twitching on the
+      start line.
+    - ``warmup`` - seconds to simulate before capturing. Games open on a
+      countdown or a spawn, and a brawler drops attacks entirely until its
+      round reaches FIGHT.
+    - ``look`` - whether sweeping the camera is meaningful. Wrong in a
+      side-scroller, actively harmful under drag-look.
     """
 
     def __init__(self, config: ThreeClientConfig) -> None:
@@ -53,6 +66,9 @@ class ThreePlaytestClient:
         output_dir: str | Path,
         url: str = "",
         action_plan: str | Path | None = None,
+        hold: str | list[str] | None = None,
+        warmup: float = 0.0,
+        look: str = "auto",
         playwright_root: str | Path | None = None,
         browser_executable: str | Path | None = None,
         browsers_path: str | Path | None = None,
@@ -72,9 +88,23 @@ class ThreePlaytestClient:
         and carries the game's own ``getState()`` so a reviewer can see that the
         game responded rather than merely rendered.
 
-        ``timeout`` is generous by default because SwiftShader is the cost here:
-        316 ms/frame for a first-person arena and up to 6 s/frame for a scene
-        with a long view. A 12 s take at 20 fps is 240 frames.
+        Args:
+            action_plan: JSON overriding discovery entirely. Either a bare array
+                of actions or ``{warmup?, hold?, look?, actions:[...]}``, where
+                an action is ``{id, keys?, taps?, mouse?, hold?, click?,
+                duration?}``. ``keys`` are held for the action's slot, ``taps``
+                are pressed for one frame, and ``hold`` turns a tap into
+                charge-and-release (draw a bow, hold a guard).
+            hold: Actions or key codes pressed for the entire take. Names are
+                resolved through the game's own bindings, so ``["accelerate"]``
+                works without knowing which key that is.
+            warmup: Seconds simulated but not captured, for opening ceremony.
+            look: ``auto`` (sweep unless the game uses drag-look), ``pan``, or
+                ``off``. A sweep starts from the game's own opening framing
+                rather than from zero.
+            timeout: Generous by default because SwiftShader is the cost here:
+                ~0.6 s/frame for a first-person arena and up to 6 s/frame for a
+                scene with a long view. A 12 s take at 20 fps is 240 frames.
         """
         project_dir = self._config.project_dir
         project_file = self._config.project_file
@@ -101,7 +131,13 @@ class ThreePlaytestClient:
             return self._fail(f"browser_executable does not exist: {browser}")
         if libraries is not None and not libraries.is_dir():
             return self._fail(f"library_path is not a directory: {libraries}")
+        if look not in ("auto", "pan", "off"):
+            return self._fail(f"look must be auto, pan, or off; got {look!r}")
+        if warmup < 0:
+            return self._fail("warmup cannot be negative")
 
+        held = [item.strip() for item in (hold.split(",") if isinstance(hold, str) else hold or [])]
+        held = [item for item in held if item]
         url = str(url or self._config.dev_server_url).rstrip("/")
         report_path = out / "report.json"
         arguments = [
@@ -111,7 +147,12 @@ class ThreePlaytestClient:
             "--fps", str(int(fps)),
             "--width", str(int(width)),
             "--height", str(int(height)),
+            "--look", look,
         ]
+        if warmup > 0:
+            arguments.extend(["--warmup", str(float(warmup))])
+        if held:
+            arguments.extend(["--hold", ",".join(held)])
         for flag, value in (
             ("--action-plan", plan),
             ("--playwright-root", root),
@@ -139,6 +180,9 @@ class ThreePlaytestClient:
             "output_dir": str(out),
             "report_path": str(report_path),
             "action_plan": str(plan) if plan else None,
+            "hold": held,
+            "warmup": warmup,
+            "look": look,
             "playwright_root": str(root) if root else None,
             "browser_executable": str(browser) if browser else None,
             "duration": duration,
