@@ -2,37 +2,32 @@
 /**
  * Record a playtest of any A3Game three.js project.
  *
- * This is **not** screen recording. There is no display and no GPU render node
- * here, so WebGL runs on SwiftShader at a fraction of real time; recording in
- * real time yields a slideshow of a game in slow motion. Instead the simulation
- * is driven at a **fixed timestep**, exactly one image is captured per step, and
- * the result is encoded at that same rate — smooth at the target frame rate
- * however long each frame actually took. `A3GameRuntimeHost.tick(forcedDelta)`
- * exists for this.
+ * **Not** screen recording: WebGL runs on SwiftShader here, so real-time
+ * capture yields slow motion. Instead the simulation is driven at a fixed
+ * timestep via `A3GameRuntimeHost.tick(forcedDelta)`, one image is captured per
+ * step, and the result is encoded at that rate — smooth however long each frame
+ * actually took.
  *
- * Five things here were each found the hard way; see
- * `agent_skills/engine_context/three_js_api.md` (Recording A Playtest):
+ * Five things were each found the hard way. See `## Playtest` in
+ * `agent_skills/engine_context/three_js_api.md` for the measurements:
  *
- *   1. The host's own rAF loop must be stopped, and the tick must then run
- *      *inside* a `requestAnimationFrame` with the capture waiting one further
- *      frame. Without that the compositor never commits and every screenshot
- *      blocks ~1.25 s on an internal timeout: 1335 ms/frame vs 355 ms/frame.
- *   2. Capture goes through a raw CDP `Page.captureScreenshot`. Playwright's
- *      `page.screenshot()` waits for stability that a stopped rAF loop never
- *      reaches.
- *   3. Input is delivered as **real events**: keys to `window` where
- *      `A3GameInputRouter` listens, pointer events to `host.container`, and
- *      aiming through the router's public `setLook`. Nothing reaches in and
- *      moves an entity, because then the video would be evidence of nothing.
- *   4. A renderer crash is treated as "the video is as long as it is" rather
- *      than losing the take. Partial frames are kept and reported.
- *   5. `libopenh264` is bitrate-driven (no libx264 here), and `-start_number`
- *      stops ffmpeg halting at the first gap.
+ *   1. Stop the host's rAF loop, tick *inside* a `requestAnimationFrame`, and
+ *      wait one further frame before capturing — otherwise the compositor never
+ *      commits and each screenshot blocks ~1.25 s (1335 vs 355 ms/frame).
+ *   2. Capture via raw CDP `Page.captureScreenshot`; `page.screenshot()` waits
+ *      for stability a stopped rAF loop never reaches.
+ *   3. Deliver **real events** — keys to `window`, pointer to `host.container`,
+ *      aiming through `setLook`. Nothing reaches in and moves an entity, or the
+ *      video would be evidence of nothing.
+ *   4. Treat a renderer crash as "the video is as long as it is": keep and
+ *      report partial frames rather than losing the take.
+ *   5. `libopenh264` is bitrate-driven (no libx264), and `-start_number` stops
+ *      ffmpeg halting at the first gap.
  *
- * Nothing here is written for a particular game. What varies between games —
- * which verbs are held, whether the camera can be swept, how long the opening
- * ceremony lasts, what must stay pressed throughout — is either read from the
- * running game or supplied by a plan. See `DISCOVERY` and `--action-plan`.
+ * Nothing here is game-specific. What varies — which verbs are held, whether
+ * the camera can be swept, how long the opening ceremony lasts, what stays
+ * pressed throughout — is read from the running game or supplied by a plan.
+ * See `DISCOVERY` and `--action-plan`.
  */
 
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -101,53 +96,70 @@ const write = () => writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`
  * Returns a whole *recording plan*, not just a list of verbs, because three of
  * the four things that vary between games are not per-action:
  *
- * - `sustained` — what stays pressed for the entire take. A racing game whose
- *   throttle is released between actions records a car twitching on the start
- *   line; the throttle is not one of the things being demonstrated, it is the
- *   condition under which everything else is demonstrated.
- * - `warmup` — how long to tick before capturing. Games open on a countdown or
- *   a spawn, and a brawler drops attacks entirely until its round phase reaches
- *   FIGHT. Recording that interval wastes the take on inputs the game ignores.
- * - `look` — whether sweeping the camera is meaningful. In a first-person game
- *   a static camera records a wall; in a side-scroller the camera is derived
- *   from where the fighters are and a sweep is ignored; under drag-look a sweep
- *   fights the game's own initial framing.
+ * - `sustained` — what stays pressed for the entire take. A racer whose throttle
+ *   is released between actions records a car twitching on the start line; the
+ *   throttle is the condition everything else is demonstrated under.
+ * - `warmup` — how long to tick before capturing. Games open on a countdown or a
+ *   spawn, and a brawler drops attacks until its round reaches FIGHT.
+ * - `look` — whether sweeping the camera is meaningful. A side-scroller derives
+ *   its camera from the fighters and ignores a sweep; under drag-look a sweep
+ *   fights the game's own framing.
  *
- * Sources, in order of how much each knows about *this* game. Whichever
- * answered is reported as `action_source`, so a take can be read back:
+ * Sources, in order of how much each knows about *this* game; whichever answered
+ * is reported as `action_source`:
  *
  *   1. `__A3GAME_PLAYTEST__` — the game declares its own plan. Strictly better
  *      than anything inferred: only the game knows where its enemies are.
  *   2. `input.actionBindings` — the game's own verbs (fire, handbrake, draw).
- *      This is the authoritative answer to "what can be done here", because it
- *      is the table the running game dispatches on and so cannot drift from
- *      what it actually listens for.
- *   3. `input.keyBindings` — movement, deduplicated by action: the defaults
- *      bind `KeyW` *and* `ArrowUp` to `forward`, and pressing each in turn
- *      would spend half the take recording the same thing twice.
+ *      Authoritative, because it is the table the running game dispatches on.
+ *   3. `input.keyBindings` — movement, deduplicated by action: the defaults bind
+ *      `KeyW` *and* `ArrowUp` to `forward`.
  *   4. `[data-game-action]` elements — menu-driven games.
  *   5. A generic keyboard plan, so an unannotated game still gets a playtest.
  *
- * A binding's *code* is what gets sent, not a character: `A3GameInputRouter`
- * reads `event.code`, which is also what Playwright accepts.
+ * A binding's *code* is sent, not a character: `A3GameInputRouter` reads
+ * `event.code`, which is also what Playwright accepts.
  */
 const DISCOVERY = () => {
   const game = globalThis.__A3GAME_GAME__;
   const input = game?.input;
 
   // Held vs tapped is a property of the verb, and getting it wrong records a
-  // game that appears not to respond. A single frame of `forward` moves a
-  // character by centimetres; a charge-and-release verb (draw a bow, hold a
-  // guard, hold a handbrake) does nothing at all if released the same frame.
-  // Conversely a discrete verb must be released, or a semi-automatic weapon
-  // never fires twice and a held key auto-repeats forever.
+  // game that appears not to respond. One frame of `forward` moves a character
+  // by centimetres; a charge-and-release verb (draw a bow, hold a guard, hold a
+  // handbrake) does nothing at all if released the same frame. Conversely a
+  // discrete verb must be released, or a semi-automatic weapon never fires
+  // twice and a held key auto-repeats forever.
+  //
+  // Matching is substring-based, so `move_forward`, `sprintToggle` and
+  // `holdBlock` all land here. Anything unmatched is treated as a tap, which is
+  // the safe default: a tapped hold under-demonstrates, but a held tap can
+  // auto-repeat an entire magazine or spam a menu.
   const HELD = new RegExp([
-    'forward|back|left|right|up|down|strafe',          // movement
-    'run|walk|sprint|crouch|prone|swim|climb',         // locomotion modes
-    'accel|throttle|brake|boost|drift|gas',            // driving
-    'draw|charge|aim|zoom|scope|focus',                // charge-and-release
-    'block|guard|defend|shield|parry',                 // defensive holds
+    // translation, including vehicle/aircraft axes and free-fly
+    'forward|back|left|right|up|down|strafe|ascend|descend|thrust|yaw|pitch|roll',
+    // locomotion modes and postures
+    'run|walk|sprint|dash|crouch|sneak|prone|slide|swim|climb|hover|fly|glide',
+    // driving
+    'accel|throttle|brake|boost|nitro|nos|drift|gas|handbrake|ebrake|clutch',
+    // charge-and-release, and anything whose value is the interval it is held
+    'draw|charge|aim|zoom|scope|focus|hold|pull|push|drag|carry|grab|grapple',
+    // defensive holds
+    'block|guard|defend|shield|parry|brace|cover',
+    // sustained fire and tools
+    'auto|spray|beam|burn|heal|repair|mine|dig|build|paint|spray',
+    // sustained interaction: a progress bar is held, not tapped
+    'interact|use|open|channel|cast|revive|capture|hack|lockpick',
+    // camera / turret sweeps
+    'look|turn|pan|orbit|lean|peek|freelook',
   ].join('|'), 'i');
+
+  // Verbs that read as held by the rule above but are discrete in practice, so
+  // they are matched first and win. `toggle*` is the common shape: a toggled
+  // sprint or crouch is a single press, and holding it flips state every frame.
+  const TAPPED = /toggle|switch|cycle|next|prev|swap|select|equip|holster|sheathe|reload|jump|hop|dodge|roll_dodge|evade|blink|teleport|respawn|reset|restart|pause|menu|map|inventory|emote|taunt|horn|light|flash/i;
+
+  const isHeld = (action) => !TAPPED.test(action) && HELD.test(action);
 
   const asPlan = (source, actions, extra = {}) => ({ source, actions, ...extra });
 
@@ -172,9 +184,9 @@ const DISCOVERY = () => {
     actions.push({ id, label: id, ...extra });
   };
   const bind = (code, action) => {
-    if (/^Mouse0$/i.test(code)) push(action, { mouse: true, hold: HELD.test(action) });
+    if (/^Mouse0$/i.test(code)) push(action, { mouse: true, hold: isHeld(action) });
     else if (/^Mouse/i.test(code)) return;            // only button 0 is emulable
-    else if (HELD.test(action)) push(action, { keys: [code] });
+    else if (isHeld(action)) push(action, { keys: [code] });
     else push(action, { taps: [code] });
   };
   // Game verbs first: they are what distinguishes this game from any other.
@@ -183,9 +195,11 @@ const DISCOVERY = () => {
 
   if (actions.length) {
     // A game whose forward motion *is* the game — anything with a throttle —
-    // needs it held under everything else rather than demonstrated in turn.
-    const drive = actions.find((item) => /^(accel|throttle|gas|forward)$/i.test(item.id));
-    const sustained = drive && actions.some((item) => /brake|handbrake|drift|steer|respawn/i.test(item.id))
+    // needs it held under everything else rather than demonstrated in turn. The
+    // tell is a vehicle-shaped verb alongside something only a vehicle has.
+    const drive = actions.find((item) => /^(accel\w*|throttle|gas|forward)$/i.test(item.id));
+    const vehicular = /brake|handbrake|ebrake|drift|steer|clutch|nitro|nos|respawn|lap|gear/i;
+    const sustained = drive && actions.some((item) => vehicular.test(item.id))
       ? [drive.id]
       : [];
     return asPlan('input_router', actions, { sustained });
@@ -271,12 +285,11 @@ const browser = await chromium.launch({
   executablePath: args['browser-executable'] || undefined,
   // None of these is decoration. This box has NVIDIA cards with no render node
   // and no display, so Chromium finds a GPU, tries it, and fails *without*
-  // falling back to software. Of five documented combinations only this one
-  // reaches SwiftShader. `--in-process-gpu` is required here — without it there
-  // is no WebGL context at all — and it is also why
-  // `CDPScreenshotNewSurface` (which Playwright enables by default) must be
-  // switched off: together they kill the renderer after 40-60 screenshots, and
-  // with an in-process GPU thread there is no separate process left to restart.
+  // falling back to software; of five documented combinations only this one
+  // reaches SwiftShader. `--in-process-gpu` is required (without it there is no
+  // WebGL context at all), and it is also why `CDPScreenshotNewSurface` — which
+  // Playwright enables by default — must be off: together they kill the renderer
+  // after 40-60 screenshots, with no separate GPU process left to restart.
   args: [
     '--no-sandbox',
     '--disable-dev-shm-usage',
@@ -315,16 +328,14 @@ try {
     host.stop?.();   // take over the frame loop; see the file header
     // Pointer lock needs a real gesture, which a synthetic pointerdown is not,
     // so a first-person game would sit under its own "click to lock" prompt for
-    // the whole video. Correct behaviour for a human, noise in a recording.
-    // The take is cleaned up; the game is not changed, and a result banner
-    // still re-shows itself through onStateChanged.
+    // the whole video. Clean up the take, never the game — a result banner still
+    // re-shows itself through onStateChanged.
     try { game.hud?.setVisible?.('banner', false); } catch { /* no HUD */ }
     return {
       fixedTick: true,
       lookMode: String(game?.input?.lookMode ?? ''),
-      // The game's own opening framing. A sweep must start from here rather
-      // than from zero, or it throws away a deliberate choice: an exploration
-      // game that opens looking south would whip round to face north.
+      // The game's own opening framing. A sweep starts from here, not from zero,
+      // or it throws away a deliberate choice.
       yaw: Number(game?.input?.yaw ?? 0),
       pitch: Number(game?.input?.pitch ?? 0),
     };
@@ -371,27 +382,28 @@ try {
   }
   report.sustained = sustainedCodes;
 
-  // A sustained input states the take's premise, and that has consequences for
-  // what can be demonstrated inside it.
+  // A sustained input states the take's premise, which constrains what can be
+  // demonstrated inside it:
   //
-  //  - The held action itself is not one of the things being shown: a racer
-  //    should not spend a slot proving its throttle works while the throttle is
-  //    already down.
-  //  - Anything that *negates* the premise cannot be shown either. Pressing
-  //    reverse while the throttle is held demonstrates neither, and the measured
-  //    result was a car crawling at 18 km/h in last place while its opponents
-  //    lapped the track. Dropped, and named in the report so the gap is visible.
+  //  - The held action itself is not one of the things being shown.
+  //  - Anything that *negates* the premise cannot be shown either. Reverse under
+  //    a held throttle demonstrates neither; the measured result was a car
+  //    crawling at 18 km/h in last place. Dropped, and named in the report.
   //  - Anything that discards progress is moved to the end rather than dropped.
   //    A respawn is worth seeing; a respawn one second in throws away the run.
   const ANTAGONIST = [
-    [/^(forward|accel\w*|throttle|gas|boost)$/i, /^(back\w*|reverse|brake|handbrake|decel\w*)$/i],
-    [/^(draw|charge|aim|zoom|scope)$/i, /^(holster|cancel|sheathe)$/i],
-    [/^(block|guard|defend|shield)$/i, /^(dodge|roll|evade)$/i],
+    [/^(forward|accel\w*|throttle|gas|boost|nitro|nos)$/i,
+     /^(back\w*|reverse|brake|handbrake|ebrake|decel\w*|clutch)$/i],
+    [/^(draw|charge|aim|zoom|scope|focus)$/i, /^(holster|sheathe|cancel|swap|equip)$/i],
+    [/^(block|guard|defend|shield|brace|cover)$/i, /^(dodge|roll|evade|blink)$/i],
+    [/^(sneak|crouch|prone|walk)$/i, /^(run|sprint|dash|jump)$/i],
+    [/^(interact|use|channel|cast|revive|capture|hack|lockpick)$/i,
+     /^(cancel|dodge|roll|jump)$/i],
   ];
   const negates = (name) => sustainedNames.some((holdName) =>
     ANTAGONIST.some(([a, b]) =>
       (a.test(holdName) && b.test(name)) || (b.test(holdName) && a.test(name))));
-  const DISRUPTIVE = /^(respawn|reset|restart|retry|suicide)$/i;
+  const DISRUPTIVE = /^(respawn|reset|restart|retry|suicide|pause|menu|quit|exit)$/i;
 
   const excluded = [];
   const sequence = [];
