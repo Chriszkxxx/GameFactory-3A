@@ -9,9 +9,110 @@ of them is visible in five orthographic views. Run this immediately after
 `Gen3DObjectOperator.run_art_plan`, on the sheet at
 `result["preview_sheet"]`.
 
+## Choose The Route First
+
+Three routes produce a 3D asset. The cheapest applicable one wins:
+
+| Route | Use when | Cost |
+|---|---|---|
+| **Spec** (`funcs/code_asset.py`) | the object is exactly describable — a crate, sign, wheel, rifle, railing | seconds, no GPU, no API key |
+| **Asset pack** (`funcs/asset_pack.py`) | a CC0 model of it already exists | seconds, one download |
+| **Generate** (Tripo / Meshy / TRELLIS.2) | the surface is the point — a face, creature, tree, cloth | paid or GPU-bound, minutes |
+
+`suits_code_asset(subject)` returns `code`, `generate` or `ambiguous`. It
+declines rather than guesses: a procedurally "described" face wastes a
+correction loop discovering what one call could have said.
+
+For hard-surface work a spec is not a downgrade — it states three things
+generation can only guess:
+
+- **facing** (`forward`), so the import records `verified_by="spec"` rather
+  than `heuristic`;
+- **size** (`height_metres`), where a generated mesh arrives normalised
+  into a unit box with no size of its own;
+- **parts**, each a named glTF node, so a wheel can still spin. A generated
+  mesh is one fused body.
+
+Every route still gets reviewed — skip to *The Five Checks* once a mesh
+exists.
+
+## Building From A Spec
+
+```python
+op = Gen3DObjectOperator(model=None, run_id="20260826_1400")   # no model needed
+result = op.run({
+    "game_id": "gameA_cyberpunk_shooter",
+    "task_id": "crate_001",
+    "asset_id": "supply_crate",
+    "spec": {
+        "subject": "wooden supply crate",
+        "units": "metres",          # required, no default
+        "forward": "+z",            # required, no default
+        "asset_type": "prop",
+        "height_metres": 0.6,
+        "materials": {"wood": {"baseColor": [0.45, 0.30, 0.18, 1],
+                               "roughness": 0.85}},
+        "parts": [
+            {"id": "body", "kind": "box",
+             "size": [0.6, 0.6, 0.6], "at": [0, 0.3, 0], "material": "wood"},
+        ],
+    },
+})
+```
+
+`units` and `forward` have no defaults, because an assumed facing is the
+defect `orientation_review.md` exists to catch: it reads as correct until
+the asset is in a scene walking backwards.
+
+Part kinds: `box`, `cylinder`, `cone`, `sphere`, `torus`, `lathe`,
+`extrude`. `lathe` revolves a `(radius, height)` profile — bottles, blades,
+turned legs; `extrude` pushes a closed `(x, y)` outline along Z. `segments`
+is the triangle-budget dial on round parts.
+
+### Gates, Run Before Any Renderer
+
+Five checks run on the spec's own geometry, so a defect is found on points
+rather than after a render. All report together, so one pass gives the
+whole list.
+
+| Gate | Catches | Blocks? |
+|---|---|---|
+| `solidity` | a part thin enough to vanish edge-on | yes |
+| `chirality` | a `-l`/`-r` pair that is a rotation, not a mirror | yes |
+| `scale` | parts disagreeing with `height_metres`, or a misplaced decimal | yes |
+| `budget` | more triangles than the role allows | yes |
+| `connectivity` | a part touching nothing else | no — reported |
+
+**Chirality is the one to understand**, because its failure looks tidy.
+Negating *two* axes is a 180-degree rotation, and rotation preserves
+handedness — both halves come out as the same hand. Measured in
+[img2threejs](https://github.com/img2threejs/img2threejs): z `+0.288` against
+`-0.288`, where a mirror leaves z alone. **Negate the lateral axis only.** Any
+left/right pair — headlights, wing mirrors, sling swivels — is one sign error
+from this.
+
+`connectivity` only reports: a hovering crystal is a design, and failing it
+would make the gate wrong for a whole class of asset.
+
+A failed gate writes **nothing** and hands nothing to the engine — an asset
+that exists gets used. `strict=False` only to inspect a bad mesh.
+
+### Correcting A Spec
+
+Pass `revise(spec, failures) -> spec` to let a model fix its own defects.
+The loop stops at three attempts, or earlier on `repeating`, `oscillating`,
+`no_progress` or `revise_failed`; `result["stop_reason"]` says which. An
+unbounded loop in [img2threejs](https://github.com/img2threejs/img2threejs)
+spent 45 minutes recording a car that never moved, because a lookup returned
+`None` and the loop optimised a metric that could not see it.
+
+**Read `stop_reason` before re-running.** `repeating` means the revision
+addressed nothing, so a fourth attempt is the third attempt.
+
 ## Environment setup
 
-Choose the environment based on the 3D generation backend:
+A spec needs no environment at all — pure standard library, no GPU, no
+key. Set up only the generation route you actually chose:
 
 ```bash
 # Cloud 3D backends such as Tripo and Meshy
@@ -33,6 +134,25 @@ purchase/API-key page (<https://platform.tripo3d.ai/api-keys> or
 including regeneration attempts, ask the user to buy access and supply
 `TRIPO_API_KEY` / `MESHY_API_KEY`, and wait for an explicit answer. Use local
 TRELLIS.2 only when the user declines or requires offline execution.
+
+## Which Formats Each Engine Accepts
+
+Read from each adapter's own importer, so this is what will actually load:
+
+| Engine | Accepted mesh formats |
+|---|---|
+| UE5 | `fbx` `glb` `gltf` `obj` `usd` `usda` `usdz` |
+| Blender | `abc` `fbx` `glb` `gltf` `obj` `ply` `usd` `usda` `usdc` `usdz` |
+| Unity | `fbx` `glb` `gltf` `obj` |
+| three.js | `glb` `gltf` |
+
+**glTF is the intersection, so target `.glb`.** Every route here already
+does. The one consequence worth knowing: three.js accepts *only* glTF, so an
+FBX from a cloud backend needs converting before it reaches a browser game,
+while the same file imports into UE5 or Unity untouched.
+
+Prefer `.glb` over `.gltf` — a single binary file cannot arrive with its
+`.bin` or its textures missing.
 
 ## The Five Checks
 
@@ -67,6 +187,9 @@ the diagnosis would cost more than 40% of the mesh — check the task's
 `ground_plate` report for the reason before assuming a bug. Sparse specks
 at floor level are the floor's rubble and are harmless.
 
+Spec-built assets skip this check: a spec cannot invent a floor, and running
+the removal on one risks deleting a plinth that was asked for.
+
 **5. Is it inside its budget?** The sheet title states the triangle count.
 The budgets live in `BUDGET_BY_ROLE` in
 `<REPO_PATH>/operators/gen_3d_object/funcs/art_plan.py`, keyed by role rather than
@@ -97,10 +220,15 @@ the two failures that make a scene read as a toy.
 - **Accept**: run the orientation review
   (`<REPO_PATH>/agent_skills/asset_qa/3d_object/orientation_review.md`) and
   record the facing axis. An accepted asset with an unverified facing is not
-  finished.
+  finished. A spec-built asset carries its facing as data, so the review
+  confirms rather than establishes it.
 - **Regenerate**: change the plan entry — prompt, seed, `role`,
   `triangles`, `texture` — and say which, so the next run is a different
   attempt rather than the same one.
+- **Switch route**: a generated mesh that fails twice on something a spec
+  states outright — scale, facing, parts that need to move — is telling you
+  the subject was describable. Write the spec instead of buying a third
+  generation.
 - **Reject**: keep the primitive fallback. This is a real answer. A
   bevelled primitive with honest materials and a fitted shadow looks
   better than a melted mesh, and `assets.instantiateOrBuild` already
@@ -119,6 +247,7 @@ primitives does not.
 
 Generation is also the wrong tool for anything that must **articulate**.
 A generated mesh is one fused body: a car's wheels cannot spin, a chest's
-lid cannot open, a character cannot be skinned. Generate the shell, keep
-the moving parts as primitives driven by gameplay, and swap only the
-visual — which is what `entity.visual` exists for.
+lid cannot open, a character cannot be skinned. Either generate the shell
+and keep the moving parts as primitives driven by gameplay — which is what
+`entity.visual` is for — or build the whole thing from a spec, where every
+part is already a named node.

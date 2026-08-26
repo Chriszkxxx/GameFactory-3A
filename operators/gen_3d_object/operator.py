@@ -49,6 +49,26 @@ Two optional extras, both additive and off unless asked for:
 
 ``funcs/asset_pack.py`` covers the other case: three CC0 models,
 downloaded and imported in seconds, for when generating is overkill.
+
+A third route skips inference entirely. Passing ``spec`` instead of an
+image builds the mesh from a declarative part list
+(``funcs/code_asset.py``), which suits anything exactly describable — a
+crate, a sign, a wheel, a rifle. It needs no model and no GPU, states its
+own facing and size instead of leaving them to be guessed, and keeps its
+parts as named glTF nodes so gameplay can still move them::
+
+    op = Gen3DObjectOperator(model=None, run_id="20260826_1400")
+    op.run({
+        "game_id": "gameA_cyberpunk_shooter",
+        "task_id": "crate_001",
+        "spec": {
+            "subject": "wooden supply crate",
+            "units": "metres", "forward": "+z",
+            "asset_type": "prop", "height_metres": 0.6,
+            "parts": [{"id": "body", "kind": "box",
+                       "size": [0.6, 0.6, 0.6], "at": [0, 0.3, 0]}],
+        },
+    })
 """
 from __future__ import annotations
 
@@ -146,12 +166,14 @@ class Gen3DObjectOperator:
 
     def run(self, inp: dict) -> dict:
         """
-        Generate a 3D object from an image prompt.
+        Generate a 3D object from an image prompt, or build one from a spec.
 
         Args:
             inp (dict):
                 - image_path (str): path to the reference / concept image
                   OR image (PIL.Image): pre-loaded image
+                  OR spec (dict): a part spec, which builds the mesh instead
+                  of inferring it (see `funcs/code_asset.py`)
                 - game_id (str, optional): game project this task belongs to;
                   inferred from `image_path` when omitted
                 - task_id (str, optional): used to name the output file / directory
@@ -166,6 +188,9 @@ class Gen3DObjectOperator:
                 - elapsed_sec (float)
                 - game_id (str), task_kind (str), output_dir (str)  ← additive
         """
+        if inp.get("spec") is not None:
+            return self._run_spec(inp)
+
         task_id = inp.get("task_id", f"task_{int(time.time())}")
         seed = inp.get("seed", 42)
         decimation_target = inp.get("decimation_target", 1_000_000)
@@ -261,6 +286,120 @@ class Gen3DObjectOperator:
                 )
             )
 
+        return result
+
+    # --------------------------------------------------------------------------
+
+    def _run_spec(self, inp: dict) -> dict:
+        """Build the asset from a declarative spec rather than an image.
+
+        Taken when the task carries a ``spec``. No model is loaded and no
+        image is read, so this path works with ``model=None`` — a crate
+        does not need a GPU, and requiring one to build a box is what makes
+        primitives feel like a defeat rather than a choice.
+
+        Three things come out of the spec that the generated path can only
+        guess at, which is the reason to prefer it wherever it applies:
+
+          * ``forward_axis`` is *stated*, so the import is recorded as
+            ``verified_by="spec"`` rather than ``"heuristic"``. Facing is
+            the one property `orientation_review` exists to establish, and
+            here there is nothing to establish.
+          * ``scale_hint_metres`` is stated, so the mesh has a real size
+            instead of a unit box someone has to scale by eye.
+          * parts keep their ids as glTF node names, so a wheel can be spun
+            after import. A reconstructed mesh is one fused body.
+
+        ``strip_ground_plate`` is deliberately not run: it removes a floor
+        that image-to-3D *invented*, and a spec cannot invent one. Running
+        it here would risk deleting a plinth that was asked for.
+        """
+        from .funcs.code_asset import build_code_asset
+
+        task_id = inp.get("task_id", f"task_{int(time.time())}")
+        game_id, task_dir, out_path = self._resolve_out_path(inp, task_id)
+        # A spec always yields glTF, whatever output_format an injected
+        # model happens to advertise.
+        out_path = out_path.with_suffix(".glb")
+        task_dir.mkdir(parents=True, exist_ok=True)
+
+        t0 = time.time()
+        report = build_code_asset(
+            inp["spec"],
+            str(out_path),
+            revise=inp.get("revise"),
+            strict=bool(inp.get("strict", True)),
+        )
+        elapsed = time.time() - t0
+
+        result: dict[str, Any] = {
+            "task_id": task_id,
+            "glb_path": report["glb_path"],
+            "elapsed_sec": round(elapsed, 2),
+            "game_id": game_id,
+            "task_kind": TASK_KIND,
+            "output_dir": str(task_dir),
+            "source": "code_asset",
+            "spec_ok": report["ok"],
+            "gates": report["gates"],
+            "triangles": report["triangles"],
+            "bounds": report["bounds"],
+            "part_ids": report["part_ids"],
+            "stop_reason": report["stop_reason"],
+            "attempts": report["attempts"],
+        }
+        if report["warnings"]:
+            result.setdefault("warnings", []).extend(report["warnings"])
+        if report["failures"]:
+            # Surfaced as warnings on the result *and* kept in `gates`: a
+            # gate failure that only appears in a nested dict is the silent
+            # early return this whole module is shaped against.
+            result.setdefault("warnings", []).extend(
+                f"gate: {message}" for message in report["failures"]
+            )
+
+        if self.output_dir is None:
+            from pipeline.common import paths
+
+            meta = {
+                **result,
+                "run_id": self.run_id,
+                "spec": report["spec"],
+                "forward_axis": report["forward_axis"],
+                "scale_hint_metres": report["scale_hint_metres"],
+                "model": "code_asset",
+            }
+            for key in ("asset_id", "asset_type", "notes"):
+                if inp.get(key) is not None:
+                    meta[key] = inp[key]
+            paths.write_task_meta(task_dir, meta)
+
+        # A failed spec is not handed to the engine. An asset that exists
+        # gets used, so a gate failure has to stop it becoming an asset.
+        if inp.get("asset_id") and self.output_dir is None and report["ok"]:
+            from .funcs.asset_import import import_asset
+
+            result.update(
+                import_asset(
+                    game_id,
+                    task_id,
+                    asset_id=str(inp["asset_id"]),
+                    asset_type=str(
+                        inp.get("asset_type")
+                        or report["spec"].get("asset_type")
+                        or "prop"
+                    ),
+                    run_id=self.run_id,
+                    # Stated by the spec, not inferred from a view.
+                    forward_axis=report["forward_axis"],
+                    scale_hint_metres=report["scale_hint_metres"],
+                    verified_by="spec",
+                    notes=str(inp.get("notes") or "")
+                    or f"Built from a spec: {report['subject']}.",
+                    project_hint=str(inp.get("project_hint") or ""),
+                    preview=bool(inp.get("preview", True)),
+                )
+            )
         return result
 
     # --------------------------------------------------------------------------

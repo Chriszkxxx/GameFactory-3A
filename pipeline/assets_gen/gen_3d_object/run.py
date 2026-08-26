@@ -161,10 +161,25 @@ def run_from_jsonl(tasks_path: str, operator, game_filter: str | None = None) ->
     """Iterate a jsonl file and run each task, optionally restricted to one game."""
     results = []
     for task, game_id in paths.iter_tasks(tasks_path, game_filter=game_filter):
-        print(f"[run] game={game_id}  task_id={task.get('task_id', '?')}  "
-              f"image={task.get('image_path', '?')}")
+        # A spec task has no image, so logging one would print '?' for the
+        # only field that identifies what is being built.
+        source = (
+            f"spec={task['spec'].get('subject', '?')!r}"
+            if task.get("spec") is not None
+            else f"image={task.get('image_path', '?')}"
+        )
+        print(f"[run] game={game_id}  task_id={task.get('task_id', '?')}  {source}")
         result = generate(task, operator)
-        print(f"       → glb={result['glb_path']}  ({result['elapsed_sec']}s)")
+        if result.get("glb_path"):
+            print(f"       → glb={result['glb_path']}  ({result['elapsed_sec']}s)")
+        else:
+            # A gate refused to write. Reported here rather than left to the
+            # caller to notice a None: a task that produced nothing and said
+            # nothing is the failure this whole route is shaped against.
+            print(f"       → nothing written ({result.get('stop_reason', 'failed')})"
+                  f"  ({result['elapsed_sec']}s)")
+        for message in result.get("warnings", ()):
+            print(f"       ! {message}")
         # Cloud backends record what the call cost and produced (R9.8).
         call = getattr(getattr(operator, "model", None), "last_call_info", None)
         if call:
@@ -217,20 +232,40 @@ def main():
     args = parser.parse_args()
 
     run_id = paths.new_run_id() if args.run_id == "auto" else args.run_id
-    ckpt = resolve_ckpt(args.backend, args.ckpt)
 
-    backend_kwargs = {}
-    if args.backend != "trellis2":
-        backend_kwargs = {
-            "cache_dir": args.cache_dir,
-            "low_poly": args.low_poly,
-            "output_format": args.output_format,
-            "timeout": args.timeout,
-            "verbose": True,
-        }
+    # A task file of specs needs no model at all, and loading TRELLIS.2 to
+    # build a crate would demand a GPU the job does not use — on a CPU box it
+    # would fail before reaching the first task. Decided from the tasks
+    # themselves rather than from a flag, so the caller cannot get it wrong.
+    tasks_path = (
+        None if args.image
+        else paths.resolve_tasks_path(TASK_KIND, args.tasks, args.game)
+    )
+    spec_only = False
+    if tasks_path is not None:
+        tasks = [task for task, _game in paths.iter_tasks(
+            str(tasks_path), game_filter=args.game)]
+        spec_only = bool(tasks) and all(
+            task.get("spec") is not None for task in tasks
+        )
 
-    model = load_model(ckpt, device=args.device, pipeline_type=args.pipeline_type,
-                       backend=args.backend, **backend_kwargs)
+    if spec_only:
+        print("[run] every task carries a spec: no model loaded, no GPU needed")
+        model = None
+    else:
+        ckpt = resolve_ckpt(args.backend, args.ckpt)
+        backend_kwargs = {}
+        if args.backend != "trellis2":
+            backend_kwargs = {
+                "cache_dir": args.cache_dir,
+                "low_poly": args.low_poly,
+                "output_format": args.output_format,
+                "timeout": args.timeout,
+                "verbose": True,
+            }
+        model = load_model(ckpt, device=args.device, pipeline_type=args.pipeline_type,
+                           backend=args.backend, **backend_kwargs)
+
     operator = make_operator(model, output_dir=args.out_dir,
                              run_id=run_id, default_game_id=args.game)
 
@@ -245,7 +280,6 @@ def main():
         return
 
     # Batch from jsonl
-    tasks_path = paths.resolve_tasks_path(TASK_KIND, args.tasks, args.game)
     print(f"[run] run_id={run_id}  tasks={paths.rel_to_repo(tasks_path)}")
     results = run_from_jsonl(str(tasks_path), operator, game_filter=args.game)
     if not results:
