@@ -11,7 +11,7 @@ import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .._internal import GodotTransport
+from .._internal import GodotTransport, is_system_directory_alias
 from ..config import GodotClientConfig
 from ..contracts import GodotDiagnostic, GodotOperationResult
 
@@ -99,6 +99,8 @@ def _validate_report_destination(
         except FileNotFoundError:
             continue
         if stat.S_ISLNK(mode):
+            if is_system_directory_alias(current):
+                continue
             raise ValueError(
                 f"Godot test report path must not contain a symlink: {current}"
             )

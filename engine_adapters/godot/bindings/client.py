@@ -118,7 +118,12 @@ class GodotBindingsClient:
                 payload={"mesh_assets": [str(item) for item in mesh_assets]},
             )
 
-        resolved_options = dict(options or {})
+        try:
+            resolved_options = dict(options or {})
+        except Exception as exc:
+            return GodotOperationResult.failure(
+                operation, f"{type(exc).__name__}: {exc}"
+            ).to_dict()
         dry_run = bool(resolved_options.pop("dry_run", False))
         replace_existing = bool(resolved_options.pop("replace_existing", False))
         material_suffix = (

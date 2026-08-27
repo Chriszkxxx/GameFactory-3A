@@ -3,9 +3,20 @@
 from __future__ import annotations
 
 import os
+import platform
 import stat
 import tempfile
 from pathlib import Path
+
+
+def is_system_directory_alias(path: Path) -> bool:
+    """Return whether path is one of macOS's fixed aliases into /private."""
+
+    return (
+        platform.system() == "Darwin"
+        and path in {Path("/var"), Path("/tmp"), Path("/etc")}
+        and path.resolve(strict=False) == Path("/private") / path.name
+    )
 
 
 def unresolved_absolute_path(path: str | Path) -> Path:
@@ -34,6 +45,8 @@ def _validate_managed_node(
         except FileNotFoundError:
             continue
         if stat.S_ISLNK(mode):
+            if is_system_directory_alias(current):
+                continue
             if current == target and target_kind == "file":
                 raise ValueError(
                     f"{label} must be a regular file, not a link or special "

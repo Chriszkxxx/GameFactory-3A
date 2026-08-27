@@ -7,7 +7,8 @@ import json
 import re
 import shutil
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -119,6 +120,7 @@ class GodotAssetsClient:
             ).to_dict()
         allow_directory = normalized_type in {"effect", "environment", "scene"}
         try:
+            resolved_options = dict(options or {})
             resolved = self._sources.resolve(
                 source,
                 asset_type=normalized_type,
@@ -143,7 +145,6 @@ class GodotAssetsClient:
                 },
             ).to_dict()
 
-        resolved_options = dict(options or {})
         dry_run = bool(resolved_options.pop("dry_run", False))
         replace_existing = bool(resolved_options.pop("replace_existing", False))
         name = _safe_asset_name(
@@ -447,6 +448,270 @@ class GodotAssetsClient:
             payload={**payload, "artifact_id": record.artifact_id},
         ).to_dict()
 
+    def import_batch(
+        self,
+        sources: Sequence[Mapping[str, Any]],
+        *,
+        options: Mapping[str, Any] | None = None,
+        timeout: int | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Import generated assets in deterministic dependency order."""
+
+        operation = "assets.import_batch"
+        if (
+            not isinstance(sources, Sequence)
+            or isinstance(sources, (str, bytes, bytearray))
+            or not sources
+        ):
+            return GodotOperationResult.failure(
+                operation,
+                "sources must be a non-empty sequence of descriptors",
+            ).to_dict()
+        try:
+            resolved_timeout = int(timeout) if timeout is not None else None
+            if resolved_timeout is not None and resolved_timeout <= 0:
+                raise ValueError("timeout must be greater than zero")
+            common_options = dict(options or {})
+        except Exception as exc:
+            return GodotOperationResult.failure(
+                operation, f"{type(exc).__name__}: {exc}"
+            ).to_dict()
+
+        entries: list[dict[str, Any]] = []
+        planned_targets: dict[str, int] = {}
+        try:
+            for index, source in enumerate(sources):
+                if not isinstance(source, Mapping):
+                    raise TypeError(
+                        f"batch source {index} must be a descriptor object"
+                    )
+                descriptor = dict(source)
+                asset_type = _normalize_type(
+                    str(descriptor.get("asset_type") or descriptor.get("type") or "")
+                )
+                if asset_type not in SUPPORTED_IMPORT_ASSET_TYPES:
+                    raise ValueError(
+                        f"batch source {index} has unsupported or missing asset_type: "
+                        f"{asset_type or '<missing>'}"
+                    )
+                item_options = dict(common_options)
+                nested_options = descriptor.get("options")
+                if nested_options is not None:
+                    if not isinstance(nested_options, Mapping):
+                        raise TypeError(
+                            f"batch source {index} options must be an object"
+                        )
+                    item_options.update(dict(nested_options))
+                for key in (
+                    "asset_id",
+                    "avatar_name",
+                    "entrypoint",
+                    "name",
+                    "replace_existing",
+                    "skeleton",
+                    "skeleton_artifact_id",
+                    "skeleton_path",
+                ):
+                    if key in descriptor:
+                        item_options[key] = descriptor[key]
+                if not str(item_options.get("name") or "").strip():
+                    item_options["name"] = str(
+                        descriptor.get("task_id") or f"asset_{index}"
+                    )
+                item_options["dry_run"] = bool(dry_run)
+                destination = str(
+                    descriptor.get("destination")
+                    or common_options.get("destination")
+                    or ""
+                )
+                validation = self.validate(
+                    descriptor,
+                    asset_type,
+                    destination=destination,
+                    options=item_options,
+                )
+                if not validation.get("ok"):
+                    details = "; ".join(
+                        str(item) for item in validation.get("errors") or []
+                    )
+                    raise ValueError(
+                        f"batch source {index} failed preflight"
+                        + (f": {details}" if details else "")
+                    )
+                target_path = str(
+                    validation.get("payload", {}).get("target_path") or ""
+                )
+                previous_index = planned_targets.get(target_path)
+                if target_path and previous_index is not None:
+                    raise ValueError(
+                        f"batch sources {previous_index} and {index} resolve to "
+                        f"the same Godot target: {target_path}"
+                    )
+                if target_path:
+                    planned_targets[target_path] = index
+                entries.append(
+                    {
+                        "index": index,
+                        "source": descriptor,
+                        "asset_type": asset_type,
+                        "destination": destination,
+                        "options": item_options,
+                        "validation": validation,
+                    }
+                )
+        except Exception as exc:
+            return GodotOperationResult.failure(
+                operation,
+                f"{type(exc).__name__}: {exc}",
+                payload={"source_count": len(sources)},
+            ).to_dict()
+
+        order = {
+            "avatar": 0,
+            "material": 0,
+            "prop": 0,
+            "static_mesh": 0,
+            "texture": 0,
+            "weapon": 0,
+            "motion": 1,
+            "effect": 2,
+            "environment": 2,
+            "scene": 2,
+            "audio": 2,
+        }
+        entries.sort(key=lambda item: (order[item["asset_type"]], item["index"]))
+        importer = (
+            self
+            if resolved_timeout is None
+            else GodotAssetsClient(
+                replace(self._config, import_timeout=resolved_timeout)
+            )
+        )
+        artifacts: list[dict[str, Any]] = []
+        warnings: list[str] = []
+        item_results: list[dict[str, Any]] = []
+        default_skeleton = ""
+        errors: list[str] = []
+        for entry in entries:
+            item_options = dict(entry["options"])
+            if entry["asset_type"] == "motion":
+                reference = str(
+                    item_options.get("skeleton")
+                    or item_options.get("skeleton_artifact_id")
+                    or item_options.get("avatar_name")
+                    or ""
+                ).strip()
+                if reference:
+                    try:
+                        resolved_skeleton, avatar_record = (
+                            self._resolve_motion_skeleton(
+                                reference,
+                                require_avatar=bool(
+                                    item_options.get("skeleton_artifact_id")
+                                    or (
+                                        item_options.get("avatar_name")
+                                        and not item_options.get("skeleton")
+                                    )
+                                ),
+                            )
+                        )
+                    except Exception as exc:
+                        result = GodotOperationResult.failure(
+                            operation,
+                            f"{type(exc).__name__}: {exc}",
+                            payload={"skeleton_reference": reference},
+                        ).to_dict()
+                    else:
+                        item_options["skeleton"] = resolved_skeleton
+                        item_options["skeleton_reference"] = reference
+                        if avatar_record is not None:
+                            item_options["avatar_artifact_id"] = (
+                                avatar_record.artifact_id
+                            )
+                        result = importer.import_asset(
+                            entry["source"],
+                            entry["asset_type"],
+                            destination=entry["destination"],
+                            options=item_options,
+                        )
+                else:
+                    if default_skeleton:
+                        item_options["skeleton"] = default_skeleton
+                    result = importer.import_asset(
+                        entry["source"],
+                        entry["asset_type"],
+                        destination=entry["destination"],
+                        options=item_options,
+                    )
+            else:
+                result = importer.import_asset(
+                    entry["source"],
+                    entry["asset_type"],
+                    destination=entry["destination"],
+                    options=item_options,
+                )
+            result["operation"] = operation
+            result_artifacts = [
+                dict(item)
+                for item in result.get("artifacts") or []
+                if isinstance(item, Mapping)
+            ]
+            artifacts.extend(result_artifacts)
+            warnings.extend(str(item) for item in result.get("warnings") or [])
+            item_results.append(
+                {
+                    "index": entry["index"],
+                    "asset_type": entry["asset_type"],
+                    "ok": bool(result.get("ok")),
+                    "result": result,
+                }
+            )
+            if result.get("ok") and entry["asset_type"] == "avatar":
+                metadata = (
+                    result_artifacts[0].get("metadata")
+                    if result_artifacts
+                    else {}
+                )
+                if isinstance(metadata, Mapping):
+                    default_skeleton = str(
+                        metadata.get("skeleton_path") or metadata.get("skeleton") or ""
+                    ).strip()
+            if not result.get("ok"):
+                details = "; ".join(
+                    str(item) for item in result.get("errors") or []
+                )
+                errors.append(
+                    f"batch source {entry['index']} ({entry['asset_type']}) failed"
+                    + (f": {details}" if details else "")
+                )
+                break
+
+        payload = {
+            "source_count": len(entries),
+            "processed_count": len(item_results),
+            "succeeded": sum(1 for item in item_results if item["ok"]),
+            "failed": sum(1 for item in item_results if not item["ok"]),
+            "items": item_results,
+            "timeout": timeout,
+            "dry_run": bool(dry_run),
+        }
+        if errors:
+            return GodotOperationResult(
+                operation=operation,
+                ok=False,
+                artifacts=tuple(artifacts),
+                warnings=tuple(dict.fromkeys(warnings)),
+                errors=tuple(errors),
+                payload=payload,
+            ).to_dict()
+        return GodotOperationResult.success(
+            operation,
+            artifacts=artifacts,
+            warnings=list(dict.fromkeys(warnings)),
+            payload=payload,
+        ).to_dict()
+
     def _inspect_native(self, resource_path: str):
         return inspect_godot_resource(
             self._transport,
@@ -479,9 +744,29 @@ class GodotAssetsClient:
         avatar_name: str = "",
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        resolved_options = dict(options or {})
-        if skeleton:
-            resolved_options["skeleton"] = skeleton
+        try:
+            resolved_options = dict(options or {})
+        except Exception as exc:
+            return GodotOperationResult.failure(
+                "assets.import_motion", f"{type(exc).__name__}: {exc}"
+            ).to_dict()
+        reference = str(skeleton or avatar_name or "").strip()
+        if reference:
+            try:
+                resolved_skeleton, avatar_record = self._resolve_motion_skeleton(
+                    reference,
+                    require_avatar=bool(avatar_name and not skeleton),
+                )
+            except Exception as exc:
+                return GodotOperationResult.failure(
+                    "assets.import_motion",
+                    f"{type(exc).__name__}: {exc}",
+                    payload={"skeleton_reference": reference},
+                ).to_dict()
+            resolved_options["skeleton"] = resolved_skeleton
+            resolved_options["skeleton_reference"] = reference
+            if avatar_record is not None:
+                resolved_options["avatar_artifact_id"] = avatar_record.artifact_id
         if avatar_name:
             resolved_options["avatar_name"] = avatar_name
         return self._typed_import(
@@ -491,6 +776,37 @@ class GodotAssetsClient:
             destination=destination,
             options=resolved_options,
         )
+
+    def _resolve_motion_skeleton(
+        self,
+        reference: str,
+        *,
+        require_avatar: bool = False,
+    ) -> tuple[str, ArtifactRecord | None]:
+        """Resolve an avatar registry reference or retain an explicit NodePath."""
+
+        normalized = str(reference or "").strip()
+        if not normalized:
+            raise ValueError("skeleton reference must not be empty")
+        record = self._registry.find(normalized)
+        if record is None:
+            if require_avatar:
+                raise ValueError(f"Unknown registered avatar: {normalized}")
+            return normalized, None
+        if record.type != "avatar":
+            raise ValueError(
+                f"Skeleton reference resolves to {record.type}, not avatar: {normalized}"
+            )
+        skeleton = str(
+            record.metadata.get("skeleton_path")
+            or record.metadata.get("skeleton")
+            or ""
+        ).strip()
+        if not skeleton:
+            raise ValueError(
+                f"Registered avatar has no Skeleton3D path: {record.artifact_id}"
+            )
+        return skeleton, record
 
     def import_scene(self, source: Mapping[str, Any], **kwargs: Any) -> dict[str, Any]:
         return self._typed_import("assets.import_scene", source, "scene", **kwargs)

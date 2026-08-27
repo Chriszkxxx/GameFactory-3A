@@ -11,5 +11,5 @@
     "health_round_and_score_state",
     "manual_and_deterministic_demo_input"
   ],
-  "generated_output": "my_code/AAAGameForge/test_data/outputs/game505/godot"
+  "generated_output": "test_data/outputs/game505/godot"
 }

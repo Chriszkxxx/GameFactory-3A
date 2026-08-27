@@ -12,6 +12,7 @@ from .._internal import (
     find_godot_binary,
     godot_4_version_error,
     inspect_godot_resource,
+    is_system_directory_alias,
     parse_godot_version,
 )
 from ..config import GodotClientConfig, normalize_godot_project_directory
@@ -175,6 +176,12 @@ def _assert_directory_chain(path: Path) -> None:
 
     for component in reversed((path, *path.parents)):
         if component.is_symlink():
+            # macOS exposes these stable system directories as top-level
+            # aliases into /private.  tempfile commonly returns /var/..., so
+            # rejecting the alias makes otherwise ordinary project paths
+            # unusable.  Project-local and user-created links remain rejected.
+            if is_system_directory_alias(component):
+                continue
             raise ValueError(
                 f"Godot project path must not contain a symlink: {component}"
             )

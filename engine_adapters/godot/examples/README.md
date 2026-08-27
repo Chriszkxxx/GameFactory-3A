@@ -48,12 +48,12 @@ produce `A3GAME_SMOKE_OK`.
 
 | Reference | Generated demonstration |
 | --- | --- |
-| `NeonDodge2D` | `my_code/AAAGameForge/test_data/outputs/game101/godot/` |
-| `SolarRally3D` | `my_code/AAAGameForge/test_data/outputs/game202/godot/` |
-| `OrbitPinball2D` | `my_code/AAAGameForge/test_data/outputs/game303/godot/` |
-| `FpsArena3D` | `my_code/AAAGameForge/test_data/outputs/game404/godot/` |
-| `ArenaDuel3D` | `my_code/AAAGameForge/test_data/outputs/game505/godot/` |
-| `RpgExplorer3D` | `my_code/AAAGameForge/test_data/outputs/game606/godot/` |
+| `NeonDodge2D` | `test_data/outputs/game101/godot/` |
+| `SolarRally3D` | `test_data/outputs/game202/godot/` |
+| `OrbitPinball2D` | `test_data/outputs/game303/godot/` |
+| `FpsArena3D` | `test_data/outputs/game404/godot/` |
+| `ArenaDuel3D` | `test_data/outputs/game505/godot/` |
+| `RpgExplorer3D` | `test_data/outputs/game606/godot/` |
 
 Generated-output copies are delivery artifacts, not runtime dependencies of
 these references. Reproduce source validation with the native commands above;

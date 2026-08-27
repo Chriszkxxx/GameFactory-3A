@@ -106,6 +106,14 @@ class GodotAnimationClient:
                 operation, "skeleton is required"
             ).to_dict()
         try:
+            expected, _avatar_record = self._assets._resolve_motion_skeleton(expected)
+        except (OSError, TypeError, ValueError) as exc:
+            return GodotOperationResult.failure(
+                operation,
+                f"{type(exc).__name__}: {exc}",
+                payload={"motion": str(motion or ""), "skeleton": str(skeleton)},
+            ).to_dict()
+        try:
             record = self._assets._registry.find(motion)
         except (OSError, TypeError, ValueError) as exc:
             return self._assets._registry_failure(

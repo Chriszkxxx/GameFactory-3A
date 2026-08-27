@@ -17,6 +17,7 @@ from typing import Any
 
 from .._internal import (
     GodotTransport,
+    is_system_directory_alias,
     prepare_managed_file,
     validate_managed_file,
 )
@@ -83,6 +84,8 @@ def _validate_export_destination(
         except FileNotFoundError:
             continue
         if stat.S_ISLNK(mode):
+            if is_system_directory_alias(current):
+                continue
             raise ValueError(
                 f"Godot export output_path must not contain a symlink: {current}"
             )
@@ -536,7 +539,12 @@ class GodotBuildClient:
                 f"Export preset {preset_name!r} was not found in {presets_path}; "
                 f"available: {', '.join(presets) or '(none)'}",
             ).to_dict()
-        output = Path(output_path).expanduser()
+        try:
+            output = Path(output_path).expanduser()
+        except Exception as exc:
+            return GodotOperationResult.failure(
+                operation, f"{type(exc).__name__}: {exc}"
+            ).to_dict()
         if not output.is_absolute():
             output = project_dir / output
         raw_output = _absolute_without_resolving(output)
@@ -635,7 +643,12 @@ class GodotBuildClient:
             ).to_dict()
         payload.update(result.to_dict())
         diagnostics = self._diagnostics(result.stderr + "\n" + result.stdout)
-        if result.returncode != 0:
+        compile_errors = [
+            diagnostic.message
+            for diagnostic in diagnostics
+            if diagnostic.severity == "error"
+        ]
+        if result.returncode != 0 or compile_errors:
             payload["rollback"] = {
                 "strategy": "isolated_staging",
                 "restored_previous_output": bool(previous_outputs),
@@ -644,7 +657,12 @@ class GodotBuildClient:
             shutil.rmtree(staging_root, ignore_errors=True)
             return GodotOperationResult.failure(
                 operation,
-                f"Godot export failed with exit code {result.returncode}",
+                (
+                    f"Godot export failed with exit code {result.returncode}"
+                    if result.returncode != 0
+                    else "Godot export reported compile errors despite exit code 0: "
+                    + " | ".join(compile_errors)[-4000:]
+                ),
                 diagnostics=diagnostics,
                 payload=payload,
             ).to_dict()
