@@ -120,6 +120,16 @@ MIRROR_TOLERANCE = 1e-6
 #: a game would model, thicker than the float noise of a degenerate part.
 MIN_PART_THICKNESS = 1e-4
 
+#: A box's ``chamfer`` is a fraction of its half-extent, and at 0.5 the bevel
+#: has consumed the face it was cutting back, leaving an octahedron. Kept
+#: exclusive so a box always still has six faces.
+MAX_CHAMFER = 0.5
+
+#: How close to the axis a lathe profile's end must be to count as capped.
+#: A tenth of a millimetre at unit scale: tight enough that a genuinely open
+#: tube is caught, loose enough for a radius written as 1e-9 rather than 0.
+LATHE_AXIS_TOLERANCE = 1e-4
+
 #: How far the composed height may drift from the declared one before the
 #: spec and its stated size have stopped describing the same object. 25%
 #: tolerates a pose or a lid left open; beyond it one of the two is wrong.
@@ -273,6 +283,117 @@ def _as_vec3(value: Any, field: str, default: tuple[float, float, float]
         raise SpecError(f"{field} must be three numbers: {exc}") from exc
 
 
+def _as_chamfer(value: Any, part_id: str) -> float:
+    """Validate a box's edge cut-back, a fraction of the half-extent.
+
+    Rejected rather than clamped when out of range. A chamfer of 0.5 has
+    eaten the whole half-extent and the face it was cutting back no longer
+    exists — the box has become an octahedron. Silently clamping would hand
+    back a shape nobody asked for and let the spec keep claiming it is a box.
+    """
+
+    if value is None:
+        return 0.0
+    try:
+        chamfer = float(value)
+    except (TypeError, ValueError) as exc:
+        raise SpecError(f"{part_id}.chamfer must be a number: {exc}") from exc
+    if not 0.0 <= chamfer < MAX_CHAMFER:
+        raise SpecError(
+            f"{part_id}.chamfer must be in [0, {MAX_CHAMFER}), got {chamfer}. "
+            "It is a fraction of the half-extent, so 0.5 consumes the face "
+            "it was bevelling and leaves an octahedron, not a box."
+        )
+    return chamfer
+
+
+def _as_profile(value: Any, part_id: str, kind: str
+                ) -> tuple[tuple[float, float], ...] | None:
+    """Validate a lathe or extrude profile, or return None for other kinds.
+
+    The two kinds have genuinely different requirements, and conflating them
+    is what makes a turned part hard to author:
+
+    A lathe revolves ``(radius, height)`` about the local Y axis. It only
+    encloses a volume if the profile *starts and ends on the axis*, radius
+    zero. Otherwise the revolved surface is a pipe with two open ends — no
+    interior, nothing watertight, and the inside visible through the hole.
+    This is the easiest mistake in the vocabulary to make, because a list of
+    radii down the length of a barrel reads as completely sensible and the
+    defect is invisible until something is behind it. A negative radius is
+    likewise refused: it revolves through the axis and self-intersects.
+
+    An extrude pushes a closed ``(x, y)`` outline along Z and caps both ends,
+    so it needs three points to bound an area but has no axis to touch.
+
+    Refused here rather than reported by a gate because, unlike a proportion
+    or a placement, there is no version of an unclosed lathe that was
+    intended — there is nothing for a correction loop to weigh.
+    """
+
+    if kind not in ("lathe", "extrude"):
+        return value if value is None else tuple(
+            (float(a), float(b)) for a, b in value
+        )
+
+    if not isinstance(value, (list, tuple)) or not value:
+        raise SpecError(
+            f"{part_id}: a {kind} needs a `profile`; without one there is no "
+            "shape to revolve or push, only a size"
+        )
+
+    points: list[tuple[float, float]] = []
+    for index, entry in enumerate(value):
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            raise SpecError(
+                f"{part_id}.profile[{index}] must be two numbers, got {entry!r}"
+            )
+        try:
+            points.append((float(entry[0]), float(entry[1])))
+        except (TypeError, ValueError) as exc:
+            raise SpecError(f"{part_id}.profile[{index}]: {exc}") from exc
+
+    minimum = 2 if kind == "lathe" else 3
+    if len(points) < minimum:
+        raise SpecError(
+            f"{part_id}.profile needs at least {minimum} points for a {kind}, "
+            f"got {len(points)}"
+        )
+
+    if kind == "extrude":
+        return tuple(points)
+
+    negative = [
+        f"[{index}]={radius}"
+        for index, (radius, _height) in enumerate(points)
+        if radius < 0.0
+    ]
+    if negative:
+        raise SpecError(
+            f"{part_id}.profile has a negative radius at {', '.join(negative)}. "
+            "A lathe profile is (radius, height) and a negative radius sweeps "
+            "back through the axis, so the surface intersects itself."
+        )
+
+    open_ends = [
+        name
+        for name, radius in (("first", points[0][0]), ("last", points[-1][0]))
+        if radius > LATHE_AXIS_TOLERANCE
+    ]
+    if open_ends:
+        raise SpecError(
+            f"{part_id}.profile does not close on the axis: its "
+            f"{' and '.join(open_ends)} point(s) have a non-zero radius "
+            f"({points[0][0]}, {points[-1][0]}). A revolved profile only "
+            "encloses a volume if it begins and ends at radius 0; otherwise "
+            "it is a pipe with two open ends, which has no interior and shows "
+            "it once anything is behind it. Add (0.0, "
+            f"{points[0][1]}) and (0.0, {points[-1][1]}) to cap it."
+        )
+
+    return tuple(points)
+
+
 def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
     """Check a spec is evaluable, and normalise it.
 
@@ -350,8 +471,9 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
                 raw.get("rotation"), f"{part_id}.rotation", (0.0, 0.0, 0.0)
             ),
             "material": str(raw.get("material") or "default"),
-            "profile": raw.get("profile"),
+            "profile": _as_profile(raw.get("profile"), part_id, kind),
             "segments": int(raw.get("segments") or 16),
+            "chamfer": _as_chamfer(raw.get("chamfer"), part_id),
         })
 
     return {
@@ -389,7 +511,10 @@ def part_bounds(part: dict[str, Any]) -> tuple[tuple[float, float, float],
 
     from models.common.glb_writer import rotated_bounds
 
-    return rotated_bounds(part["size"], part["at"], part["rotation"])
+    return rotated_bounds(
+        part["size"], part["at"], part["rotation"],
+        profile=part.get("profile"), kind=part["kind"],
+    )
 
 
 def spec_bounds(spec: dict[str, Any]) -> dict[str, Any]:
@@ -434,7 +559,10 @@ def estimate_triangles(spec: dict[str, Any]) -> int:
         rings = max(3, segments // 2)
         kind = part["kind"]
         if kind == "box":
-            total += 12
+            # 6 shrunken faces + 12 edge bevels, two triangles each, plus one
+            # per corner. A chamfered box is not free: it costs 44 against 12,
+            # which is exactly why the budget gate has to know about it.
+            total += 44 if part.get("chamfer") else 12
         elif kind == "cylinder":
             total += segments * 4          # wall (2) + two caps (1 each)
         elif kind == "cone":
@@ -736,12 +864,100 @@ def check_connectivity(spec: dict[str, Any]) -> dict[str, Any]:
 #: Gates run in ascending cost order, which is also the order in which a
 #: failure invalidates the ones after it: an unevaluable spec has no
 #: bounds, and bounds are what the scale gate reads.
+def check_windings(spec: dict[str, Any]) -> dict[str, Any]:
+    """Every part must be a closed solid whose faces point outward.
+
+    The one gate here that evaluates the mesh rather than the spec, and the
+    one that had to be added after the fact. Four of the seven primitives
+    shipped inside-out: their quads were wound (a, b, b+1) where outward is
+    (a, b+1, b), so a unit cylinder enclosed -0.26 where the true volume is
+    +0.785. Nothing noticed. The GLB was valid, triangle counts matched,
+    bounds were right, all five other gates passed, and the defect is
+    invisible in any viewer that does not cull backfaces — so it would have
+    surfaced first inside an engine, on the far side of the handoff.
+
+    That is the argument for spending the evaluation here. The other gates
+    check the spec's *intent*: proportions, placement, declared size. This
+    one checks that the evaluation of that intent is a solid at all, which no
+    amount of reading the spec can establish.
+
+    Two measures per part:
+
+    * signed volume, from the divergence theorem over the triangles. Positive
+      means outward. Checking the magnitude too, not just the sign, is what
+      catches a part wound correctly on its walls and backwards on its caps,
+      where the two partly cancel.
+    * boundary edges: any edge used by one triangle rather than two is a hole,
+      and a surface with a hole has no well-defined inside to be outside of.
+
+    Failed rather than warned. Unlike a floating part there is no asset for
+    which an inverted solid is the intent.
+    """
+
+    from models.common.glb_writer import build_part
+
+    failures: list[str] = []
+    inverted: list[str] = []
+    open_parts: list[str] = []
+
+    for part in spec["parts"]:
+        positions, _normals, indices = build_part(part)
+
+        volume = 0.0
+        edges: dict[frozenset, int] = {}
+        for triangle in range(len(indices) // 3):
+            a, b, c = [positions[indices[triangle * 3 + k]] for k in range(3)]
+            volume += (
+                a[0] * (b[1] * c[2] - b[2] * c[1])
+                - a[1] * (b[0] * c[2] - b[2] * c[0])
+                + a[2] * (b[0] * c[1] - b[1] * c[0])
+            ) / 6.0
+            keys = [tuple(round(value, 7) for value in point) for point in (a, b, c)]
+            for first, second in ((0, 1), (1, 2), (2, 0)):
+                edge = frozenset((keys[first], keys[second]))
+                edges[edge] = edges.get(edge, 0) + 1
+
+        boundary = sum(1 for count in edges.values() if count == 1)
+        if boundary:
+            open_parts.append(f"{part['id']} ({boundary} boundary edge(s))")
+        if volume <= 0.0:
+            inverted.append(f"{part['id']} ({volume:+.6g})")
+
+    if inverted:
+        failures.append(
+            f"{len(inverted)} part(s) are inside-out, enclosing a negative "
+            f"volume: {', '.join(inverted)}. Their faces point inward, so "
+            "they will be invisible or hollow in any engine that culls "
+            "backfaces — and identical to a correct solid in a viewer that "
+            "does not, which is why this is checked here and not by eye."
+        )
+    if open_parts:
+        failures.append(
+            f"{len(open_parts)} part(s) are not closed: {', '.join(open_parts)}. "
+            "An edge belonging to one triangle instead of two is a hole. For a "
+            "lathe this usually means the profile does not return to radius 0 "
+            "at both ends, leaving a tube with open ends."
+        )
+
+    return {
+        "gate": "windings",
+        "ok": not failures,
+        "parts_checked": len(spec["parts"]),
+        "inverted": inverted,
+        "unclosed": open_parts,
+        "failures": failures,
+    }
+
+
 GATES: tuple[Callable[[dict[str, Any]], dict[str, Any]], ...] = (
     check_solidity,
     check_chirality,
     check_scale,
     check_budget,
     check_connectivity,
+    # Last: the only gate that evaluates the mesh, so the only one whose cost
+    # scales with the triangle count rather than the part count.
+    check_windings,
 )
 
 

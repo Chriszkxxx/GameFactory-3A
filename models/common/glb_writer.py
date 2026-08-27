@@ -101,16 +101,51 @@ def rotated_bounds(
     size: Sequence[float],
     at: Sequence[float],
     rotation: Sequence[float],
+    profile: Sequence[Sequence[float]] | None = None,
+    kind: str = "box",
 ) -> tuple[Vec3, Vec3]:
-    """Axis-aligned `(low, high)` of a rotated, translated box.
+    """Axis-aligned `(low, high)` of a rotated, translated part.
 
     Every one of the eight corners is transformed and the extremes taken,
     rather than swapping extents for the right-angle cases. Exact for a box
     at any angle, and a true bound for the round primitives, whose surface
     is inside their extent box.
+
+    ``profile``/``kind`` exist because a lathe or extrude profile lives in
+    its own coordinates and is *not* confined to the ±``size``/2 box that
+    the other kinds are: a lathe whose profile runs -0.185..0.225 in its
+    local y is 0.41 m tall whatever ``size`` says, and measuring it as a
+    unit box made the scale gate disagree with the written mesh by that
+    much. For those two kinds the corners come from the profile itself.
     """
 
     matrix = euler_matrix(rotation)
+    if profile and kind in ("lathe", "extrude"):
+        points: list[tuple[float, float, float]] = []
+        if kind == "lathe":
+            # (radius, height) revolved about y: the extreme ring is at the
+            # max radius, swept the full circle.
+            max_radius = max(abs(float(radius)) for radius, _h in profile)
+            for _radius, height in profile:
+                points.append((max_radius, float(height), max_radius))
+                points.append((max_radius, float(height), -max_radius))
+                points.append((-max_radius, float(height), max_radius))
+                points.append((-max_radius, float(height), -max_radius))
+        else:
+            # (x, y) outline pushed along z by size[2].
+            for x, y in profile:
+                points.append((float(x), float(y), size[2] / 2.0))
+                points.append((float(x), float(y), -size[2] / 2.0))
+        low = [float("inf")] * 3
+        high = [float("-inf")] * 3
+        for point in points:
+            corner = apply_matrix(matrix, point)
+            for axis in range(3):
+                value = corner[axis] + float(at[axis])
+                low[axis] = min(low[axis], value)
+                high[axis] = max(high[axis], value)
+        return (low[0], low[1], low[2]), (high[0], high[1], high[2])
+
     half = [float(value) / 2.0 for value in size]
     low = [float("inf")] * 3
     high = [float("-inf")] * 3
@@ -138,7 +173,114 @@ def rotated_bounds(
 # --------------------------------------------------------------------------
 
 
-def _box() -> tuple[list[Vec3], list[Vec3], list[int]]:
+def _box(chamfer: float = 0.0) -> tuple[list[Vec3], list[Vec3], list[int]]:
+    """A unit box, optionally with its twelve edges cut back.
+
+    ``chamfer`` is a fraction of the half-extent, 0..0.5. A real moulded or
+    machined part has no perfectly sharp edge; the sharp edge is what makes
+    a box read as a toy brick, because it catches the light as one hard line
+    instead of a highlight with width. Cutting the edges back gives each one
+    a narrow face that takes its own specular, which is most of the
+    difference between "primitive" and "modelled" at no texture cost.
+
+    The chamfered solid is strictly *inside* the unit box — every vertex
+    stays within ±0.5 — so ``rotated_bounds`` remains a true bound and the
+    scale and connectivity gates need no knowledge of this field.
+    """
+
+    if chamfer <= 0.0:
+        return _sharp_box()
+
+    cut = min(max(float(chamfer), 0.0), 0.5)
+    inner = 0.5 - cut
+    positions: list[Vec3] = []
+    normals: list[Vec3] = []
+    indices: list[int] = []
+
+    def face(normal: Vec3, corners: Sequence[Vec3]) -> None:
+        """Emit one convex planar polygon facing ``normal``.
+
+        The winding is not asserted by hand but derived: the cross product of
+        the first two edges gives the polygon's geometric facing, and if that
+        opposes the intended outward normal the order is reversed. Choosing
+        signs by inspection across 6 faces, 12 bevels and 8 corners is where
+        a hand-wound chamfer goes wrong, and an inward-facing triangle is
+        invisible from outside — so it survives a screenshot and fails in an
+        engine that culls backfaces.
+        """
+
+        edge1 = tuple(corners[1][i] - corners[0][i] for i in range(3))
+        edge2 = tuple(corners[2][i] - corners[1][i] for i in range(3))
+        cross = (
+            edge1[1] * edge2[2] - edge1[2] * edge2[1],
+            edge1[2] * edge2[0] - edge1[0] * edge2[2],
+            edge1[0] * edge2[1] - edge1[1] * edge2[0],
+        )
+        ordered = list(corners)
+        if sum(cross[i] * normal[i] for i in range(3)) < 0.0:
+            ordered.reverse()
+
+        length = math.sqrt(sum(value * value for value in normal)) or 1.0
+        unit = (normal[0] / length, normal[1] / length, normal[2] / length)
+        base = len(positions)
+        positions.extend(tuple(float(value) for value in point) for point in ordered)  # type: ignore[misc]
+        normals.extend([unit] * len(ordered))
+        for offset in range(1, len(ordered) - 1):
+            indices.extend([base, base + offset, base + offset + 1])
+
+    def at(axis: int, value: float, u: int, uv: float, v: int, vv: float) -> Vec3:
+        point = [0.0, 0.0, 0.0]
+        point[axis], point[u], point[v] = value, uv, vv
+        return (point[0], point[1], point[2])
+
+    # Six shrunken faces.
+    for axis in range(3):
+        u, v = (axis + 1) % 3, (axis + 2) % 3
+        for sign in (1.0, -1.0):
+            normal = [0.0, 0.0, 0.0]
+            normal[axis] = sign
+            face(
+                (normal[0], normal[1], normal[2]),
+                [
+                    at(axis, sign * 0.5, u, du * inner, v, dv * inner)
+                    for du, dv in ((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0))
+                ],
+            )
+
+    # Twelve edge bevels: one per pair of adjacent faces, running along `axis`.
+    for axis in range(3):
+        u, v = (axis + 1) % 3, (axis + 2) % 3
+        for su in (1.0, -1.0):
+            for sv in (1.0, -1.0):
+                normal = [0.0, 0.0, 0.0]
+                normal[u], normal[v] = su, sv
+                face(
+                    (normal[0], normal[1], normal[2]),
+                    [
+                        at(axis, -inner, u, su * 0.5, v, sv * inner),
+                        at(axis, -inner, u, su * inner, v, sv * 0.5),
+                        at(axis, inner, u, su * inner, v, sv * 0.5),
+                        at(axis, inner, u, su * 0.5, v, sv * inner),
+                    ],
+                )
+
+    # Eight corner triangles, closing what the bevels leave open.
+    for sx in (1.0, -1.0):
+        for sy in (1.0, -1.0):
+            for sz in (1.0, -1.0):
+                face(
+                    (sx, sy, sz),
+                    [
+                        (sx * 0.5, sy * inner, sz * inner),
+                        (sx * inner, sy * 0.5, sz * inner),
+                        (sx * inner, sy * inner, sz * 0.5),
+                    ],
+                )
+
+    return positions, normals, indices
+
+
+def _sharp_box() -> tuple[list[Vec3], list[Vec3], list[int]]:
     faces = (
         ((0, 0, 1), ((-0.5, -0.5, 0.5), (0.5, -0.5, 0.5), (0.5, 0.5, 0.5), (-0.5, 0.5, 0.5))),
         ((0, 0, -1), ((0.5, -0.5, -0.5), (-0.5, -0.5, -0.5), (-0.5, 0.5, -0.5), (0.5, 0.5, -0.5))),
@@ -173,7 +315,9 @@ def _cylinder(segments: int) -> tuple[list[Vec3], list[Vec3], list[int]]:
         normals.extend([(cos_a, 0.0, sin_a), (cos_a, 0.0, sin_a)])
     for step in range(segments):
         base = step * 2
-        indices.extend([base, base + 2, base + 3, base, base + 3, base + 1])
+        indices.extend(
+            [base, base + 3, base + 2, base, base + 1, base + 3]
+        )
 
     for sign, normal in ((0.5, (0.0, 1.0, 0.0)), (-0.5, (0.0, -1.0, 0.0))):
         centre = len(positions)
@@ -237,7 +381,7 @@ def _sphere(segments: int) -> tuple[list[Vec3], list[Vec3], list[int]]:
         for step in range(segments):
             a = ring * stride + step
             b = a + stride
-            indices.extend([a, b, b + 1, a, b + 1, a + 1])
+            indices.extend([a, b + 1, b, a, a + 1, b + 1])
     return positions, normals, indices
 
 
@@ -265,7 +409,7 @@ def _torus(segments: int, tube_ratio: float = 0.3) -> tuple[list[Vec3], list[Vec
         for step in range(tube_segments):
             a = ring * stride + step
             b = a + stride
-            indices.extend([a, b, b + 1, a, b + 1, a + 1])
+            indices.extend([a, b + 1, b, a, a + 1, b + 1])
     return positions, normals, indices
 
 
@@ -281,6 +425,14 @@ def _lathe(profile: Sequence[Sequence[float]], segments: int
     points = [(float(r), float(h)) for r, h in profile]
     if len(points) < 2:
         raise ValueError("a lathe profile needs at least two points")
+
+    # Ordered low to high, for the same reason the extrude outline is ordered
+    # counter-clockwise: the winding below depends on the direction of travel,
+    # and a profile written from the muzzle back is as natural as one written
+    # from the breech forward. Normalising here means there is no wrong way to
+    # enter a profile, rather than a requirement to remember.
+    if points[-1][1] < points[0][1]:
+        points.reverse()
 
     positions: list[Vec3] = []
     normals: list[Vec3] = []
@@ -303,17 +455,42 @@ def _lathe(profile: Sequence[Sequence[float]], segments: int
         for index in range(stride - 1):
             a = step * stride + index
             b = a + stride
-            indices.extend([a, b, b + 1, a, b + 1, a + 1])
+            # Wound so the face points away from the axis of revolution, which
+            # is what the per-vertex normals above already claim. The first
+            # version had these reversed: every lathed part was inside-out,
+            # with a signed volume of -0.784 where a unit cylinder is +0.785.
+            # Nothing caught it, because a viewer that does not cull backfaces
+            # shades an inverted solid identically — the defect only appears
+            # once it is in an engine, which is the far side of the handoff.
+            indices.extend([a, b + 1, b, a, a + 1, b + 1])
     return positions, normals, indices
 
 
 def _extrude(profile: Sequence[Sequence[float]], depth: float = 1.0
              ) -> tuple[list[Vec3], list[Vec3], list[int]]:
-    """Extrude a closed 2D `(x, y)` outline along Z, with flat caps."""
+    """Extrude a closed 2D `(x, y)` outline along Z, with flat caps.
+
+    The outline is reordered counter-clockwise first. Winding the walls and
+    caps correctly depends on knowing which way the outline runs, and an
+    outline traced clockwise is exactly as natural to write as one traced
+    the other way — the rifle's stock was traced clockwise and came out
+    inside-out. Deriving the direction from the signed area rather than
+    documenting a requirement removes the whole class of mistake: there is
+    no wrong way to enter an outline.
+    """
 
     outline = [(float(x), float(y)) for x, y in profile]
     if len(outline) < 3:
         raise ValueError("an extrude profile needs at least three points")
+
+    # Shoelace formula. Negative means the outline runs clockwise.
+    area = 0.0
+    for index in range(len(outline)):
+        x0, y0 = outline[index]
+        x1, y1 = outline[(index + 1) % len(outline)]
+        area += x0 * y1 - x1 * y0
+    if area < 0.0:
+        outline.reverse()
 
     half = depth / 2.0
     positions: list[Vec3] = []
@@ -356,7 +533,7 @@ def build_part(part: dict[str, Any]) -> tuple[list[Vec3], list[Vec3], list[int]]
     profile = part.get("profile")
 
     if kind == "box":
-        positions, normals, indices = _box()
+        positions, normals, indices = _box(float(part.get("chamfer") or 0.0))
     elif kind == "cylinder":
         positions, normals, indices = _cylinder(segments)
     elif kind == "cone":

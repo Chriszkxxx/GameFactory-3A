@@ -525,6 +525,483 @@ def test_geometry_is_watertight_enough() -> None:
         f"bound {gate_high[1]:.6f}, mesh {actual_high:.6f}",
     )
 
+    # A lathe profile is not confined to the ±size/2 box the other kinds are:
+    # it lives in its own coordinates, and measuring it as a unit box made
+    # the scale gate disagree with the written mesh by the profile's own
+    # extent. Found building a rifle whose barrel measured 1.018 m as a box
+    # and 0.41 m as a mesh. Extrude likewise, and under rotation.
+    lathe = {
+        "id": "l", "kind": "lathe", "size": (1.0, 1.0, 1.0),
+        "at": (0.0, 0.118, 0.125), "rotation": (0.0, 0.0, 0.0), "segments": 12,
+        "profile": ((0.011, -0.185), (0.011, 0.100), (0.016, 0.225)),
+        "material": "default",
+    }
+    l_low, l_high = part_bounds(lathe)
+    l_pos, _n, _i = build_part(lathe)
+    l_actual_low = [min(p[axis] for p in l_pos) for axis in range(3)]
+    l_actual_high = [max(p[axis] for p in l_pos) for axis in range(3)]
+    check(
+        "a lathe is measured by its profile, not by its size",
+        all(abs(l_low[a] - l_actual_low[a]) < 1e-9
+            and abs(l_high[a] - l_actual_high[a]) < 1e-9 for a in range(3)),
+        f"bound {l_low}/{l_high} vs mesh {l_actual_low}/{l_actual_high}",
+    )
+
+    extruded = {
+        "id": "e", "kind": "extrude", "size": (1.0, 1.0, 0.048),
+        "at": (0.0, 0.1, 0.0), "rotation": (10.0, 0.0, 0.0), "segments": 12,
+        "profile": ((-0.02, -0.25), (0.012, -0.25), (0.012, -0.13), (-0.02, -0.13)),
+        "material": "default",
+    }
+    e_low, e_high = part_bounds(extruded)
+    e_pos, _n, _i = build_part(extruded)
+    e_actual_low = [min(p[axis] for p in e_pos) for axis in range(3)]
+    e_actual_high = [max(p[axis] for p in e_pos) for axis in range(3)]
+    check(
+        "an extrude under rotation is measured by its profile",
+        all(abs(e_low[a] - e_actual_low[a]) < 1e-9
+            and abs(e_high[a] - e_actual_high[a]) < 1e-9 for a in range(3)),
+        f"bound {e_low}/{e_high} vs mesh {e_actual_low}/{e_actual_high}",
+    )
+
+
+def test_chamfered_box_is_still_a_solid() -> None:
+    """A chamfer must change the silhouette without breaking the solid.
+
+    Three properties, each of which a hand-wound bevel gets wrong in a way
+    that a screenshot hides. Every undirected edge used exactly twice, or
+    the mesh has a hole that only shows once something is behind it. Positive
+    signed volume, or some faces wind inward and vanish under backface
+    culling in an engine while looking fine in a viewer that does not cull.
+    And still inside the unrotated extent box, which is what lets the scale
+    and connectivity gates stay ignorant of this field entirely.
+    """
+
+    print("\na chamfered box is still a solid")
+    from models.common.glb_writer import build_part, rotated_bounds
+    from operators.gen_3d_object.funcs.code_asset import (
+        MAX_CHAMFER, SpecError, estimate_triangles, validate_spec,
+    )
+
+    previous_volume = None
+    for chamfer in (0.0, 0.02, 0.12, 0.3, 0.49):
+        part = {
+            "id": "b", "kind": "box", "size": (0.3, 0.1, 0.7),
+            "at": (0.1, 0.2, 0.3), "rotation": (20.0, 35.0, 10.0),
+            "segments": 16, "chamfer": chamfer, "material": "default",
+        }
+        positions, _normals, indices = build_part(part)
+        triangles = len(indices) // 3
+
+        edges: dict[frozenset, int] = {}
+        for triangle in range(triangles):
+            corners = [positions[indices[triangle * 3 + k]] for k in range(3)]
+            keys = [tuple(round(v, 9) for v in c) for c in corners]
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                edge = frozenset((keys[a], keys[b]))
+                edges[edge] = edges.get(edge, 0) + 1
+        check(
+            f"chamfer {chamfer}: every edge is shared by exactly two triangles",
+            all(count == 2 for count in edges.values()),
+            f"{sum(1 for c in edges.values() if c != 2)} edges are not shared twice",
+        )
+
+        volume = 0.0
+        for triangle in range(triangles):
+            a, b, c = [positions[indices[triangle * 3 + k]] for k in range(3)]
+            volume += (
+                a[0] * (b[1] * c[2] - b[2] * c[1])
+                - a[1] * (b[0] * c[2] - b[2] * c[0])
+                + a[2] * (b[0] * c[1] - b[1] * c[0])
+            ) / 6.0
+        check(
+            f"chamfer {chamfer}: every face winds outward",
+            volume > 0.0,
+            f"signed volume {volume:+.6f}, so some faces face inward",
+        )
+        if previous_volume is not None:
+            check(
+                f"chamfer {chamfer}: cutting edges back removes material",
+                volume < previous_volume,
+                f"volume {volume:.6f} did not fall below {previous_volume:.6f}",
+            )
+        previous_volume = volume
+
+        low, high = rotated_bounds(part["size"], part["at"], part["rotation"])
+        check(
+            f"chamfer {chamfer}: the solid stays inside the unchamfered bound",
+            all(
+                low[axis] - 1e-9 <= min(p[axis] for p in positions)
+                and max(p[axis] for p in positions) <= high[axis] + 1e-9
+                for axis in range(3)
+            ),
+            "a chamfered box escaped the box it was cut from",
+        )
+        check(
+            f"chamfer {chamfer}: estimate == mesh",
+            estimate_triangles({"parts": [part]}) == triangles,
+            f"estimated {estimate_triangles({'parts': [part]})}, wrote {triangles}",
+        )
+
+    # Out of range is refused, not clamped: at 0.5 the bevels have eaten the
+    # faces they were cutting back and the part is no longer a box, so a spec
+    # that still calls it one would be describing something that is not there.
+    for bad in (MAX_CHAMFER, 0.8, -0.1):
+        try:
+            validate_spec({
+                "subject": "x", "units": "metres", "forward": "+z",
+                "parts": [{"id": "b", "kind": "box", "size": (1.0, 1.0, 1.0),
+                           "chamfer": bad}],
+            })
+            check(f"chamfer {bad} is refused", False, "it was accepted")
+        except SpecError:
+            check(f"chamfer {bad} is refused", True, "")
+
+
+def test_every_primitive_is_a_closed_outward_solid() -> None:
+    """No primitive may be inside-out, and the writer's normals must agree.
+
+    Written after the rifle's muzzle kept coming out wrong. The cause was
+    not the muzzle: `_lathe`, `_cylinder`, `_sphere` and `_torus` all wound
+    their quads as (a, b, b+1) where outward is (a, b+1, b), so every lathed,
+    cylindrical, spherical and toroidal part in the library was inverted. A
+    unit cylinder had a signed volume of -0.26 where the true answer is
+    +0.785 — negative because it faced inward, and small because the caps
+    were wound correctly and cancelled most of the wall.
+
+    It survived every earlier check because none of them looked. The GLB was
+    valid, the triangle counts matched, the bounds were right, and the viewer
+    does not cull backfaces, so an inverted solid shades exactly like a
+    correct one. It would have appeared first in an engine — the far side of
+    the handoff, which is the expensive place to find it.
+
+    Three properties, checked on all seven primitives plus the chamfered box:
+
+    * signed volume positive — every face winds outward
+    * no boundary edges — the surface is closed, so "inside" is defined
+    * stored normals agree with the triangles' geometric facing, or lighting
+      and culling disagree about which side is which
+    """
+
+    print("\nevery primitive is a closed, outward-facing solid")
+    from models.common.glb_writer import build_part
+
+    quarter_pi = math.pi / 4.0
+    cases: tuple[tuple[str, str, dict[str, object], float | None], ...] = (
+        ("box", "box", {}, 1.0),
+        ("chamfered box", "box", {"chamfer": 0.15}, None),
+        ("cylinder", "cylinder", {}, quarter_pi),
+        ("cone", "cone", {}, quarter_pi / 3.0),
+        ("sphere", "sphere", {}, 4.0 / 3.0 * math.pi * 0.125),
+        ("torus", "torus", {}, None),
+        ("lathe", "lathe",
+         {"profile": ((0.0, -0.5), (0.5, -0.5), (0.5, 0.5), (0.0, 0.5))},
+         quarter_pi),
+        ("extrude", "extrude",
+         {"profile": ((-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5))}, 1.0),
+    )
+
+    for label, kind, extra, expected_volume in cases:
+        part = {
+            "id": kind, "kind": kind, "size": (1.0, 1.0, 1.0),
+            "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+            "segments": 96, "profile": None, "material": "default", **extra,
+        }
+        positions, normals, indices = build_part(part)
+        triangles = len(indices) // 3
+
+        volume = 0.0
+        opposed = 0
+        edges: dict[frozenset, int] = {}
+        for triangle in range(triangles):
+            a, b, c = [positions[indices[triangle * 3 + k]] for k in range(3)]
+            volume += (
+                a[0] * (b[1] * c[2] - b[2] * c[1])
+                - a[1] * (b[0] * c[2] - b[2] * c[0])
+                + a[2] * (b[0] * c[1] - b[1] * c[0])
+            ) / 6.0
+
+            edge1 = [b[i] - a[i] for i in range(3)]
+            edge2 = [c[i] - b[i] for i in range(3)]
+            cross = (
+                edge1[1] * edge2[2] - edge1[2] * edge2[1],
+                edge1[2] * edge2[0] - edge1[0] * edge2[2],
+                edge1[0] * edge2[1] - edge1[1] * edge2[0],
+            )
+            # Degenerate triangles have no facing to disagree with. They are
+            # unavoidable where a lathe profile touches the axis and a whole
+            # ring collapses to a point.
+            if math.sqrt(sum(v * v for v in cross)) > 1e-12:
+                stored = normals[indices[triangle * 3]]
+                if sum(cross[i] * stored[i] for i in range(3)) < 0.0:
+                    opposed += 1
+
+            keys = [tuple(round(v, 7) for v in point) for point in (a, b, c)]
+            for first, second in ((0, 1), (1, 2), (2, 0)):
+                edge = frozenset((keys[first], keys[second]))
+                edges[edge] = edges.get(edge, 0) + 1
+
+        check(
+            f"{label}: signed volume is positive, so it is not inside-out",
+            volume > 0.0,
+            f"signed volume {volume:+.6f}",
+        )
+        check(
+            f"{label}: the surface is closed",
+            not any(count == 1 for count in edges.values()),
+            f"{sum(1 for c in edges.values() if c == 1)} boundary edge(s)",
+        )
+        check(
+            f"{label}: stored normals agree with the triangles' facing",
+            opposed == 0,
+            f"{opposed} of {triangles} triangles face against their normal",
+        )
+        if expected_volume is not None:
+            # At 96 segments the inscribed tessellation is under the true
+            # volume by well under a percent. Checking the value and not just
+            # its sign is what catches a winding that is reversed on only
+            # part of the surface, where the error partly cancels.
+            check(
+                f"{label}: volume converges on the analytic {expected_volume:.5f}",
+                abs(volume - expected_volume) / expected_volume < 0.01,
+                f"got {volume:.6f}, expected {expected_volume:.6f}",
+            )
+
+
+def test_a_lathe_profile_that_does_not_close_is_refused() -> None:
+    """A lathe profile whose ends leave the axis makes an open tube.
+
+    This is the mistake the rifle's muzzle kept hitting, and it is easy to
+    make because the profile reads perfectly sensibly: a list of radii down
+    the length of a barrel. But a revolved profile only encloses a volume if
+    it starts and ends on the axis of revolution, or the result is a pipe
+    with two open ends — no inside, no watertight surface, and a hole through
+    which the interior is visible.
+
+    Refused at validation rather than reported by a gate, because unlike a
+    proportion or a placement there is no version of this that was intended.
+    """
+
+    print("\na lathe profile must close on its axis")
+    from operators.gen_3d_object.funcs.code_asset import SpecError, validate_spec
+
+    def spec(profile: object) -> dict:
+        return {
+            "subject": "turned part", "units": "metres", "forward": "+z",
+            "parts": [{
+                "id": "p", "kind": "lathe", "size": (1.0, 1.0, 1.0),
+                "profile": profile,
+            }],
+        }
+
+    closed = ((0.0, -0.5), (0.5, -0.5), (0.5, 0.5), (0.0, 0.5))
+    validate_spec(spec(closed))
+    check("a profile that starts and ends on the axis is accepted", True, "")
+
+    for label, profile in (
+        ("both ends off the axis", ((0.5, -0.5), (0.5, 0.5))),
+        ("the far end off the axis", ((0.0, -0.5), (0.5, -0.5), (0.5, 0.5))),
+        ("the near end off the axis", ((0.5, -0.5), (0.5, 0.5), (0.0, 0.5))),
+    ):
+        try:
+            validate_spec(spec(profile))
+            check(f"{label} is refused", False, "it was accepted")
+        except SpecError:
+            check(f"{label} is refused", True, "")
+
+    for label, profile in (
+        ("a negative radius", ((0.0, -0.5), (-0.5, -0.5), (-0.5, 0.5), (0.0, 0.5))),
+        ("a single point", ((0.0, 0.0),)),
+        ("a non-pair entry", ((0.0, -0.5), (0.5,), (0.0, 0.5))),
+    ):
+        try:
+            validate_spec(spec(profile))
+            check(f"{label} is refused", False, "it was accepted")
+        except SpecError:
+            check(f"{label} is refused", True, "")
+
+    # An extrude outline is a different shape of requirement: it is pushed
+    # along z and capped, so it must be a closed loop of at least three
+    # points, but it has no axis to touch.
+    validate_spec({
+        "subject": "extruded part", "units": "metres", "forward": "+z",
+        "parts": [{
+            "id": "p", "kind": "extrude", "size": (1.0, 1.0, 1.0),
+            "profile": ((-0.5, -0.5), (0.5, -0.5), (0.0, 0.5)),
+        }],
+    })
+    check("a three-point extrude outline is accepted", True, "")
+
+    try:
+        validate_spec({
+            "subject": "extruded part", "units": "metres", "forward": "+z",
+            "parts": [{
+                "id": "p", "kind": "extrude", "size": (1.0, 1.0, 1.0),
+                "profile": ((-0.5, -0.5), (0.5, -0.5)),
+            }],
+        })
+        check("a two-point extrude outline is refused", False, "it was accepted")
+    except SpecError:
+        check("a two-point extrude outline is refused", True, "")
+
+
+def test_a_profile_may_be_written_either_way_round() -> None:
+    """The direction a profile is traced must not change the solid.
+
+    A stock outline traced clockwise and the same outline traced
+    anticlockwise describe the same shape, and both are natural to write. So
+    did the rifle's stock, which was traced clockwise and came out
+    inside-out while every gate passed — the winding of the walls and caps
+    depends on the direction of travel, and the writer had assumed one.
+
+    The alternative to normalising was to document a required direction. That
+    puts the burden on whoever writes the spec, for a property they cannot
+    check by looking at the render, to prevent a defect that only appears
+    after the handoff. Deriving it from the signed area instead means there
+    is no wrong way to enter an outline.
+    """
+
+    print("\na profile may be traced either way round")
+    from models.common.glb_writer import build_part
+
+    def solid(kind: str, profile: tuple) -> tuple[int, float]:
+        part = {
+            "id": kind, "kind": kind, "size": (1.0, 1.0, 1.0),
+            "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+            "segments": 24, "profile": profile, "material": "default",
+        }
+        positions, _normals, indices = build_part(part)
+        volume = 0.0
+        for triangle in range(len(indices) // 3):
+            a, b, c = [positions[indices[triangle * 3 + k]] for k in range(3)]
+            volume += (
+                a[0] * (b[1] * c[2] - b[2] * c[1])
+                - a[1] * (b[0] * c[2] - b[2] * c[0])
+                + a[2] * (b[0] * c[1] - b[1] * c[0])
+            ) / 6.0
+        return len(indices), volume
+
+    # An L-shaped outline, so the test would not pass by symmetry.
+    outline = ((-0.4, -0.3), (0.5, -0.3), (0.5, 0.0), (0.1, 0.0),
+               (0.1, 0.45), (-0.4, 0.45))
+    forward_count, forward_volume = solid("extrude", outline)
+    reversed_count, reversed_volume = solid("extrude", tuple(reversed(outline)))
+    check(
+        "an extrude outline traced clockwise gives the same solid",
+        forward_count == reversed_count
+        and abs(forward_volume - reversed_volume) < 1e-12,
+        f"{forward_volume:+.9f} vs {reversed_volume:+.9f}",
+    )
+    check(
+        "and that solid faces outward whichever way it was traced",
+        forward_volume > 0.0 and reversed_volume > 0.0,
+        f"{forward_volume:+.9f} / {reversed_volume:+.9f}",
+    )
+
+    # A stepped profile, written breech-to-muzzle and then muzzle-to-breech.
+    stepped = ((0.0, -0.5), (0.30, -0.5), (0.30, -0.1),
+               (0.18, 0.0), (0.18, 0.42), (0.0, 0.5))
+    forward_count, forward_volume = solid("lathe", stepped)
+    reversed_count, reversed_volume = solid("lathe", tuple(reversed(stepped)))
+    check(
+        "a lathe profile written from the far end gives the same solid",
+        forward_count == reversed_count
+        and abs(forward_volume - reversed_volume) < 1e-12,
+        f"{forward_volume:+.9f} vs {reversed_volume:+.9f}",
+    )
+    check(
+        "and that solid faces outward whichever end it started from",
+        forward_volume > 0.0 and reversed_volume > 0.0,
+        f"{forward_volume:+.9f} / {reversed_volume:+.9f}",
+    )
+
+
+def test_the_windings_gate_catches_an_inverted_part() -> None:
+    """The gate must fail a solid that is inside-out, and pass one that is not.
+
+    The gate exists because four primitives shipped inverted and all five
+    other gates passed them. So it is not enough to assert it passes correct
+    geometry — that it did before the bug was fixed. It has to be shown
+    failing on geometry that is actually inverted, which means reversing a
+    real part's triangles and putting that through the gate.
+    """
+
+    print("\nthe windings gate catches an inverted part")
+    from models.common import glb_writer
+    from operators.gen_3d_object.funcs.code_asset import check_windings
+
+    spec = {
+        "subject": "turned and boxed part", "units": "metres", "forward": "+z",
+        "parts": [
+            {"id": "body", "kind": "box", "size": (0.4, 0.4, 0.4),
+             "at": (0.0, 0.2, 0.0), "rotation": (0.0, 0.0, 0.0),
+             "segments": 16, "profile": None, "material": "default",
+             "chamfer": 0.1},
+            {"id": "spindle", "kind": "lathe", "size": (1.0, 1.0, 1.0),
+             "at": (0.0, 0.2, 0.0), "rotation": (0.0, 0.0, 0.0),
+             "segments": 20, "material": "default",
+             "profile": ((0.0, -0.2), (0.1, -0.2), (0.08, 0.15), (0.0, 0.2))},
+        ],
+    }
+
+    report = check_windings(spec)
+    check(
+        "correct geometry passes the windings gate",
+        report["ok"] and not report["inverted"] and not report["unclosed"],
+        f"failures: {report['failures']}",
+    )
+
+    # Reverse every triangle, which is exactly the defect: same vertices,
+    # same bounds, same triangle count, valid GLB, faces pointing inward.
+    original = glb_writer.build_part
+
+    def inverted(part: dict) -> tuple:
+        positions, normals, indices = original(part)
+        flipped = []
+        for triangle in range(len(indices) // 3):
+            a, b, c = indices[triangle * 3:triangle * 3 + 3]
+            flipped.extend([a, c, b])
+        return positions, normals, flipped
+
+    glb_writer.build_part = inverted
+    try:
+        report = check_windings(spec)
+    finally:
+        glb_writer.build_part = original
+
+    check(
+        "an inside-out part fails the windings gate",
+        not report["ok"] and len(report["inverted"]) == 2,
+        f"ok={report['ok']}, inverted={report['inverted']}",
+    )
+    check(
+        "and the failure says which parts and that they are inside-out",
+        any("inside-out" in message for message in report["failures"])
+        and any("body" in message and "spindle" in message
+                for message in report["failures"]),
+        f"failures: {report['failures']}",
+    )
+
+    # An unclosed part: a lathe profile whose ends leave the axis. Built
+    # directly, bypassing validate_spec, which now refuses this at authoring
+    # time — the gate is the second line of defence for a spec that reached
+    # the writer another way.
+    open_ended = {
+        "subject": "open tube", "units": "metres", "forward": "+z",
+        "parts": [{
+            "id": "tube", "kind": "lathe", "size": (1.0, 1.0, 1.0),
+            "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+            "segments": 16, "material": "default",
+            "profile": ((0.2, -0.3), (0.2, 0.3)),
+        }],
+    }
+    report = check_windings(open_ended)
+    check(
+        "a tube with open ends fails the windings gate",
+        not report["ok"] and report["unclosed"],
+        f"ok={report['ok']}, unclosed={report['unclosed']}",
+    )
+
 
 def test_estimate_matches_every_primitive() -> None:
     """The budget gate must count what the writer actually emits.
@@ -572,6 +1049,11 @@ def main() -> int:
     test_routing()
     test_glb_output()
     test_geometry_is_watertight_enough()
+    test_chamfered_box_is_still_a_solid()
+    test_every_primitive_is_a_closed_outward_solid()
+    test_a_lathe_profile_that_does_not_close_is_refused()
+    test_a_profile_may_be_written_either_way_round()
+    test_the_windings_gate_catches_an_inverted_part()
     test_estimate_matches_every_primitive()
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
