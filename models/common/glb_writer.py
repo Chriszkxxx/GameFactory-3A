@@ -69,32 +69,44 @@ Vec3 = tuple[float, float, float]
 _MESH_CACHE: dict[str, dict[str, Any]] = {}
 
 
-def load_mesh_asset(source: str) -> dict[str, Any]:
+def load_mesh_asset(source: str, trim: Sequence[float] | None = None
+                    ) -> dict[str, Any]:
     """Read and cache an external GLB, normalised into a unit box.
 
-    The mesh is centred on its own bounding box and scaled by a *single*
-    factor so its longest axis spans 1.0, which puts it in the same frame the
-    analytic primitives use: `build_part` then applies `size` to all of them
-    identically.
+    Centred on its own bounds and scaled by a *single* factor so its longest
+    axis spans 1.0, which puts it in the frame the analytic primitives use.
 
-    One factor rather than three, because a generated part arrives with its
-    own proportions and stretching each axis to fill the box would destroy
-    them — a grip fitted to a 40x110x30 mm box by non-uniform scale is a
-    smeared grip, and the smear is the kind of wrongness that reads as a bad
-    asset rather than as a bad placement. The consequence is that `size` is
-    an upper bound on the two shorter axes rather than an exact extent, and
-    `mesh_bounds` reports what the part actually occupies so the gates
-    measure the mesh instead of the request.
+    One factor and not three: stretching each axis to fill the box destroys
+    the proportions the part was generated with, and a smeared grip reads as
+    a bad asset rather than a bad placement. So `size` bounds the two shorter
+    axes rather than setting them, and the gates measure the mesh instead of
+    the request.
+
+    ``trim`` is ``(keep_from, keep_to)`` as fractions of the source's own
+    height, applied before normalising. It exists because a generator adds
+    furniture: the fetched cuirass arrived on a mannequin stand, with a pole
+    and a base occupying the bottom 40% of its height. Stated rather than
+    detected — detection has to guess where the object ends and the stand
+    begins, and it guesses wrong both ways, deleting a plinth that was wanted
+    or keeping a skirt of armour lames that looked like a base.
+
+    A triangle is kept when all three of its corners are inside the band, so
+    the cut leaves an honest hole rather than stretched geometry across it.
+    ``windings`` reports that hole as an unclosed generated part, which is the
+    correct thing for it to say.
     """
 
     resolved = str(Path(source).resolve())
-    cached = _MESH_CACHE.get(resolved)
+    key = f"{resolved}|{tuple(trim) if trim else ''}"
+    cached = _MESH_CACHE.get(key)
     if cached is not None:
         return cached
 
     from models.common.glb_utils import read_glb_mesh
 
     raw = read_glb_mesh(Path(resolved).read_bytes())
+    if trim:
+        raw = _trim_mesh(raw, float(trim[0]), float(trim[1]))
     low, high = raw["low"], raw["high"]
     extent = [high[axis] - low[axis] for axis in range(3)]
     longest = max(extent) or 1.0
@@ -118,29 +130,99 @@ def load_mesh_asset(source: str) -> dict[str, Any]:
         "materials": raw.get("materials") or [],
         "has_uvs": bool(raw.get("has_uvs")),
         "source": resolved,
+        "trim": tuple(trim) if trim else None,
     }
-    _MESH_CACHE[resolved] = entry
+    _MESH_CACHE[key] = entry
     return entry
 
 
-def mesh_unit_extent(source: str) -> Vec3:
+def _trim_mesh(raw: dict[str, Any], keep_from: float, keep_to: float
+               ) -> dict[str, Any]:
+    """Drop triangles outside a vertical band of the source's own height.
+
+    Whole triangles, by all three corners, so the result is a clean hole
+    where the cut was rather than geometry stretched across it. Vertices are
+    re-indexed because a GLB accessor's count has to match what it holds.
+    """
+
+    low, high = raw["low"], raw["high"]
+    span = high[1] - low[1]
+    if span <= 0:
+        return raw
+    floor = low[1] + span * keep_from
+    ceiling = low[1] + span * keep_to
+
+    positions = raw["positions"]
+    keep_vertex = [floor <= point[1] <= ceiling for point in positions]
+
+    indices = raw["indices"]
+    remap: dict[int, int] = {}
+    new_positions: list[Vec3] = []
+    new_normals: list[Vec3] = []
+    new_uvs: list[tuple[float, float]] = []
+    new_indices: list[int] = []
+    normals = raw["normals"]
+    uvs = raw.get("uvs") or [(0.0, 0.0)] * len(positions)
+
+    for triangle in range(len(indices) // 3):
+        corners = indices[triangle * 3:triangle * 3 + 3]
+        if not all(keep_vertex[index] for index in corners):
+            continue
+        for index in corners:
+            if index not in remap:
+                remap[index] = len(new_positions)
+                new_positions.append(positions[index])
+                new_normals.append(normals[index])
+                new_uvs.append(uvs[index])
+            new_indices.append(remap[index])
+
+    if not new_positions:
+        raise ValueError(
+            f"trim ({keep_from}, {keep_to}) removed every triangle; the band "
+            "is outside the mesh or inverted"
+        )
+
+    # One run covering everything: the source's material boundaries no longer
+    # line up with the surviving indices, and a run pointing at the wrong
+    # range would texture the wrong triangles. All the fetched parts here use
+    # a single material, so this loses nothing; a multi-material source would
+    # need the runs remapped alongside the indices.
+    material = None
+    for run in raw.get("material_runs") or []:
+        material = run.get("material")
+        break
+
+    trimmed = dict(raw)
+    trimmed.update({
+        "positions": new_positions,
+        "normals": new_normals,
+        "uvs": new_uvs,
+        "indices": new_indices,
+        "triangles": len(new_indices) // 3,
+        "low": tuple(min(p[axis] for p in new_positions) for axis in range(3)),
+        "high": tuple(max(p[axis] for p in new_positions) for axis in range(3)),
+        "material_runs": [{"start": 0, "count": len(new_indices),
+                           "material": material}],
+    })
+    return trimmed
+
+
+def mesh_unit_extent(source: str, trim: Sequence[float] | None = None) -> Vec3:
     """Fraction of the unit box a normalised external mesh fills, per axis."""
-    return load_mesh_asset(source)["unit_extent"]
+    return load_mesh_asset(source, trim)["unit_extent"]
 
 
 def effective_size(size: Sequence[float], kind: str) -> Vec3:
     """The scale actually applied to a part, which for a mesh is uniform.
 
-    A `mesh` part is scaled by ``max(size)`` on all three axes, so it keeps
-    the proportions it was generated with; the other two numbers are
-    discarded. `provenance` warns when they were not all the same, so the
+    A `mesh` part is scaled by ``max(size)`` on all three axes; the other two
+    numbers are discarded, and `provenance` warns when they differed so the
     discarding is visible.
 
-    Both `build_part` and `rotated_bounds` route through here. That is the
-    same rule the rest of this module follows and for the same reason: when
-    the bound is computed from one scaling rule and the mesh written with
-    another, the gates pass an object that is not the object on disk, and
-    lathe bounds already demonstrated that failing silently.
+    Both `build_part` and `rotated_bounds` route through here, because a
+    bound computed from one scaling rule and a mesh written with another lets
+    the gates pass an object that is not the one on disk — which lathe bounds
+    already demonstrated failing silently.
     """
 
     if kind == "mesh":
@@ -201,6 +283,7 @@ def rotated_bounds(
     profile: Sequence[Sequence[float]] | None = None,
     kind: str = "box",
     source: str | None = None,
+    trim: Sequence[float] | None = None,
 ) -> tuple[Vec3, Vec3]:
     """Axis-aligned `(low, high)` of a rotated, translated part.
 
@@ -239,7 +322,7 @@ def rotated_bounds(
         # trick is an exact bound only for a shape that reaches every corner.
         # Reading vertices is the cost of admitting an arbitrary mesh, and it
         # is paid once because `load_mesh_asset` caches.
-        asset = load_mesh_asset(source)
+        asset = load_mesh_asset(source, trim)
         applied = effective_size(size, kind)
         low = [float("inf")] * 3
         high = [float("-inf")] * 3
@@ -688,12 +771,44 @@ def build_part(part: dict[str, Any]) -> tuple[list[Vec3], list[Vec3], list[int]]
         source = part.get("source")
         if not source:
             raise ValueError(f"{part.get('id')}: a mesh part needs a `source` path")
-        asset = load_mesh_asset(str(source))
+        asset = load_mesh_asset(str(source), part.get("trim"))
         positions = list(asset["positions"])
         normals = list(asset["normals"])
         indices = list(asset["indices"])
     else:
         raise ValueError(f"unknown primitive kind {kind!r}")
+
+    # Reflect the part's own geometry, before it is scaled or turned.
+    #
+    # For a generated pair that arrived as one hand: the fetched pauldron is a
+    # left shoulder, and the same mesh on the right had its lames hanging
+    # inboard over the ribs. A rotation cannot substitute — 180 degrees about y
+    # would face them outboard but swap front for back as well.
+    #
+    # The winding has to be reversed with it. A reflection flips handedness, so
+    # negating a coordinate alone turns every triangle inside out: the surface
+    # would face inward, which the windings gate reports and which renders as a
+    # part lit from within. Normals are negated on the same axis for the same
+    # reason.
+    mirror = part.get("mirror")
+    if mirror:
+        axis = {"x": 0, "y": 1, "z": 2}[str(mirror).lower()]
+        positions = [
+            tuple(-value if index == axis else value
+                  for index, value in enumerate(point))
+            for point in positions
+        ]
+        normals = [
+            tuple(-value if index == axis else value
+                  for index, value in enumerate(vector))
+            for vector in normals
+        ]
+        indices = [
+            index
+            for triangle in range(0, len(indices) - 2, 3)
+            for index in (indices[triangle], indices[triangle + 2],
+                          indices[triangle + 1])
+        ]
 
     size = effective_size(part["size"], kind)
     at = part["at"]
@@ -732,6 +847,104 @@ def _pad(data: bytearray, alignment: int = 4, fill: int = 0) -> None:
         data.append(fill)
 
 
+#: Texels per metre of a part's longest edge. A texture is only as useful as
+#: the pixels that land on screen, and a fetched piece arrives at whatever the
+#: generator produced regardless of how big the piece is: every plate on the
+#: knight came back 2048x2048, so a 0.13 m gauntlet carried the same 2048 as
+#: the 1.72 m body — thirteen times the density, for 1.8 MB each. 1024 per
+#: metre puts a 2 m figure at 2K and a 0.2 m cuff at 256.
+TEXELS_PER_METRE = 1024
+
+#: Bounds on that, because the ratio alone is wrong at both ends: a thumbnail
+#: on a tiny part still needs enough pixels not to look like a colour swatch,
+#: and nothing here benefits from more than 2K.
+MIN_TEXTURE_PX = 128
+MAX_TEXTURE_PX = 2048
+
+#: JPEG quality for re-encoded maps. The generator ships its atlases at
+#: effectively lossless settings — 2048x2048 at 3-4 MB, where the same image at
+#: quality 85 is nearer 400 KB. Re-encoding is worth it here because these are
+#: already-lossy JPEGs being resized, so the second pass costs little that the
+#: resize has not already spent.
+TEXTURE_JPEG_QUALITY = 85
+
+
+def _texture_budget(part_size: float) -> int:
+    """The square texture resolution a part of ``part_size`` metres earns.
+
+    One function because two callers need the same answer: `_fit_texture`
+    resizes to it and `_fetched_material` keys its cache on it. Computing it
+    twice let them disagree once already — the key used the raw ratio while the
+    resize used the nearest power of two, so two parts that shared a resolution
+    were given separate copies of the same atlas.
+    """
+
+    wanted = min(MAX_TEXTURE_PX,
+                 max(MIN_TEXTURE_PX, (part_size or 0.0) * TEXELS_PER_METRE))
+    # The *nearest* power of two, because a GPU wants the mipmap chain the
+    # sampler asks for. Rounding down instead took the 1.72 m body's earned
+    # 1761 px to 1024 — a 42% cut on the one part that fills the frame, to save
+    # 150 KB. Nearest keeps it at 2048 and still puts a 0.13 m gauntlet at 128.
+    return min(
+        (1 << bit for bit in range(7, 12)),
+        key=lambda candidate: abs(candidate - wanted),
+    )
+
+
+def _fit_texture(payload: bytes, mime: str | None, *, part_size: float
+                 ) -> tuple[bytes, str | None]:
+    """Resize and re-encode one map for a part of ``part_size`` metres.
+
+    Returns the original bytes unchanged if Pillow is unavailable or the image
+    cannot be read: a texture that is too large is a delivery problem, and a
+    texture that is missing is a rendering one. Degrading to the former is the
+    safer failure.
+    """
+
+    if not payload or part_size <= 0:
+        return payload, mime
+    try:
+        from PIL import Image
+    except ImportError:
+        return payload, mime
+
+    import io
+
+    try:
+        image = Image.open(io.BytesIO(payload))
+        image.load()
+    except Exception:
+        return payload, mime
+
+    power = _texture_budget(part_size)
+    longest = max(image.size)
+    # Re-encoded even when no resize is needed. Returning early here left the
+    # body's two 2048 maps at the generator's 3.1 MB and 1.3 MB, where the same
+    # images at quality 85 are 480 KB and 300 KB: the atlases ship at
+    # effectively lossless settings, and the resolution being right does not
+    # make the file size right.
+    if power < longest:
+        scale = power / longest
+        image = image.resize(
+            (max(1, int(image.size[0] * scale)),
+             max(1, int(image.size[1] * scale))),
+            Image.LANCZOS,
+        )
+
+    buffer = io.BytesIO()
+    if image.mode not in ("RGB", "L"):
+        image = image.convert("RGB")
+    image.save(buffer, format="JPEG", quality=TEXTURE_JPEG_QUALITY,
+               optimize=True)
+    shrunk = buffer.getvalue()
+    # Only if it actually helped. A small source can encode larger at a
+    # different quality setting, and shipping the bigger of the two would be
+    # this function doing the opposite of its job.
+    if len(shrunk) >= len(payload):
+        return payload, mime
+    return shrunk, "image/jpeg"
+
+
 def _fetched_material(
     fetched: dict[str, Any],
     source_index: int | None,
@@ -742,17 +955,25 @@ def _fetched_material(
     images: list[dict[str, Any]],
     samplers: list[dict[str, Any]],
     add_view: Any,
+    part_size: float = 0.0,
 ) -> int:
     """Re-emit one of a fetched part's materials, image and all.
 
-    Keyed on the source path plus the material's index within it, so a part
-    placed twice — two front wheels, four identical bolts — shares one copy
-    of a texture that may be several megabytes. Without that the file grows
-    by the size of the atlas per instance, and a GLB large enough to stall an
-    import is a delivery failure rather than a modelling one.
+    Keyed on source path plus material index *plus the resolution the part's
+    size earns*, so a part placed twice shares one copy of an atlas that may be
+    several megabytes. Otherwise the file grows by the atlas per instance, and a
+    GLB large enough to stall an import is a delivery failure rather than a
+    modelling one.
+
+    The resolution is in the key because sharing is only correct between parts
+    that want the same pixels. Keying on the source alone would hand a 1.7 m
+    body whatever a 0.13 m gauntlet had been resized to, or the reverse,
+    depending on which was written first — a bug whose symptom is a blurry
+    figure and whose cause is two parts away.
     """
 
-    key = f"@{fetched['source']}#{source_index}"
+    budget = _texture_budget(part_size)
+    key = f"@{fetched['source']}#{source_index}@{budget}"
     if key in material_index:
         return material_index[key]
 
@@ -775,7 +996,7 @@ def _fetched_material(
         "doubleSided": False,
     }
 
-    if described.get("image"):
+    def ensure_sampler() -> None:
         if not samplers:
             # Linear filtering with mipmaps and repeating wrap: the defaults a
             # game engine would apply anyway, stated so the file does not
@@ -785,15 +1006,32 @@ def _fetched_material(
                 "minFilter": 9987,            # LINEAR_MIPMAP_LINEAR
                 "wrapS": 10497, "wrapT": 10497,
             })
-        image_view = add_view(described["image"])
+
+    def attach(payload: bytes, mime: str | None, suffix: str) -> int:
+        ensure_sampler()
+        fitted, fitted_mime = _fit_texture(payload, mime, part_size=part_size)
         images.append({
-            "bufferView": image_view,
-            "mimeType": described.get("mimeType") or "image/png",
-            "name": f"{part_id}-basecolour",
+            "bufferView": add_view(fitted),
+            "mimeType": fitted_mime or "image/png",
+            "name": f"{part_id}-{suffix}",
         })
         textures.append({"sampler": 0, "source": len(images) - 1})
+        return len(textures) - 1
+
+    if described.get("image"):
         material["pbrMetallicRoughness"]["baseColorTexture"] = {
-            "index": len(textures) - 1
+            "index": attach(described["image"], described.get("mimeType"),
+                            "basecolour")
+        }
+
+    # Metallic-roughness, when the source had one. Without it the factors are
+    # all a renderer has, and dielectric factors on a steel plate read as grey
+    # plastic — which is exactly how the knight's armour came out while this
+    # channel was being dropped.
+    if described.get("mrImage"):
+        material["pbrMetallicRoughness"]["metallicRoughnessTexture"] = {
+            "index": attach(described["mrImage"], described.get("mrMimeType"),
+                            "metallicroughness")
         }
 
     materials.append(material)
@@ -808,6 +1046,13 @@ def write_spec_glb(spec: dict[str, Any], out_path: str | Path) -> str:
     id as the node name**. That is the property a generated mesh cannot
     offer: a wheel arrives as a node called `wheel-fl`, so gameplay can spin
     it after import instead of the whole vehicle being one fused body.
+
+    A part with a ``parent`` becomes that node's *child*, which is the half
+    of the claim that survives export. A named vambrace is of no use if
+    rotating the forearm leaves it behind; as a child node, the engine's own
+    transform hierarchy carries it. Positions are written local to the
+    parent, since glTF composes them on load and writing world coordinates
+    into a child applies the parent's translation twice.
     """
 
     parts = spec["parts"]
@@ -821,6 +1066,7 @@ def write_spec_glb(spec: dict[str, Any], out_path: str | Path) -> str:
     images: list[dict[str, Any]] = []
     samplers: list[dict[str, Any]] = []
 
+    node_index: dict[str, int] = {}
     buffer = bytearray()
     views: list[dict[str, Any]] = []
     accessors: list[dict[str, Any]] = []
@@ -841,8 +1087,30 @@ def write_spec_glb(spec: dict[str, Any], out_path: str | Path) -> str:
         views.append(view)
         return len(views) - 1
 
+    # World position of every part, so a nested part's geometry can be moved
+    # back into its parent's frame. Built first because a parent may be
+    # declared after its child.
+    world_at = {part["id"]: tuple(float(v) for v in part["at"]) for part in parts}
+    parent_of = {part["id"]: part.get("parent") for part in parts}
+
     for part in parts:
         positions, normals, indices = build_part(part)
+
+        # A nested part's node carries the offset from its parent, so its
+        # vertices must not carry it as well. `build_part` works in world
+        # space, which is what every gate measures; subtracting the parent's
+        # world position here leaves geometry local to the parent and lets
+        # glTF re-apply the offset on load.
+        #
+        # The alternative — keep world vertices and drop the node translation
+        # — renders identically and produces a useless hierarchy: rotating
+        # the parent would swing the child about a pivot far outside it.
+        if part.get("parent") and part["parent"] in world_at:
+            shift = world_at[part["parent"]]
+            positions = [
+                (point[0] - shift[0], point[1] - shift[1], point[2] - shift[2])
+                for point in positions
+            ]
 
         # A generated part brings its own UVs and textures, and they are the
         # reason it was fetched: the stippling on a grip and the panel creases
@@ -850,7 +1118,7 @@ def write_spec_glb(spec: dict[str, Any], out_path: str | Path) -> str:
         # UVs — writing arbitrary ones would put a stretched fragment of
         # somebody else's atlas on a rail.
         fetched = (
-            load_mesh_asset(str(part["source"]))
+            load_mesh_asset(str(part["source"]), part.get("trim"))
             if part["kind"] == "mesh" and part.get("source") else None
         )
         textured = bool(fetched and fetched["has_uvs"] and fetched["materials"])
@@ -965,6 +1233,12 @@ def write_spec_glb(spec: dict[str, Any], out_path: str | Path) -> str:
                         fetched, run["material"], part["id"],
                         materials, material_index, textures, images, samplers,
                         add_view,
+                        # The part's own longest edge, so a map is sized to the
+                        # pixels it can actually show. Every fetched piece
+                        # arrives at whatever the generator produced: all six on
+                        # the knight came back 2048x2048, so a 0.13 m gauntlet
+                        # carried the same atlas as the 1.72 m body.
+                        part_size=max(part.get("size") or (0.0,)),
                     ),
                     "mode": _MODE_TRIANGLES,
                 })
@@ -980,7 +1254,41 @@ def write_spec_glb(spec: dict[str, Any], out_path: str | Path) -> str:
                 }]
 
         meshes.append({"name": part["id"], "primitives": primitives})
-        nodes.append({"name": part["id"], "mesh": len(meshes) - 1})
+        # Geometry is built in world space, so a nested node's own translation
+        # has to be removed from its vertices — otherwise glTF adds the
+        # parent's offset to coordinates that already include it.
+        #
+        # The translation written here is the parent's *own contribution*, not
+        # its world position. glTF composes transforms down the chain, so on a
+        # three-deep chain a world position is applied once per level: the
+        # knight's `forearm-l` carried 1.28 and its child `hand-l` carried 1.06,
+        # and the hand landed at 2.34 instead of at the wrist. Every gate passed,
+        # because the gates measure the resolved spec and this was a defect in
+        # how that spec became a file — which is why `probe_fit.py` reads the
+        # written GLB back rather than trusting either.
+        node: dict[str, Any] = {"name": part["id"], "mesh": len(meshes) - 1}
+        parent_id = part.get("parent")
+        if parent_id and parent_id in world_at:
+            parent_world = world_at[parent_id]
+            grandparent = parent_of.get(parent_id)
+            # What the parent node itself translates by: its world position less
+            # its own parent's, which is exactly what glTF has already applied
+            # by the time it reaches this node.
+            already = world_at.get(grandparent, (0.0, 0.0, 0.0)) if grandparent \
+                else (0.0, 0.0, 0.0)
+            node["translation"] = [
+                float(parent_world[axis] - already[axis]) for axis in range(3)
+            ]
+        nodes.append(node)
+        node_index[part["id"]] = len(nodes) - 1
+
+    # Wired after every node exists, because a parent may be declared after
+    # its child and glTF children are indices.
+    for part in parts:
+        if part.get("parent"):
+            nodes[node_index[part["parent"]]].setdefault("children", []).append(
+                node_index[part["id"]]
+            )
 
     document: dict[str, Any] = {
         "asset": {
@@ -990,7 +1298,13 @@ def write_spec_glb(spec: dict[str, Any], out_path: str | Path) -> str:
         "scene": 0,
         "scenes": [{
             "name": spec.get("subject") or "asset",
-            "nodes": list(range(len(nodes))),
+            # Only the roots. A child listed in the scene as well as under its
+            # parent is drawn twice, at two different places, and glTF
+            # validators accept it — so this is a defect that ships.
+            "nodes": [
+                node_index[part["id"]] for part in parts
+                if not part.get("parent")
+            ] or list(range(len(nodes))),
         }],
         "nodes": nodes,
         "meshes": meshes,
@@ -1020,7 +1334,10 @@ def write_spec_glb(spec: dict[str, Any], out_path: str | Path) -> str:
             # tell later which parts can be adjusted by editing a number and
             # which would have to be regenerated.
             "generatedParts": {
-                part["id"]: part["source"]
+                part["id"]: {
+                    "source": part["source"],
+                    "trim": list(part["trim"]) if part.get("trim") else None,
+                }
                 for part in spec["parts"]
                 if part.get("kind") == "mesh" and part.get("source")
             },

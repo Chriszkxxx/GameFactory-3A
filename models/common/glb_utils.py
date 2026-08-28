@@ -188,10 +188,10 @@ def glb_binary_chunk(data: bytes) -> bytes:
 def _read_accessor(doc: dict[str, Any], binary: bytes, index: int) -> list[tuple]:
     """Decode one accessor into a list of component tuples.
 
-    Honours ``byteStride``, which is not pedantry: an interleaved buffer is
-    normal in files that came out of an exporter, and reading it as tightly
-    packed yields positions that are silently a mixture of coordinates and
-    normals. The result still parses, still renders, and is garbage.
+    Honours ``byteStride``. Interleaved buffers are normal out of an
+    exporter, and reading one as tightly packed yields positions that are a
+    silent mixture of coordinates and normals — it parses, it renders, it is
+    garbage.
     """
 
     accessor = doc["accessors"][index]
@@ -230,13 +230,11 @@ def _read_accessor(doc: dict[str, Any], binary: bytes, index: int) -> list[tuple
 def _node_matrix(node: dict[str, Any]) -> list[float]:
     """A node's local transform as a 16-float column-major matrix.
 
-    glTF allows either an explicit ``matrix`` or a TRS triple, and a file may
-    use both forms in different nodes. Both are handled because ignoring the
-    transform is the failure that looks like a modelling error: a generated
-    part whose mesh is authored Z-up and whose node carries the -90 degrees
-    that stands it upright arrives lying on its side, and the natural
-    reaction is to rotate it back in the spec — hard-coding a correction for
-    a transform that was already stated in the file.
+    Handles both an explicit ``matrix`` and a TRS triple, since a file may use
+    either. Ignoring the transform looks like a modelling error: a mesh
+    authored Z-up whose node carries the -90 that stands it upright arrives on
+    its side, and the natural reaction is to rotate it back in the spec —
+    hard-coding a correction for something the file already stated.
     """
 
     if "matrix" in node:
@@ -418,27 +416,26 @@ def read_glb_mesh(data: bytes) -> dict[str, Any]:
 
 
 def _read_materials(doc: dict[str, Any], binary: bytes) -> list[dict[str, Any]]:
-    """Each material's PBR factors and its base-colour image bytes.
+    """Each material's PBR factors, its base-colour image and its MR image.
 
-    Only the base colour image is carried. Metallic-roughness, normal and
-    occlusion maps exist in these files, and taking them would mean the
-    composed asset had a texture set the primitive parts beside it do not —
-    a car body with a normal map next to a spoiler with flat factors reads
-    as two assets, which is worse than both being simple.
+    Base colour and metallic-roughness. Not the normal or occlusion maps:
+    those would give the composed asset a texture set the primitives beside it
+    lack, and a car body with a normal map next to a flat-shaded spoiler reads
+    as two assets. Metallic-roughness is different in kind — it is not detail
+    on top of a surface, it is *which surface it is*.
 
-    But dropping the metallic-roughness *map* means its factors can no
-    longer be trusted, and this is the trap: an exporter that puts those
-    channels in a texture leaves the factors at their glTF defaults of
-    ``1.0``, which multiply the map. Copying them across without the map
-    they were scaling gives a fully metallic, fully rough surface — a
-    stippled polymer grip rendered as sandblasted steel. Measured on the
-    grip fetched here: ``metallicFactor 1.0, roughnessFactor 1.0`` with four
-    textures attached.
+    Taking the map is what makes the factors trustworthy. An exporter that puts
+    those channels in a texture leaves the factors at glTF's default ``1.0`` to
+    multiply it, so the two only mean anything together. This function used to
+    take the colour alone and substitute dielectric defaults (``0.0``/``0.55``)
+    on the grounds that inherited factors would render a polymer grip as
+    sandblasted steel — true, but it threw away the answer to keep from
+    guessing wrong. Plate armour came out as grey plastic: every generated
+    piece of the knight had ``metallicFactor 1.0`` and an MR map in the file,
+    and both were discarded.
 
-    So when a metallic-roughness map is present its factors are *replaced*
-    with dielectric defaults rather than inherited. That is a deliberate
-    approximation, recorded as ``factors_from`` so a caller can tell an
-    assumed value from a stated one.
+    ``factors_from`` is still recorded, because a material with no map at all
+    still has to fall back and a caller needs to know which happened.
     """
 
     out: list[dict[str, Any]] = []
@@ -478,14 +475,19 @@ def _read_materials(doc: dict[str, Any], binary: bytes) -> list[dict[str, Any]]:
     for material in doc.get("materials", []):
         pbr = material.get("pbrMetallicRoughness") or {}
         colour_image, colour_mime = image_bytes(pbr.get("baseColorTexture") or {})
+        mr_image, mr_mime = image_bytes(
+            pbr.get("metallicRoughnessTexture") or {})
 
-        has_mr_map = bool((pbr.get("metallicRoughnessTexture") or {}).get("index")
-                          is not None)
-        if has_mr_map:
-            # The factors were scaling a map we are not taking, so they are
-            # not describing this surface. Dielectric defaults instead: wrong
-            # for a part that really is metal, but wrong in the direction that
-            # looks like a material rather than like a bug.
+        if mr_image is not None:
+            # The map is coming with us, so the factors mean what they say:
+            # they scale it. glTF's default is 1.0 for exactly this case.
+            metallic = float(pbr.get("metallicFactor", 1.0))
+            roughness = float(pbr.get("roughnessFactor", 1.0))
+            provenance = "file"
+        elif (pbr.get("metallicRoughnessTexture") or {}).get("index") is not None:
+            # A map is declared but its bytes could not be read. Falling back
+            # to dielectric defaults, because inheriting factors written to
+            # scale a map we do not have renders a polymer grip as steel.
             metallic, roughness, provenance = 0.0, 0.55, "assumed"
         else:
             metallic = float(pbr.get("metallicFactor", 1.0))
@@ -503,6 +505,8 @@ def _read_materials(doc: dict[str, Any], binary: bytes) -> list[dict[str, Any]]:
             "factors_from": provenance,
             "image": colour_image,
             "mimeType": colour_mime,
+            "mrImage": mr_image,
+            "mrMimeType": mr_mime,
         })
     return out
 

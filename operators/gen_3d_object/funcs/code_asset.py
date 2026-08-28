@@ -45,12 +45,12 @@ is what this route makes easy. Delegate the shapes no formula states: a
 grip's finger swells, a stock's cheek weld, stippling — where the exact
 dimensions do not matter. State everything with an exact dimension: a
 receiver, a barrel's diameters, thirteen rail slots at 30 mm pitch. Measured
-on the rifle in ``test_data/outputs/gameB_weapon_showcase``: generating a
-scope cost 19,982 triangles, three times the whole weapon's primitive
-geometry, for a softened version of a stepped tube a nine-point ``lathe``
-profile gives exactly — and unlike the lathe it cannot then be corrected by
-editing a number. :func:`check_provenance` reports that trade rather than
-forbidding it, because only the author knows which shapes were the point.
+while building a hybrid assault rifle: generating a scope cost 19,982
+triangles, three times the whole weapon's primitive geometry, for a softened
+version of a stepped tube a nine-point ``lathe`` profile gives exactly — and
+unlike the lathe it cannot then be corrected by editing a number.
+:func:`check_provenance` reports that trade rather than forbidding it,
+because only the author knows which shapes were the point.
 
 The gates are ported from img2threejs [1], keeping the property that makes
 them worth having: each one exists because of a specific measured failure,
@@ -97,6 +97,7 @@ debug in-context, and ``glb_writer`` is stdlib for the same reason.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -185,33 +186,22 @@ PLAUSIBLE_HEIGHT_M: dict[str, tuple[float, float]] = {
     "landmark": (0.5, 200.0),
 }
 
-#: Subjects for which a spec is the wrong tool. Matched as substrings, so
-#: "oak tree" and "tree_large" both land. Declining is cheap; a
-#: procedurally "described" face is not.
-ORGANIC_SUBJECTS = (
-    "face", "head", "hair", "skin", "creature", "monster", "animal",
-    "beast", "tree", "foliage", "leaf", "plant", "flower", "grass",
-    "cloth", "fabric", "drape", "flag", "hand", "character", "person",
-    "human", "figure", "body", "muscle", "organic", "rock", "terrain",
-)
-
-#: Subjects a spec handles well. Also substrings. The material and
-#: mechanism words at the end are what tip a borderline subject: a "stone
-#: golem" is a stack of blocks, and without them a single organic word
-#: decided it unopposed.
-HARD_SURFACE_SUBJECTS = (
-    "crate", "box", "barrel", "chest", "container", "crateboard",
-    "sign", "signpost", "post", "pole", "fence", "railing", "rail",
-    "wheel", "gear", "cog", "pipe", "tube", "beam", "girder",
-    "sword", "blade", "knife", "axe", "hammer", "rifle", "pistol",
-    "gun", "weapon", "shield", "helmet", "armour", "armor",
-    "table", "chair", "bench", "desk", "shelf", "door", "window",
-    "lamp", "lantern", "torch", "crystal", "gem", "coin", "key",
-    "wall", "pillar", "column", "arch", "stair", "platform", "ramp",
-    "vehicle", "car", "cart", "wagon", "turret", "antenna", "drone",
-    "stone", "metal", "steel", "iron", "wood", "plank", "brick",
-    "golem", "robot", "mech", "construct", "statue", "machine",
-)
+#: Routing strategies, imported for their registration side effect.
+#:
+#: The decision below used to be four tuples of 141 English words — `organic`,
+#: `hard_surface`, `wearers`, `worn_items` — counted against each other. Moving
+#: them into a `routing_vocabulary` module changed nothing that mattered: the
+#: four buckets were still hardcoded in the function reading them, so a new
+#: domain could only ever be a longer word list in somebody else's categories.
+#:
+#: They were also the wrong categories. A rifle and a suit of armour are both
+#: hard-surfaced and route differently, for a structural reason no adjective
+#: captures: the rifle's parts sit beside each other, while the armour's sit on
+#: a host that has to exist and be measured first. Composition versus nesting is
+#: the axis `code_asset_templates.routing` is built on, and each domain package
+#: owns the vocabulary for what it can actually build.
+from operators.gen_3d_object.funcs import code_asset_templates as _templates  # noqa: F401
+from operators.gen_3d_object.funcs.code_asset_templates import routing as _routing
 
 
 class SpecError(ValueError):
@@ -229,10 +219,12 @@ def suits_code_asset(
     subject: str,
     *,
     asset_type: str = "prop",
+    strategies: Any | None = None,
 ) -> dict[str, Any]:
     """Whether ``subject`` should be built from a spec or generated.
 
-    Returns ``{"suitable", "confidence", "reason", "route"}`` where
+    Returns ``{"suitable", "confidence", "reason", "route"}`` plus
+    ``{"topology", "claimed_by", "builder", "detail", "competing"}``, where
     ``route`` is ``"code"``, ``"generate"`` or ``"ambiguous"``.
 
     Declining is the point. img2threejs [1] reports ``unsupported-family``
@@ -245,64 +237,33 @@ def suits_code_asset(
     both ways — a "stone golem" is hard-surface in silhouette and organic
     in surface — because the caller knows which of the two matters for the
     shot the asset appears in.
+
+    THE DECISION IS DELEGATED, and that is the substance of this function. It
+    used to count 141 English words in four hardcoded buckets — `organic`,
+    `hard_surface`, `wearers`, `worn_items`. Moving those words to their own
+    module left the buckets hardcoded here, so a new domain was still only ever
+    a longer word list in somebody else's categories.
+
+    The buckets were also wrong. A rifle and a suit of armour are both
+    hard-surfaced and route differently, for a structural reason no adjective
+    captures: a rifle's parts sit beside each other in one coordinate system,
+    while armour sits on a host that has to exist and be measured first. So
+    subjects are classified by *assembly topology* — composed, nested, surface —
+    and each domain package owns the vocabulary for what it can build. Adding a
+    domain is registering a strategy, not editing this function.
+
+    ``strategies`` is an iterable of ``(name, strategy)`` overriding the
+    registry for one call: how a caller routes against its own taxonomy without
+    touching global state, and how a test asserts a strategy's effect without
+    leaking a registration.
+
+    ``topology`` and ``builder`` are what a caller acts on for a hybrid build.
+    A ``nested`` claim routes to ``generate`` because the next step is to
+    generate the *host*, while each layer on it remains a fine spec subject —
+    the reason and the builder say which module fits them.
     """
 
-    text = f"{subject} {asset_type}".lower()
-    organic = [word for word in ORGANIC_SUBJECTS if word in text]
-    hard = [word for word in HARD_SURFACE_SUBJECTS if word in text]
-
-    # Judged on the balance of evidence, not on whether any organic word is
-    # present. Counting a single match as a veto made "stone golem creature"
-    # route to generation on the strength of one word against two, and the
-    # same logic would have sent a "rock crusher machine" the same way. A
-    # decisive majority routes; anything near parity is ambiguous, which is
-    # the honest answer for a subject that genuinely reads both ways.
-    if organic and hard and abs(len(organic) - len(hard)) < 2:
-        return {
-            "suitable": False,
-            "confidence": 0.5,
-            "route": "ambiguous",
-            "reason": (
-                f"{subject!r} reads both ways — hard-surface "
-                f"({', '.join(hard)}) and organic ({', '.join(organic)}). "
-                "Decide from the shot: a spec if the silhouette carries it, "
-                "generation if the surface does."
-            ),
-        }
-
-    if organic and len(organic) > len(hard):
-        return {
-            "suitable": False,
-            "confidence": 0.9,
-            "route": "generate",
-            "reason": (
-                f"{subject!r} reads as organic ({', '.join(organic)}). A "
-                "spec describes arithmetic over primitives, which is the "
-                "wrong tool for a surface that is the point of the asset — "
-                "use image-to-3D and review the mesh."
-            ),
-        }
-    if hard and len(hard) > len(organic):
-        return {
-            "suitable": True,
-            "confidence": 0.9 if not organic else 0.7,
-            "route": "code",
-            "reason": (
-                f"{subject!r} reads as hard-surface ({', '.join(hard)}): "
-                "exactly describable, so a spec gives a named-part mesh "
-                "with a stated size and facing."
-            ),
-        }
-    return {
-        "suitable": False,
-        "confidence": 0.3,
-        "route": "ambiguous",
-        "reason": (
-            f"{subject!r} matches no known family. Prefer a spec when the "
-            "object can be written down as boxes and cylinders, and "
-            "generation when it cannot."
-        ),
-    }
+    return _routing.resolve(subject, asset_type, strategies=strategies)
 
 
 # --------------------------------------------------------------------------
@@ -325,10 +286,9 @@ def _as_vec3(value: Any, field: str, default: tuple[float, float, float]
 def _as_chamfer(value: Any, part_id: str) -> float:
     """Validate a box's edge cut-back, a fraction of the half-extent.
 
-    Rejected rather than clamped when out of range. A chamfer of 0.5 has
-    eaten the whole half-extent and the face it was cutting back no longer
-    exists — the box has become an octahedron. Silently clamping would hand
-    back a shape nobody asked for and let the spec keep claiming it is a box.
+    Rejected rather than clamped: at 0.5 the bevel has eaten the face it was
+    cutting back and the box is an octahedron, so clamping would hand back a
+    shape nobody asked for while the spec still called it a box.
     """
 
     if value is None:
@@ -350,24 +310,18 @@ def _as_profile(value: Any, part_id: str, kind: str
                 ) -> tuple[tuple[float, float], ...] | None:
     """Validate a lathe or extrude profile, or return None for other kinds.
 
-    The two kinds have genuinely different requirements, and conflating them
-    is what makes a turned part hard to author:
+    A lathe revolves ``(radius, height)`` about local Y and only encloses a
+    volume if the profile starts and ends *on the axis*. Otherwise it is a
+    pipe with two open ends — the easiest mistake here to make, because a
+    list of radii down a barrel reads as sensible and the hole is invisible
+    until something is behind it. A negative radius is refused too: it sweeps
+    back through the axis and self-intersects.
 
-    A lathe revolves ``(radius, height)`` about the local Y axis. It only
-    encloses a volume if the profile *starts and ends on the axis*, radius
-    zero. Otherwise the revolved surface is a pipe with two open ends — no
-    interior, nothing watertight, and the inside visible through the hole.
-    This is the easiest mistake in the vocabulary to make, because a list of
-    radii down the length of a barrel reads as completely sensible and the
-    defect is invisible until something is behind it. A negative radius is
-    likewise refused: it revolves through the axis and self-intersects.
+    An extrude pushes a closed ``(x, y)`` outline along Z and caps it, so it
+    needs three points to bound an area but has no axis to touch.
 
-    An extrude pushes a closed ``(x, y)`` outline along Z and caps both ends,
-    so it needs three points to bound an area but has no axis to touch.
-
-    Refused here rather than reported by a gate because, unlike a proportion
-    or a placement, there is no version of an unclosed lathe that was
-    intended — there is nothing for a correction loop to weigh.
+    Refused here rather than gated: unlike a proportion, there is no version
+    of an unclosed lathe that was intended.
     """
 
     if kind not in ("lathe", "extrude"):
@@ -431,6 +385,100 @@ def _as_profile(value: Any, part_id: str, kind: str
         )
 
     return tuple(points)
+
+
+#: Faces a part can be attached by. ``"min"`` is the low side on that axis,
+#: ``"max"`` the high side, ``"mid"`` the centre.
+ATTACH_FACES = ("min", "mid", "max")
+
+#: How far apart two surfaces may be and still count as attached. A tenth of
+#: a millimetre: tight enough that a visible gap is not called contact, loose
+#: enough to survive the float arithmetic of a rotation.
+ATTACH_TOLERANCE = 1e-4
+
+
+def _as_attach(value: Any, part_id: str) -> dict[str, Any] | None:
+    """Validate ``attach``: place this part against another part's surface.
+
+    ``{"to": "shin-l", "axis": "y", "my": "max", "their": "min", "gap": 0.0}``
+    reads "put my +y face against shin-l's -y face". The two faces default to
+    opposing (``my="min"``, ``their="max"``), which is the common case: a part
+    sitting on top of another.
+
+    This exists because absolute placement is the wrong primitive for a
+    relationship. Every gap in the assets built so far was an absolute `at`
+    that had gone stale — a muzzle 9 mm off its barrel, a sabaton 16 mm under
+    its shin — each found by the connectivity gate, measured by hand, and
+    fixed with a number that went stale again when a neighbour moved. Stating
+    the relationship means the evaluator recomputes it.
+
+    ``offset`` shifts along the other two axes afterwards, because "on top of,
+    and 20 mm forward" is one relationship and not two.
+    """
+
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise SpecError(
+            f"{part_id}.attach must be a dict like "
+            '{"to": "other-part", "axis": "y"}; got ' f"{type(value).__name__}"
+        )
+
+    target = str(value.get("to") or "").strip()
+    if not target:
+        raise SpecError(f"{part_id}.attach needs `to`, the id of the part to sit against")
+
+    axis = str(value.get("axis") or "y").strip().lower()
+    if axis not in ("x", "y", "z"):
+        raise SpecError(f"{part_id}.attach.axis must be 'x', 'y' or 'z'; got {axis!r}")
+
+    mine = str(value.get("my") or "min").strip().lower()
+    theirs = str(value.get("their") or "max").strip().lower()
+    for name, face in (("my", mine), ("their", theirs)):
+        if face not in ATTACH_FACES:
+            raise SpecError(
+                f"{part_id}.attach.{name} must be one of {ATTACH_FACES}; got {face!r}"
+            )
+
+    try:
+        gap = float(value.get("gap") or 0.0)
+    except (TypeError, ValueError) as exc:
+        raise SpecError(f"{part_id}.attach.gap must be a number: {exc}") from exc
+
+    offset = _as_vec3(value.get("offset"), f"{part_id}.attach.offset", (0.0, 0.0, 0.0))
+
+    return {"to": target, "axis": axis, "my": mine, "their": theirs,
+            "gap": gap, "offset": offset}
+
+
+def _as_trim(value: Any, part_id: str) -> tuple[float, float] | None:
+    """Validate ``(keep_from, keep_to)`` as fractions of a source's height.
+
+    Stated, never detected. A generator adds furniture — the fetched cuirass
+    arrived on a mannequin stand — and deciding by measurement where the
+    object ends and the stand begins guesses wrong in both directions: a
+    plinth that was asked for gets cut, or a skirt of armour lames reads as
+    a base and stays. Whoever writes the spec can see the render.
+    """
+
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise SpecError(
+            f"{part_id}.trim must be two fractions (keep_from, keep_to); "
+            f"got {value!r}"
+        )
+    try:
+        low, high = float(value[0]), float(value[1])
+    except (TypeError, ValueError) as exc:
+        raise SpecError(f"{part_id}.trim must be numbers: {exc}") from exc
+    if not 0.0 <= low < high <= 1.0:
+        raise SpecError(
+            f"{part_id}.trim must satisfy 0 <= keep_from < keep_to <= 1; got "
+            f"({low}, {high}). An inverted or empty band removes the whole "
+            "mesh, and a part with no triangles is not a part."
+        )
+    return (low, high)
 
 
 def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
@@ -520,18 +568,19 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
                         "part's longest dimension should end up along, and the "
                         "orientation gate checks the placed mesh against it."
                     )
+            trim = _as_trim(raw.get("trim"), part_id)
         elif source is not None:
             raise SpecError(
                 f"{part_id}: `source` is only meaningful for a {MESH_KIND!r} part, "
                 f"but this one is a {kind!r}. Silently ignoring it would hide a "
                 "part that was meant to be a generated component."
             )
-        elif long_axis is not None:
+        elif long_axis is not None or raw.get("trim") is not None:
             raise SpecError(
-                f"{part_id}: `long_axis` is only meaningful for a {MESH_KIND!r} "
-                f"part, but this one is a {kind!r}. A primitive's axes are "
-                "already known from its kind and size, so there is nothing to "
-                "declare and nothing to check."
+                f"{part_id}: `long_axis` and `trim` are only meaningful for a "
+                f"{MESH_KIND!r} part, but this one is a {kind!r}. A primitive's "
+                "axes and extent follow from its kind and size, so there is "
+                "nothing to declare and nothing to trim."
             )
 
         size = _as_vec3(raw.get("size"), f"{part_id}.size", (1.0, 1.0, 1.0))
@@ -541,6 +590,32 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
                 "A zero extent is a plane pretending to be a solid, and it "
                 "vanishes when seen edge-on."
             )
+
+        # `mirror` reflects the part's geometry across one of its own axes.
+        #
+        # It exists because a generated pair arrives as one hand. The fetched
+        # pauldron leans 0.131 of its 0.412 half-width toward -x — it is a
+        # *left* shoulder — and putting the same mesh on both shoulders gave one
+        # correct pauldron and one whose lames hung inboard, over the ribs
+        # instead of over the arm. Mirroring the position, which is all the
+        # chirality gate checks, cannot fix that: the geometry has a handedness
+        # of its own.
+        #
+        # Not expressible as a rotation, which is the reason it needs to exist
+        # at all: a 180-degree turn about y would face the lames outboard but
+        # also swap front for back. Not expressible as a negative `size`
+        # either, since that is refused above — and silently allowing it would
+        # invert every normal.
+        mirror = raw.get("mirror")
+        if mirror is not None:
+            mirror = str(mirror).strip().lower()
+            if mirror not in ("x", "y", "z"):
+                raise SpecError(
+                    f"{part_id}.mirror must be 'x', 'y' or 'z'; got "
+                    f"{raw.get('mirror')!r}. It names the axis to reflect the "
+                    "part's own geometry across, for the case where a generated "
+                    "pair arrived as one hand."
+                )
 
         parts.append({
             "id": part_id,
@@ -556,9 +631,19 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
             "chamfer": _as_chamfer(raw.get("chamfer"), part_id),
             "source": source,
             "long_axis": long_axis,
+            "trim": trim if kind == MESH_KIND else None,
+            "mirror": mirror,
+            # Nesting and attachment. Both resolved after every part is read,
+            # because either may name a part declared later — a spec whose
+            # parts had to be in dependency order would push the graph into
+            # the author's head, which is where it already was.
+            "parent": (
+                str(raw["parent"]).strip() if raw.get("parent") else None
+            ),
+            "attach": _as_attach(raw.get("attach"), part_id),
         })
 
-    return {
+    validated = {
         "subject": subject,
         "units": units,
         "forward": forward,
@@ -572,11 +657,175 @@ def validate_spec(spec: dict[str, Any]) -> dict[str, Any]:
         "materials": dict(spec.get("materials") or {}),
         "notes": str(spec.get("notes") or ""),
     }
+    # Relations become positions here, so nothing downstream can forget to
+    # resolve them. A gate measuring an unresolved spec measures parts stacked
+    # at the origin and reports nonsense with confidence.
+    return resolve_placement(validated)
 
 
 # --------------------------------------------------------------------------
 # Geometry, derived from the spec without a renderer
 # --------------------------------------------------------------------------
+
+
+def local_bounds(part: dict[str, Any]) -> tuple[tuple[float, float, float],
+                                               tuple[float, float, float]]:
+    """A part's extent about its own origin, ignoring ``at``.
+
+    Attachment needs to know how big a part is before it knows where it
+    goes, which absolute bounds cannot answer without circularity.
+    """
+
+    from models.common.glb_writer import rotated_bounds
+
+    return rotated_bounds(
+        part["size"], (0.0, 0.0, 0.0), part["rotation"],
+        profile=part.get("profile"), kind=part["kind"],
+        source=part.get("source"), trim=part.get("trim"),
+    )
+
+
+def _dependency_order(parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Parts sorted so every ``parent`` and ``attach.to`` comes first.
+
+    Refuses a cycle by naming the parts in it. A cycle is not a hard case to
+    handle gracefully — it is a spec that does not describe a position, since
+    two parts each attached to the other have no solution.
+    """
+
+    by_id = {part["id"]: part for part in parts}
+    for part in parts:
+        for field, target in (("parent", part.get("parent")),
+                              ("attach", (part.get("attach") or {}).get("to"))):
+            if target and target not in by_id:
+                raise SpecError(
+                    f"{part['id']}.{field} names {target!r}, which is not a "
+                    f"part of this spec. Known parts: "
+                    f"{', '.join(sorted(by_id)[:8])}"
+                    f"{'...' if len(by_id) > 8 else ''}"
+                )
+            if target == part["id"]:
+                raise SpecError(
+                    f"{part['id']}.{field} refers to itself, which describes "
+                    "no position"
+                )
+
+    ordered: list[dict[str, Any]] = []
+    state: dict[str, str] = {}
+
+    def visit(part_id: str, trail: list[str]) -> None:
+        mark = state.get(part_id)
+        if mark == "done":
+            return
+        if mark == "visiting":
+            cycle = " -> ".join(trail[trail.index(part_id):] + [part_id])
+            raise SpecError(
+                f"parent/attach form a cycle: {cycle}. Each part in it waits "
+                "for the next, so none of them has a position."
+            )
+        state[part_id] = "visiting"
+        part = by_id[part_id]
+        for target in (part.get("parent"),
+                       (part.get("attach") or {}).get("to")):
+            if target:
+                visit(target, trail + [part_id])
+        state[part_id] = "done"
+        ordered.append(part)
+
+    for part in parts:
+        visit(part["id"], [])
+    return ordered
+
+
+def resolve_placement(spec: dict[str, Any]) -> dict[str, Any]:
+    """Turn ``parent`` and ``attach`` into absolute ``at``, in place of relations.
+
+    Returns a spec whose parts carry a world-space ``at`` and, for nested
+    parts, a ``local_at`` the writer uses to keep the glTF hierarchy. Run
+    before the gates, because a gate measuring an unresolved spec is
+    measuring parts stacked at the origin.
+
+    Two relations, resolved in dependency order:
+
+    ``parent`` makes ``at`` local to the parent's frame, and is what keeps a
+    vambrace on a forearm when the forearm moves. The parent's rotation is
+    *not* applied to the child here — glTF applies it at load, and applying
+    it twice is the classic double-transform. What the resolver needs is only
+    the child's world position, so the gates measure where it will land.
+
+    ``attach`` solves position from a surface relationship: put my face
+    against theirs on one axis, plus a gap and an offset. Every gap in the
+    assets built before this was an absolute ``at`` that had gone stale;
+    stating the relationship means it cannot.
+    """
+
+    parts = [dict(part) for part in spec["parts"]]
+    resolved: dict[str, dict[str, Any]] = {}
+    world_at: dict[str, tuple[float, float, float]] = {}
+
+    for part in _dependency_order(parts):
+        local_at = tuple(float(value) for value in part["at"])
+        part["local_at"] = local_at
+
+        origin = (0.0, 0.0, 0.0)
+        if part.get("parent"):
+            origin = world_at[part["parent"]]
+
+        attach = part.get("attach")
+        if attach is None:
+            placed = tuple(origin[axis] + local_at[axis] for axis in range(3))
+        else:
+            target = resolved[attach["to"]]
+            target_low, target_high = part_bounds(target)
+            my_low, my_high = local_bounds(part)
+
+            axis = "xyz".index(attach["axis"])
+            their_face = {
+                "min": target_low[axis],
+                "mid": (target_low[axis] + target_high[axis]) / 2.0,
+                "max": target_high[axis],
+            }[attach["their"]]
+            my_face = {
+                "min": my_low[axis],
+                "mid": (my_low[axis] + my_high[axis]) / 2.0,
+                "max": my_high[axis],
+            }[attach["my"]]
+
+            # Sign of the gap follows which face is being presented: a part
+            # attached by its `min` sits above, so a positive gap lifts it.
+            direction = 1.0 if attach["my"] == "min" else -1.0
+            values = list(local_at)
+            values[axis] = their_face - my_face + direction * attach["gap"]
+            # The other two axes keep whatever `at` said, taken as an offset
+            # from the target's centre rather than from the world origin —
+            # otherwise attaching would silently move a part sideways.
+            for other in range(3):
+                if other == axis:
+                    continue
+                centre = (target_low[other] + target_high[other]) / 2.0
+                values[other] = centre + local_at[other]
+            placed = tuple(
+                values[axis_index] + attach["offset"][axis_index]
+                for axis_index in range(3)
+            )
+            if part.get("parent"):
+                # An attached child's position is already absolute, so the
+                # writer must not add the parent's translation again. Recording
+                # the difference keeps the glTF hierarchy correct.
+                part["local_at"] = tuple(
+                    placed[index] - origin[index] for index in range(3)
+                )
+
+        part["at"] = placed
+        world_at[part["id"]] = placed
+        resolved[part["id"]] = part
+
+    out = dict(spec)
+    # Emitted in the author's order, not dependency order: a report that
+    # renamed or reordered parts would be harder to compare against the spec
+    # that produced it.
+    out["parts"] = [resolved[part["id"]] for part in spec["parts"]]
+    return out
 
 
 def part_bounds(part: dict[str, Any]) -> tuple[tuple[float, float, float],
@@ -596,7 +845,7 @@ def part_bounds(part: dict[str, Any]) -> tuple[tuple[float, float, float],
     return rotated_bounds(
         part["size"], part["at"], part["rotation"],
         profile=part.get("profile"), kind=part["kind"],
-        source=part.get("source"),
+        source=part.get("source"), trim=part.get("trim"),
     )
 
 
@@ -667,7 +916,9 @@ def estimate_triangles(spec: dict[str, Any]) -> int:
             # from the same budget the gate enforces.
             from models.common.glb_writer import load_mesh_asset
 
-            total += load_mesh_asset(str(part["source"]))["triangles"]
+            total += load_mesh_asset(
+                str(part["source"]), part.get("trim")
+            )["triangles"]
     return total
 
 
@@ -1079,32 +1330,24 @@ def check_windings(spec: dict[str, Any]) -> dict[str, Any]:
 def check_provenance(spec: dict[str, Any]) -> dict[str, Any]:
     """Report what a composition delegated to a generator, and at what cost.
 
-    The gate for the hybrid route. Every other gate treats a ``mesh`` part
-    like a box, which is the property that makes composition work — but two
-    things become true once a part is generated rather than derived, and
-    neither has anywhere else to be checked.
+    Every other gate treats a ``mesh`` part like a box, which is what makes
+    composition work. This one records the two facts about a generated part
+    that have nowhere else to go.
 
     **Where the triangles went.** A generated part is thousands of triangles
-    against a chamfered box's 44, so in a composition the generated parts
-    are the budget almost entirely. That is fine when they are carrying the
-    detail and bad when they are not: a generated part standing in for
-    something a lathe would have stated exactly has bought an approximation
-    at a hundred times the cost, and the approximation is the part that
-    cannot then be adjusted. Reported per part, so the trade is visible
-    rather than inferred from a total.
+    against a chamfered box's 44, so it dominates the budget. Fine when it
+    carries detail no formula gives; bad when it replaces something a lathe
+    states exactly, since that buys an approximation at a hundred times the
+    cost and the approximation cannot afterwards be edited.
 
-    **What the spec is asserting about a file it did not write.** ``size``,
-    ``at``, ``rotation`` and ``forward`` are claims about a mesh whose own
-    axes came from a generator, and nothing in the file states which way it
-    faces. This gate cannot know the right answer — that is what
-    ``orientation_review`` is for — but it can insist the spec says
-    something, and record what it said, so a part that arrives lying on its
-    side is a wrong statement to correct rather than a missing one to guess.
+    **That the spec asserts things about a file it did not write.** ``size``,
+    ``at`` and ``rotation`` are claims about a mesh whose axes came from a
+    generator. Recording the claim makes a sideways part a statement to
+    correct rather than a mystery.
 
-    Warnings, not failures, with one exception: a generated part that is
-    most of the asset's triangles *and* most of its volume means the
-    composition is a generated asset with primitives glued on, and the
-    honest route for that is generation with an orientation review.
+    Warnings, except when the triangles are almost all generated *and*
+    hardly any part is stated: that is a generated asset with decoration,
+    and it should take generation's review rather than a spec's label.
     """
 
     warnings: list[str] = []
@@ -1129,7 +1372,7 @@ def check_provenance(spec: dict[str, Any]) -> dict[str, Any]:
 
     generated_triangles = 0
     for part in generated:
-        asset = load_mesh_asset(str(part["source"]))
+        asset = load_mesh_asset(str(part["source"]), part.get("trim"))
         triangles = asset["triangles"]
         generated_triangles += triangles
         low, high = part_bounds(part)
@@ -1218,30 +1461,20 @@ def check_provenance(spec: dict[str, Any]) -> dict[str, Any]:
 def check_orientation(spec: dict[str, Any]) -> dict[str, Any]:
     """A generated part's axes must end up where the spec says they do.
 
-    Added after the rifle's grip came out facing across the weapon. The
-    cause was not a library bug and no other gate could see it: the mesh's
-    own longest axis was its *x*, so `rotation: [-8, 0, 0]` — the intuitive
-    reading of "rake it back" — tilted the grip in the plane it was already
-    flat in. Every gate passed. The bounds were right, the winding was
-    right, the scale was right, and the part was sideways.
+    Added after the rifle's grip came out sideways with every other gate
+    passing — bounds, winding and scale all correct, the part wrong. Its own
+    longest axis was *x*, so ``rotation: [-8, 0, 0]``, the intuitive "rake it
+    back", tilted it in the plane it was already flat in.
 
-    That is the failure mode this whole route was built to avoid at the
-    *asset* level, which is why ``forward`` has no default. A generated
-    ``mesh`` part reintroduces it one level down: the file states nothing
-    about which of its axes is length, so the rotation that lands it
-    correctly can only be found by measuring the vertices, and getting it
-    wrong produces a mesh that is confidently, quietly wrong.
+    This is the defect ``forward`` exists for, one level down: a fetched file
+    states nothing about which axis is length, so the rotation that lands it
+    can only be found by measuring vertices. ``long_axis`` is that
+    measurement written down, checked against the placed geometry.
 
-    So a ``mesh`` part may declare ``long_axis`` — which of the rifle's axes
-    the part's longest dimension should end up along. Checked against the
-    placed geometry, not against the file. Optional, because for a part that
-    is nearly cubic the longest axis is noise rather than intent; declared,
-    it is enforced.
-
-    Warned and not failed. The measurement is a proxy: a grip that is
-    correctly upright but mirrored front-to-back has the same longest axis,
-    so passing this is not proof. A gate that failed on a proxy would be
-    claiming more than it checked.
+    Optional, since a near-cubic part's longest axis is noise. Warned rather
+    than failed because the measure is a proxy — a part upright but mirrored
+    front-to-back has the same longest axis — and a gate failing on a proxy
+    would claim more than it checked.
     """
 
     warnings: list[str] = []
