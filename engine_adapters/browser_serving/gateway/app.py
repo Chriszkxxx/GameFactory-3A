@@ -200,6 +200,7 @@ def create_app(
             from ..backends import (
                 create_ue5_example_backend,
                 create_unity3d_example_backend,
+                create_godot_example_backend,
             )
 
             backends = []
@@ -207,6 +208,8 @@ def create_app(
                 backends.append(create_ue5_example_backend(resolved_config))
             if resolved_config.unity_project or resolved_config.unity_root:
                 backends.append(create_unity3d_example_backend(resolved_config))
+            if resolved_config.godot_project or resolved_config.godot_executable:
+                backends.append(create_godot_example_backend(resolved_config))
             if not backends:
                 backends = [create_ue5_example_backend(resolved_config)]
         service = BrowserServingService(
