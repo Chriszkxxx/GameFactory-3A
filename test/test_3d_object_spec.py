@@ -919,8 +919,8 @@ def test_a_profile_may_be_written_either_way_round() -> None:
 def test_the_windings_gate_catches_an_inverted_part() -> None:
     """The gate must fail a solid that is inside-out, and pass one that is not.
 
-    The gate exists because four primitives shipped inverted and all five
-    other gates passed them. So it is not enough to assert it passes correct
+    The gate exists because four primitives shipped inverted and every
+    other gate passed them. So it is not enough to assert it passes correct
     geometry — that it did before the bug was fixed. It has to be shown
     failing on geometry that is actually inverted, which means reversing a
     real part's triangles and putting that through the gate.
@@ -1003,6 +1003,783 @@ def test_the_windings_gate_catches_an_inverted_part() -> None:
     )
 
 
+def test_a_generated_mesh_composes_like_a_primitive() -> None:
+    """A `mesh` part must behave as the gates already expect a part to.
+
+    The whole value of composing rather than generating whole is that
+    downstream code does not branch on provenance: a generated grip is
+    placed by `at`, measured by `part_bounds`, budgeted by
+    `estimate_triangles` and checked by `windings` exactly like a box. So
+    what is asserted here is *sameness* — every invariant the primitives
+    already satisfy, satisfied by a mesh read off disk.
+
+    The fixture is written by this repository's own writer rather than
+    checked in as a binary, which also makes the round trip a real test: a
+    known mesh out through `write_spec_glb`, back in through
+    `read_glb_mesh`, and the triangle count and winding have to survive.
+
+    The one thing that is deliberately *not* the same is the scaling rule.
+    A mesh is fitted by a single factor so it keeps the proportions it was
+    generated with, because stretching a moulded shape to fill a box is a
+    worse defect than a shape that is not exactly the requested thickness.
+    That makes `size` a request rather than an extent, which is why the
+    bound has to come from the vertices.
+    """
+
+    print("\na generated mesh composes like a primitive")
+    from models.common.glb_writer import (
+        build_part, effective_size, rotated_bounds, write_spec_glb,
+    )
+    from operators.gen_3d_object.funcs.code_asset import (
+        MESH_KIND, SpecError, check_windings, estimate_triangles, run_gates,
+        validate_spec,
+    )
+
+    with tempfile.TemporaryDirectory() as directory:
+        # An L-shaped fixture: not symmetric on any axis, so a bound computed
+        # by the wrong rule cannot match by luck.
+        fixture = write_spec_glb(
+            {
+                "subject": "fixture", "units": "metres", "forward": "+z",
+                "height_metres": 1.0, "materials": {},
+                "parts": [
+                    {"id": "tall", "kind": "box", "size": (0.4, 1.0, 0.3),
+                     "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                     "segments": 16, "profile": None, "material": "d"},
+                    {"id": "foot", "kind": "box", "size": (0.9, 0.2, 0.3),
+                     "at": (0.25, -0.4, 0.0), "rotation": (0.0, 0.0, 0.0),
+                     "segments": 16, "profile": None, "material": "d"},
+                ],
+            },
+            str(Path(directory) / "fixture.glb"),
+        )
+        fixture_triangles = 24        # two sharp boxes
+
+        def part(size, rotation=(0.0, 0.0, 0.0), at=(0.0, 0.2, 0.0)):
+            return {
+                "id": "generated", "kind": MESH_KIND, "source": fixture,
+                "size": size, "at": at, "rotation": rotation,
+                "segments": 16, "profile": None, "material": "default",
+            }
+
+        positions, normals, indices = build_part(part((0.5, 0.5, 0.5)))
+        check(
+            "the fixture survives the round trip with its triangles intact",
+            len(indices) // 3 == fixture_triangles,
+            f"wrote {fixture_triangles}, read back {len(indices) // 3}",
+        )
+        check(
+            "and with a normal per vertex",
+            len(normals) == len(positions),
+            f"{len(positions)} positions, {len(normals)} normals",
+        )
+
+        check(
+            "the triangle estimate reads the file rather than guessing",
+            estimate_triangles({"parts": [part((0.5, 0.5, 0.5))]})
+            == fixture_triangles,
+            f"estimated "
+            f"{estimate_triangles({'parts': [part((0.5, 0.5, 0.5))]})}",
+        )
+
+        # The bound must equal the mesh at any angle. A box's bound can be had
+        # from its eight transformed corners; a mesh that does not reach its
+        # corners cannot, and the discrepancy only appears once rotated.
+        for rotation in ((0.0, 0.0, 0.0), (0.0, 90.0, 0.0), (-8.0, 0.0, 0.0),
+                         (23.0, 41.0, 17.0)):
+            candidate = part((0.5, 0.5, 0.5), rotation=rotation)
+            placed, _normals, _indices = build_part(candidate)
+            actual_low = [min(p[axis] for p in placed) for axis in range(3)]
+            actual_high = [max(p[axis] for p in placed) for axis in range(3)]
+            low, high = rotated_bounds(
+                candidate["size"], candidate["at"], rotation,
+                kind=MESH_KIND, source=fixture,
+            )
+            check(
+                f"the bound equals the mesh at rotation {rotation}",
+                all(
+                    abs(low[axis] - actual_low[axis]) < 1e-9
+                    and abs(high[axis] - actual_high[axis]) < 1e-9
+                    for axis in range(3)
+                ),
+                f"bound {[round(v, 6) for v in low]}..."
+                f"{[round(v, 6) for v in high]} against mesh "
+                f"{[round(v, 6) for v in actual_low]}..."
+                f"{[round(v, 6) for v in actual_high]}",
+            )
+
+        # A non-uniform size is reduced to its largest component, and both the
+        # writer and the bound have to agree about that. Disagreeing is the
+        # defect the lathe bounds already produced once.
+        check(
+            "a non-uniform size on a mesh part collapses to one factor",
+            effective_size((0.5, 0.1, 0.2), MESH_KIND) == (0.5, 0.5, 0.5),
+            f"got {effective_size((0.5, 0.1, 0.2), MESH_KIND)}",
+        )
+        stretched, _n, _i = build_part(part((0.5, 0.1, 0.2)))
+        uniform, _n, _i = build_part(part((0.5, 0.5, 0.5)))
+        check(
+            "so it writes the same mesh as the uniform request",
+            all(
+                abs(stretched[index][axis] - uniform[index][axis]) < 1e-12
+                for index in range(len(uniform)) for axis in range(3)
+            ),
+            "a non-uniform size changed the geometry",
+        )
+
+        # `windings` treats the mesh like everything else, because it is
+        # measuring the evaluated triangles and does not know the provenance.
+        report = check_windings({"parts": [part((0.5, 0.5, 0.5))]})
+        check(
+            "the windings gate passes a well-formed generated part",
+            report["ok"] and not report["inverted"],
+            f"failures: {report['failures']}",
+        )
+
+        # And the composition as a whole passes, which is the claim: a spec
+        # mixing the two kinds is not a special case anywhere.
+        mixed = validate_spec({
+            "subject": "bracket with a moulded pad", "units": "metres",
+            "forward": "+z", "asset_type": "prop", "height_metres": 0.5,
+            "materials": {},
+            "parts": [
+                {"id": "plate", "kind": "box", "size": (0.3, 0.02, 0.3),
+                 "at": (0.0, 0.01, 0.0), "material": "default",
+                 "chamfer": 0.1},
+                {"id": "pad", "kind": MESH_KIND, "source": fixture,
+                 "size": (0.5, 0.5, 0.5), "at": (0.0, 0.27, 0.0),
+                 "material": "default"},
+            ],
+        })
+        gates = run_gates(mixed)
+        check(
+            "a spec mixing primitives and generated parts passes every gate",
+            gates["ok"],
+            f"failures: {gates['failures']}",
+        )
+        check(
+            "and the provenance gate reports which parts were generated",
+            [
+                entry["id"]
+                for report in gates["reports"] if report["gate"] == "provenance"
+                for entry in report["generated_parts"]
+            ] == ["pad"],
+            f"reports: {[r['gate'] for r in gates['reports']]}",
+        )
+
+        # Refusals. A missing source and a source on a primitive are both
+        # authoring mistakes with no version that was intended: the first has
+        # no geometry at all, and the second is a generated part that was
+        # meant to be one and silently is not.
+        for label, faulty in (
+            ("a mesh part with no source", {"id": "p", "kind": MESH_KIND,
+                                            "size": (0.5, 0.5, 0.5)}),
+            ("a mesh part whose source is missing", {
+                "id": "p", "kind": MESH_KIND, "size": (0.5, 0.5, 0.5),
+                "source": str(Path(directory) / "absent.glb")}),
+            ("a source on a box", {"id": "p", "kind": "box",
+                                   "size": (0.5, 0.5, 0.5),
+                                   "source": fixture}),
+        ):
+            try:
+                validate_spec({
+                    "subject": "x", "units": "metres", "forward": "+z",
+                    "parts": [faulty],
+                })
+                check(f"{label} is refused", False, "it was accepted")
+            except SpecError:
+                check(f"{label} is refused", True, "")
+
+
+def test_the_provenance_gate_reports_the_trade() -> None:
+    """The gate must say what generation bought and what it cost.
+
+    Its job is not to prevent generated parts — it is to keep the trade
+    visible, because after export the two kinds are indistinguishable and
+    only one of them can still be adjusted by editing a number. Two
+    thresholds, and the reason they differ is the point:
+
+    A composition that is mostly generated triangles is warned, since a
+    grip and a stock legitimately outweigh forty small primitives.
+
+    A composition that is mostly generated *parts as well as* triangles is
+    failed, because at that point it is a generated asset with primitives
+    attached, and it would be reported as `verified_by="spec"` while
+    nothing had verified the facing of the mesh carrying it.
+    """
+
+    print("\nthe provenance gate reports the trade")
+    from models.common.glb_writer import write_spec_glb
+    from operators.gen_3d_object.funcs.code_asset import (
+        MESH_KIND, check_provenance, validate_spec,
+    )
+
+    with tempfile.TemporaryDirectory() as directory:
+        # A dense fixture, so a single mesh part can dominate a budget the way
+        # a real generated part does.
+        fixture = write_spec_glb(
+            {
+                "subject": "dense", "units": "metres", "forward": "+z",
+                "height_metres": 1.0, "materials": {},
+                "parts": [{
+                    "id": "ball", "kind": "sphere", "size": (1.0, 1.0, 1.0),
+                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                    "segments": 48, "profile": None, "material": "d",
+                }],
+            },
+            str(Path(directory) / "dense.glb"),
+        )
+
+        def spec(parts: list[dict]) -> dict:
+            return validate_spec({
+                "subject": "assembly", "units": "metres", "forward": "+z",
+                "asset_type": "prop", "materials": {}, "parts": parts,
+            })
+
+        primitives = [
+            {"id": f"box-{index}", "kind": "box", "size": (0.05, 0.05, 0.05),
+             "at": (index * 0.06, 0.03, 0.0), "material": "default"}
+            for index in range(6)
+        ]
+        mesh_part = {
+            "id": "moulded", "kind": MESH_KIND, "source": fixture,
+            "size": (0.2, 0.2, 0.2), "at": (0.0, 0.2, 0.0),
+            "material": "default",
+        }
+
+        # No generated parts: the gate is silent rather than absent, so a
+        # pure-primitive spec does not pay for a check it does not need.
+        report = check_provenance(spec(primitives))
+        check(
+            "a spec with no generated parts passes silently",
+            report["ok"] and not report["warnings"]
+            and report["generated_triangles"] == 0,
+            f"{report}",
+        )
+
+        # Mostly generated triangles: warned, not failed.
+        report = check_provenance(spec(primitives + [mesh_part]))
+        check(
+            "a composition dominated by generated triangles is warned",
+            report["ok"] and any(
+                "generated" in message for message in report["warnings"]
+            ),
+            f"ok={report['ok']}, warnings={report['warnings']}",
+        )
+        check(
+            "and the per-part cost is reported, not just the total",
+            report["generated_parts"][0]["triangles"] > 0
+            and 0.0 < report["generated_parts"][0]["share"] <= 1.0,
+            f"{report['generated_parts']}",
+        )
+
+        # Mostly generated parts *and* triangles: failed.
+        report = check_provenance(spec([
+            dict(mesh_part, id="moulded-a"),
+            dict(mesh_part, id="moulded-b", at=(0.3, 0.2, 0.0)),
+            {"id": "pin", "kind": "box", "size": (0.01, 0.01, 0.01),
+             "at": (0.0, 0.005, 0.0), "material": "default"},
+        ]))
+        check(
+            "a composition that is really a generated asset is failed",
+            not report["ok"]
+            and any("composition" in message for message in report["failures"]),
+            f"ok={report['ok']}, failures={report['failures']}",
+        )
+
+        # The boundary, pinned. Both conditions are required, and each on its
+        # own would fail work that is correct: a real weapon is 77% generated
+        # triangles because a grip outweighs forty small primitives, and a
+        # bracket is legitimately one plate plus one moulded pad. Asserting
+        # only the failing case would leave the threshold as a claim.
+        report = check_provenance(spec([
+            {"id": "plate", "kind": "box", "size": (0.3, 0.02, 0.3),
+             "at": (0.0, 0.01, 0.0), "material": "default"},
+            {"id": "post", "kind": "cylinder", "size": (0.02, 0.1, 0.02),
+             "at": (0.0, 0.07, 0.0), "material": "default"},
+            dict(mesh_part, id="pad"),
+        ]))
+        check(
+            "two stated parts beside a generated one is a composition, not a "
+            "disguise",
+            report["ok"] and report["generated_share"] > 0.9,
+            f"ok={report['ok']}, share={report['generated_share']}, "
+            f"failures={report['failures']}",
+        )
+        report = check_provenance(spec([
+            {"id": "plate", "kind": "box", "size": (0.3, 0.02, 0.3),
+             "at": (0.0, 0.01, 0.0), "material": "default"},
+            dict(mesh_part, id="pad"),
+        ]))
+        check(
+            "but one stated part beside it is decoration on something fetched",
+            not report["ok"],
+            f"ok={report['ok']}, share={report['generated_share']}",
+        )
+
+        # A non-uniform size is honoured by taking the largest component, and
+        # the gate says so — the author wrote three numbers and got one.
+        report = check_provenance(spec([
+            dict(mesh_part, size=(0.2, 0.05, 0.1)),
+        ]))
+        check(
+            "a non-uniform size on a generated part is called out",
+            any("not uniform" in message for message in report["warnings"]),
+            f"warnings={report['warnings']}",
+        )
+        report = check_provenance(spec([mesh_part]))
+        check(
+            "and a uniform one is not",
+            not any("not uniform" in message for message in report["warnings"]),
+            f"warnings={report['warnings']}",
+        )
+
+
+def test_an_unclosed_generated_part_warns_but_does_not_block() -> None:
+    """An unclosed mesh is warned; an unclosed primitive still fails.
+
+    The same measurement, two different meanings, and collapsing them
+    either way is wrong. An unclosed *primitive* has a fix in the spec —
+    nearly always a lathe profile that does not return to the axis — so
+    failing it is actionable. An unclosed *generated* mesh is what the
+    generator returned; no spec edit repairs it, and blocking an asset over
+    a few boundary edges on a grip means the gate gets bypassed rather than
+    the mesh improved, and then it protects nothing.
+
+    Measured on a real fetched part: the scope generated for the rifle came
+    back with 103 boundary edges while the grip and stock had none, so this
+    is the common case and not a hypothetical.
+    """
+
+    print("\nan unclosed generated part warns but does not block")
+    from models.common import glb_writer
+    from operators.gen_3d_object.funcs.code_asset import MESH_KIND, check_windings
+
+    with tempfile.TemporaryDirectory() as directory:
+        fixture = glb_writer.write_spec_glb(
+            {
+                "subject": "cube", "units": "metres", "forward": "+z",
+                "height_metres": 1.0, "materials": {},
+                "parts": [{
+                    "id": "c", "kind": "box", "size": (1.0, 1.0, 1.0),
+                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                    "segments": 16, "profile": None, "material": "d",
+                }],
+            },
+            str(Path(directory) / "cube.glb"),
+        )
+
+        mesh_part = {
+            "id": "fetched", "kind": MESH_KIND, "source": fixture,
+            "size": (0.3, 0.3, 0.3), "at": (0.0, 0.15, 0.0),
+            "rotation": (0.0, 0.0, 0.0), "segments": 16, "profile": None,
+            "material": "default",
+        }
+        box_part = {
+            "id": "authored", "kind": "box", "size": (0.3, 0.3, 0.3),
+            "at": (0.4, 0.15, 0.0), "rotation": (0.0, 0.0, 0.0),
+            "segments": 16, "profile": None, "material": "default",
+            "chamfer": 0.0,
+        }
+
+        # Drop the last triangle of whatever is built, which opens a hole
+        # without touching anything else — same vertices, same bounds.
+        original = glb_writer.build_part
+
+        def holed(part: dict) -> tuple:
+            positions, normals, indices = original(part)
+            return positions, normals, indices[:-3]
+
+        glb_writer.build_part = holed
+        try:
+            report = check_windings({"parts": [mesh_part]})
+            check(
+                "an unclosed generated part does not block",
+                report["ok"] and report["unclosed_generated"]
+                and not report["unclosed"],
+                f"ok={report['ok']}, generated={report['unclosed_generated']}, "
+                f"primitive={report['unclosed']}",
+            )
+            check(
+                "and it is warned about by name",
+                any("fetched" in message for message in report["warnings"]),
+                f"warnings={report['warnings']}",
+            )
+
+            report = check_windings({"parts": [box_part]})
+            check(
+                "an unclosed primitive still fails",
+                not report["ok"] and report["unclosed"]
+                and not report["unclosed_generated"],
+                f"ok={report['ok']}, primitive={report['unclosed']}",
+            )
+        finally:
+            glb_writer.build_part = original
+
+
+def test_a_fetched_texture_survives_composition() -> None:
+    """A generated part's UVs and base-colour image must reach the output.
+
+    This is most of what a generated part contributes. A grip's stippling
+    and a car shell's panel decals live in the atlas, not the mesh, so a
+    composition that drops the texture has paid for geometry and thrown
+    away the reason it was fetched — while still looking plausible, because
+    the part inherits the spec's flat PBR factors and merely appears
+    undecorated rather than broken.
+
+    Four properties, each of which fails silently:
+
+    * UVs are written, and only for the parts that have them. A primitive
+      given arbitrary UVs samples an arbitrary corner of somebody else's
+      atlas, which is worse than no texture at all.
+    * the image bytes are carried, so the output is self-contained. A GLB
+      referencing an external file is not something an engine import can use.
+    * one copy per source, however many times the part is placed. Four
+      identical wheels sharing a 3 MB atlas is 3 MB; not sharing it is 12.
+    * a metallic-roughness *map* means its factors cannot be inherited.
+      Measured on the fetched grip: `metallicFactor 1.0, roughnessFactor
+      1.0`, which are glTF defaults meant to multiply a map. Copied across
+      without the map they scale, a stippled polymer grip renders as
+      sandblasted steel.
+    """
+
+    print("\na fetched texture survives composition")
+    from models.common.glb_utils import glb_json_chunk, read_glb_mesh
+    from models.common.glb_writer import load_mesh_asset, write_spec_glb
+
+    # A fixture with a base-colour texture, built by hand rather than fetched
+    # so the test needs no network and no checked-in binary. A 1x1 PNG is
+    # enough: what is under test is the plumbing, not the image.
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d494844520000000100000001080200000090"
+        "7753de0000000c4944415408d763f8cfc0000003010100189dd1a2000000"
+        "0049454e44ae426082"
+    )
+
+    with tempfile.TemporaryDirectory() as directory:
+        source = Path(directory) / "textured.glb"
+        _write_textured_fixture(source, png)
+
+        asset = load_mesh_asset(str(source))
+        check(
+            "the fixture's UVs are read back",
+            asset["has_uvs"] and len(asset["uvs"]) == len(asset["positions"]),
+            f"has_uvs={asset['has_uvs']}, "
+            f"{len(asset['uvs'])} uvs for {len(asset['positions'])} vertices",
+        )
+        check(
+            "and its base-colour image bytes",
+            asset["materials"] and asset["materials"][0]["image"] == png,
+            f"materials={[m['name'] for m in asset['materials']]}",
+        )
+        check(
+            "a metallic-roughness map makes its factors untrustworthy",
+            asset["materials"][0]["factors_from"] == "assumed"
+            and asset["materials"][0]["metallic"] == 0.0,
+            f"factors_from={asset['materials'][0]['factors_from']}, "
+            f"metallic={asset['materials'][0]['metallic']}",
+        )
+
+        # Compose: one primitive, and the same fetched part placed twice.
+        def mesh_part(part_id: str, at: tuple) -> dict:
+            return {
+                "id": part_id, "kind": "mesh", "source": str(source),
+                "size": (0.3, 0.3, 0.3), "at": at, "rotation": (0.0, 0.0, 0.0),
+                "segments": 16, "profile": None, "material": "steel",
+                "chamfer": 0.0, "long_axis": None,
+            }
+
+        out = write_spec_glb(
+            {
+                "subject": "two pads on a plate", "units": "metres",
+                "forward": "+z", "height_metres": 0.5,
+                "materials": {"steel": {"baseColor": [0.5, 0.5, 0.55, 1.0],
+                                        "metallic": 1.0, "roughness": 0.3}},
+                "parts": [
+                    {"id": "plate", "kind": "box", "size": (0.6, 0.02, 0.6),
+                     "at": (0.0, 0.01, 0.0), "rotation": (0.0, 0.0, 0.0),
+                     "segments": 16, "profile": None, "material": "steel",
+                     "chamfer": 0.1, "source": None, "long_axis": None},
+                    mesh_part("pad-a", (-0.2, 0.16, 0.0)),
+                    mesh_part("pad-b", (0.2, 0.16, 0.0)),
+                ],
+            },
+            str(Path(directory) / "composed.glb"),
+        )
+        document = glb_json_chunk(Path(out).read_bytes())
+
+        textured = [
+            "TEXCOORD_0" in primitive["attributes"]
+            for mesh in document["meshes"] for primitive in mesh["primitives"]
+        ]
+        check(
+            "UVs are written for the fetched parts and not the primitive",
+            textured == [False, True, True],
+            f"per-primitive TEXCOORD_0: {textured}",
+        )
+        check(
+            "the image travels inside the GLB, so it is self-contained",
+            len(document.get("images", [])) == 1
+            and "bufferView" in document["images"][0],
+            f"images={document.get('images')}",
+        )
+        check(
+            "one image for two placements of the same source",
+            len(document.get("textures", [])) == 1,
+            f"{len(document.get('textures', []))} textures for two placements",
+        )
+        check(
+            "and a sampler is stated rather than left to the importer",
+            len(document.get("samplers", [])) == 1,
+            f"samplers={document.get('samplers')}",
+        )
+        check(
+            "the primitive keeps the spec's own material",
+            any(material["name"] == "steel"
+                for material in document["materials"]),
+            f"materials={[m['name'] for m in document['materials']]}",
+        )
+
+        back = read_glb_mesh(Path(out).read_bytes())
+        check(
+            "the composed file round-trips with its UVs",
+            back["has_uvs"] and len(back["uvs"]) == len(back["positions"]),
+            f"has_uvs={back['has_uvs']}",
+        )
+
+
+def _write_textured_fixture(path: Path, png: bytes) -> None:
+    """A minimal GLB: one textured quad, with UVs and a metallic-roughness map.
+
+    Written by hand because the point is to exercise the *reader* against a
+    file this repository's writer did not produce — a fixture round-tripped
+    through our own writer would only prove the two agree, which is exactly
+    the assumption that lets a decoding bug survive.
+    """
+
+    import json as json_module
+    import struct as struct_module
+
+    positions = [(-0.5, -0.5, 0.0), (0.5, -0.5, 0.0),
+                 (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)]
+    normals = [(0.0, 0.0, 1.0)] * 4
+    uvs = [(0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (0.0, 0.0)]
+    indices = [0, 1, 2, 0, 2, 3]
+
+    buffer = bytearray()
+    views: list[dict] = []
+
+    def add(payload: bytes, target: int | None = None) -> int:
+        while len(buffer) % 4:
+            buffer.append(0)
+        view = {"buffer": 0, "byteOffset": len(buffer), "byteLength": len(payload)}
+        if target is not None:
+            view["target"] = target
+        buffer.extend(payload)
+        views.append(view)
+        return len(views) - 1
+
+    position_view = add(b"".join(struct_module.pack("<3f", *p) for p in positions), 34962)
+    normal_view = add(b"".join(struct_module.pack("<3f", *n) for n in normals), 34962)
+    uv_view = add(b"".join(struct_module.pack("<2f", *t) for t in uvs), 34962)
+    index_view = add(b"".join(struct_module.pack("<H", i) for i in indices), 34963)
+    image_view = add(png)
+
+    document = {
+        "asset": {"version": "2.0", "generator": "test fixture"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        # A node transform, so the reader has to apply one.
+        "nodes": [{"mesh": 0, "translation": [0.0, 0.25, 0.0],
+                   "scale": [2.0, 2.0, 2.0]}],
+        "meshes": [{"primitives": [{
+            "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2},
+            "indices": 3, "material": 0, "mode": 4,
+        }]}],
+        "materials": [{
+            "name": "painted",
+            "pbrMetallicRoughness": {
+                "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+                # The defaults an exporter leaves behind when the channels are
+                # in a map. Inheriting them is the defect under test.
+                "metallicFactor": 1.0,
+                "roughnessFactor": 1.0,
+                "baseColorTexture": {"index": 0},
+                "metallicRoughnessTexture": {"index": 1},
+            },
+        }],
+        "textures": [{"source": 0}, {"source": 0}],
+        "images": [{"bufferView": image_view, "mimeType": "image/png"}],
+        "accessors": [
+            {"bufferView": position_view, "componentType": 5126, "count": 4,
+             "type": "VEC3", "min": [-0.5, -0.5, 0.0], "max": [0.5, 0.5, 0.0]},
+            {"bufferView": normal_view, "componentType": 5126, "count": 4,
+             "type": "VEC3"},
+            {"bufferView": uv_view, "componentType": 5126, "count": 4,
+             "type": "VEC2"},
+            {"bufferView": index_view, "componentType": 5123, "count": 6,
+             "type": "SCALAR"},
+        ],
+        "bufferViews": views,
+        "buffers": [{"byteLength": len(buffer)}],
+    }
+
+    json_chunk = bytearray(json_module.dumps(document).encode("utf-8"))
+    while len(json_chunk) % 4:
+        json_chunk.append(ord(" "))
+    binary_chunk = bytearray(buffer)
+    while len(binary_chunk) % 4:
+        binary_chunk.append(0)
+
+    total = 12 + 8 + len(json_chunk) + 8 + len(binary_chunk)
+    with open(path, "wb") as handle:
+        handle.write(struct_module.pack("<4sII", b"glTF", 2, total))
+        handle.write(struct_module.pack("<I4s", len(json_chunk), b"JSON"))
+        handle.write(json_chunk)
+        handle.write(struct_module.pack("<I4s", len(binary_chunk), b"BIN\x00"))
+        handle.write(binary_chunk)
+
+
+def test_the_orientation_gate_catches_a_sideways_part() -> None:
+    """A generated part's declared long axis must match where it lands.
+
+    Written after the rifle's grip came out facing across the weapon. The
+    mesh's own longest axis was its x, so `rotation: [-8, 0, 0]` — the
+    intuitive reading of "rake it back" — tilted it in the plane it was
+    already flat in. Every other gate passed: the bounds were right, the
+    winding was right, the scale was right, and the part was sideways.
+
+    The reason no other gate can see this is that nothing in a generated
+    file says which of its axes is length. So the spec has to say, and the
+    check has to be against the placed vertices.
+
+    It is also why the same rotation cannot be carried from one version of a
+    part to the next: regenerating the grip textured produced a file whose
+    correct rotation was `+90` where the previous one needed `-90`. A new
+    file is a new set of axes.
+    """
+
+    print("\nthe orientation gate catches a sideways part")
+    from models.common.glb_writer import write_spec_glb
+    from operators.gen_3d_object.funcs.code_asset import (
+        MESH_KIND, SpecError, check_orientation, validate_spec,
+    )
+
+    with tempfile.TemporaryDirectory() as directory:
+        # A part that is clearly longest on its own y, so a rotation that
+        # moves it is unambiguous.
+        source = write_spec_glb(
+            {
+                "subject": "post", "units": "metres", "forward": "+z",
+                "height_metres": 1.0, "materials": {},
+                "parts": [{
+                    "id": "p", "kind": "box", "size": (0.2, 1.0, 0.3),
+                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                    "segments": 16, "profile": None, "material": "d",
+                }],
+            },
+            str(Path(directory) / "post.glb"),
+        )
+
+        def spec(rotation: tuple, long_axis: str | None) -> dict:
+            part = {
+                "id": "post", "kind": MESH_KIND, "source": source,
+                "size": (0.5, 0.5, 0.5), "at": (0.0, 0.25, 0.0),
+                "rotation": rotation, "material": "default",
+            }
+            if long_axis:
+                part["long_axis"] = long_axis
+            return validate_spec({
+                "subject": "a post", "units": "metres", "forward": "+z",
+                "parts": [part],
+            })
+
+        report = check_orientation(spec((0.0, 0.0, 0.0), "y"))
+        check(
+            "an upright part declared upright passes",
+            not report["warnings"],
+            f"warnings={report['warnings']}",
+        )
+
+        # Laid on its side but still claiming y: the defect.
+        report = check_orientation(spec((0.0, 0.0, 90.0), "y"))
+        check(
+            "a part rotated onto its side is caught",
+            any("long_axis" in message for message in report["warnings"]),
+            f"warnings={report['warnings']}",
+        )
+        check(
+            "and the measured axis is reported so the fix is obvious",
+            report["parts_checked"][0]["measured_long_axis"] == "x",
+            f"{report['parts_checked'][0]}",
+        )
+
+        # Rotated *and* declared correctly: no warning. Asserting only the
+        # failing case would leave a gate that fires on any rotation at all.
+        report = check_orientation(spec((0.0, 0.0, 90.0), "x"))
+        check(
+            "a part rotated onto its side and declared so passes",
+            not report["warnings"],
+            f"warnings={report['warnings']}",
+        )
+
+        # Undeclared: silent. The field is optional because for a near-cubic
+        # part the longest axis is noise, and a gate that demanded a
+        # declaration nobody could give would be bypassed.
+        report = check_orientation(spec((0.0, 0.0, 90.0), None))
+        check(
+            "an undeclared long axis is not guessed at",
+            not report["warnings"] and report["parts_checked"],
+            f"warnings={report['warnings']}",
+        )
+
+        # A near-cubic part is skipped rather than judged on noise.
+        cube = write_spec_glb(
+            {
+                "subject": "cube", "units": "metres", "forward": "+z",
+                "height_metres": 1.0, "materials": {},
+                "parts": [{
+                    "id": "c", "kind": "box", "size": (1.0, 1.0, 1.0),
+                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                    "segments": 16, "profile": None, "material": "d",
+                }],
+            },
+            str(Path(directory) / "cube.glb"),
+        )
+        report = check_orientation(validate_spec({
+            "subject": "a cube", "units": "metres", "forward": "+z",
+            "parts": [{
+                "id": "cube", "kind": MESH_KIND, "source": cube,
+                "size": (0.5, 0.5, 0.5), "at": (0.0, 0.25, 0.0),
+                "long_axis": "z",
+            }],
+        }))
+        check(
+            "a part with no dominant axis is skipped, not failed on noise",
+            not report["warnings"]
+            and report["parts_checked"][0].get("skipped"),
+            f"{report['parts_checked'][0]}",
+        )
+
+        # Refusals: a bad axis name, and the field on a primitive.
+        for label, part in (
+            ("an unknown axis name", {
+                "id": "p", "kind": MESH_KIND, "source": source,
+                "size": (0.5, 0.5, 0.5), "long_axis": "up"}),
+            ("long_axis on a box", {
+                "id": "p", "kind": "box", "size": (0.5, 0.5, 0.5),
+                "long_axis": "y"}),
+        ):
+            try:
+                validate_spec({
+                    "subject": "x", "units": "metres", "forward": "+z",
+                    "parts": [part],
+                })
+                check(f"{label} is refused", False, "it was accepted")
+            except SpecError:
+                check(f"{label} is refused", True, "")
+
+
 def test_estimate_matches_every_primitive() -> None:
     """The budget gate must count what the writer actually emits.
 
@@ -1054,6 +1831,11 @@ def main() -> int:
     test_a_lathe_profile_that_does_not_close_is_refused()
     test_a_profile_may_be_written_either_way_round()
     test_the_windings_gate_catches_an_inverted_part()
+    test_a_generated_mesh_composes_like_a_primitive()
+    test_the_provenance_gate_reports_the_trade()
+    test_an_unclosed_generated_part_warns_but_does_not_block()
+    test_a_fetched_texture_survives_composition()
+    test_the_orientation_gate_catches_a_sideways_part()
     test_estimate_matches_every_primitive()
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")

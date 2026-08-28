@@ -250,6 +250,11 @@ def main():
         )
 
     if spec_only:
+        # Still true for a spec carrying `mesh` parts. Those read GLBs that
+        # already exist on disk, so the generation they needed happened in an
+        # earlier run and this one is arithmetic over files — the composition
+        # step never calls a model, which is what keeps a 60-part weapon
+        # rebuildable in a second on a machine with no GPU.
         print("[run] every task carries a spec: no model loaded, no GPU needed")
         model = None
     else:
