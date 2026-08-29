@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import subprocess
 import urllib.error
 import urllib.request
+import webbrowser
 from dataclasses import dataclass, field
 from threading import RLock
 from time import time
@@ -163,6 +165,7 @@ class GodotBrowserSession:
     runtime_port: int
     http_port: int
     stream_url: str
+    game_url: str
     godot_input_host: str
     preview_scene: str
     client: Any = field(repr=False)
@@ -184,10 +187,10 @@ class GodotBrowserSession:
     error: str = ""
     last_command: str = ""
     recovered_external: bool = False
-    # Godot desktop launch — input goes through UDP runtime bridge.
-    runtime_kind: str = "godot_desktop"
-    input_transport: str = "godot_udp"
-    streaming_transport: str = "godot_desktop"
+    # Godot Web export — game runs in browser via iframe.
+    runtime_kind: str = "godot_web"
+    input_transport: str = "browser_canvas"
+    streaming_transport: str = "godot_web_http"
     last_input: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -201,6 +204,7 @@ class GodotBrowserSession:
             "godot_input_port": self.runtime_port,
             "http_port": self.http_port,
             "stream_url": self.stream_url,
+            "game_url": self.game_url,
             "pixel_streaming_url": "",
             "streaming_transport": self.streaming_transport,
             "preview_scene": self.preview_scene,
@@ -232,9 +236,11 @@ class GodotExampleBackend:
         config: BrowserServingConfig,
         *,
         client_factory: Callable[..., Any] = GodotClient,
+        browser_opener: Callable[[str], bool] | None = None,
     ) -> None:
         self.config = config
         self._client_factory = client_factory
+        self._browser_opener = browser_opener or webbrowser.open
         self._sessions: dict[str, GodotBrowserSession] = {}
         self._lock = RLock()
         self._descriptor = EngineDescriptor(
@@ -438,7 +444,7 @@ class GodotExampleBackend:
             or f"participant_{user_id or session_id}"
         )
         stream_url = (
-            f"godot://desktop:{ports['runtime']}"
+            f"http://{self.config.pixel_host}:{ports['http']}/{self._browser_wrapper_name(session_id)}"
         )
         client = self._new_client(
             runtime_port=ports["runtime"],
@@ -451,6 +457,7 @@ class GodotExampleBackend:
             runtime_port=ports["runtime"],
             http_port=ports["http"],
             stream_url=stream_url,
+            game_url="",
             godot_input_host=self.config.godot_host,
             preview_scene=str(request.get("preview_scene") or ""),
             client=client,
@@ -542,6 +549,7 @@ class GodotExampleBackend:
             runtime_port=runtime_port,
             http_port=int(snapshot.get("http_port") or 0),
             stream_url=stream_url,
+            game_url=str(snapshot.get("game_url") or ""),
             godot_input_host=str(
                 snapshot.get("godot_input_host")
                 or self.config.godot_host
@@ -964,8 +972,8 @@ class GodotExampleBackend:
                         if session is not None
                         else self.config.godot_runtime_port
                     ),
-                    "runtime_udp_mode": "godotclient",
-                    "streaming_transport": "godot_desktop",
+                    "runtime_udp_mode": "godot_web",
+                    "streaming_transport": "godot_web_http",
                 },
             )
         if normalized == "pixel_status":
@@ -988,9 +996,9 @@ class GodotExampleBackend:
                     "reachable": reachable,
                     "stream_ready": reachable,
                     "url": url,
-                    "transport": "godot_desktop",
+                    "transport": "godot_web_http",
                     "message": (
-                        "godot game running"
+                        "godot web export reachable"
                         if reachable
                         else "no active Godot browser session"
                     ),
@@ -1151,37 +1159,83 @@ class GodotExampleBackend:
                     "dry_run": True,
                 },
             }
-        return session.client.runtime.launch_game(
-            dry_run=False,
+        # Build Web export if not already present
+        web_build_dir = self._web_build_dir(session)
+        # Godot names the HTML after the preset: web.html or index.html
+        web_html = web_build_dir / "web.html"
+        if not web_html.is_file():
+            web_html = web_build_dir / "index.html"
+        if not web_html.is_file():
+            build_result = session.client.build.project(
+                preset="Web",
+                output_path=str(web_build_dir),
+                debug=True,
+            )
+            if not build_result.get("ok"):
+                return build_result
+            web_html = web_build_dir / "web.html"
+            if not web_html.is_file():
+                web_html = web_build_dir / "index.html"
+        if not web_html.is_file():
+            raise FileNotFoundError(
+                f"Godot Web export is missing an HTML entry point: {web_build_dir}"
+            )
+        html_name = web_html.name
+        session.game_url = (
+            f"http://{self.config.pixel_host}:{session.http_port}/{html_name}"
         )
+        wrapper = self._write_browser_wrapper(
+            web_build_dir,
+            session,
+            html_name,
+        )
+        session.stream_url = (
+            f"http://{self.config.pixel_host}:{session.http_port}/{wrapper.name}"
+        )
+        # Start HTTP server to serve the web build
+        session.http_process = self._start_http_server(
+            web_build_dir,
+            session.http_port,
+        )
+        session.http_pid = int(session.http_process.pid) if session.http_process else 0
+        # Wait for HTTP to be reachable
+        self._wait_for_http(session.stream_url)
+        if self.config.godot_auto_open_browser:
+            self._open_browser(session.stream_url)
+        return {
+            "ok": True,
+            "operation": "runtime.launch_game",
+            "artifacts": [],
+            "warnings": [],
+            "errors": [],
+            "payload": {
+                "process_id": session.http_pid,
+                "stream_url": session.stream_url,
+                "game_url": session.game_url,
+                "browser_wrapper": wrapper.name,
+            },
+        }
 
     def _relaunch_game(
         self,
         session: GodotBrowserSession,
         scene_path: str,
     ) -> dict[str, Any]:
-        if session.godot_game_pid and not session.recovered_external:
-            session.client.runtime.stop_game(session.godot_game_pid)
-        launch = session.client.runtime.launch_game(
-            scene_path=scene_path,
-            dry_run=self.config.dry_run,
-        )
-        if launch.get("ok"):
-            session.godot_game_pid = int(
-                _payload(launch).get("process_id") or 0
-            )
-            session.updated_at = time()
-        return self._translate_godot_result(
-            "sessions.relaunch_game",
-            launch,
-        )
+        # Web export doesn't need relaunch — just reload the page
+        session.updated_at = time()
+        return {
+            "ok": True,
+            "operation": "sessions.relaunch_game",
+            "artifacts": [],
+            "warnings": [],
+            "errors": [],
+            "payload": {"scene_path": scene_path},
+        }
 
     def _stop_session_processes(
         self,
         session: GodotBrowserSession,
     ) -> None:
-        if session.godot_game_pid and not session.recovered_external:
-            session.client.runtime.stop_game(session.godot_game_pid)
         process = session.http_process
         if process is not None and process.poll() is None:
             process.terminate()
@@ -1191,22 +1245,215 @@ class GodotExampleBackend:
                 process.kill()
                 process.wait(timeout=5)
 
+    def _web_build_dir(self, session: GodotBrowserSession) -> Path:
+        from pathlib import Path as _Path
+        if self.config.godot_project is None:
+            raise ValueError("A3GAME_GODOT_PROJECT is not configured")
+        return _Path(self.config.godot_project) / "builds"
+
+    def _start_http_server(
+        self,
+        directory: Path,
+        port: int,
+    ) -> subprocess.Popen:
+        import sys
+        return subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "http.server",
+                str(port),
+                "--bind",
+                self.config.pixel_host,
+            ],
+            cwd=str(directory),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    def _browser_wrapper_name(self, session_id: str) -> str:
+        return f"browser-{session_id}.html"
+
+    def _write_browser_wrapper(
+        self,
+        directory: Path,
+        session: GodotBrowserSession,
+        game_html_name: str,
+    ) -> Path:
+        wrapper = directory / self._browser_wrapper_name(session.session_id)
+        wrapper.write_text(
+            self._browser_wrapper_html(
+                session=session,
+                game_html_name=game_html_name,
+            ),
+            encoding="utf-8",
+        )
+        return wrapper
+
+    def _browser_wrapper_html(
+        self,
+        *,
+        session: GodotBrowserSession,
+        game_html_name: str,
+    ) -> str:
+        game_url = json.dumps(game_html_name)
+        return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Godot Browser Play — {session.session_id}</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      background: #000;
+      color: #f4f6f5;
+    }}
+    html,
+    body {{
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+    }}
+    body {{
+      position: relative;
+    }}
+    #gameFrame {{
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #000;
+    }}
+    .hud {{
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 2;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(12px);
+    }}
+    .hud span {{
+      color: #c7d0cc;
+      font-size: 12px;
+      white-space: nowrap;
+    }}
+    button,
+    a.button {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      border: 1px solid #46504c;
+      border-radius: 8px;
+      padding: 6px 10px;
+      background: #151b19;
+      color: #f4f6f5;
+      font: inherit;
+      text-decoration: none;
+      cursor: pointer;
+    }}
+    button:hover,
+    a.button:hover {{
+      border-color: #62c7ad;
+      background: #202825;
+    }}
+    .hint {{
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      z-index: 2;
+      max-width: min(480px, calc(100% - 24px));
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #c7d0cc;
+      font-size: 12px;
+      line-height: 1.45;
+    }}
+  </style>
+</head>
+<body>
+  <iframe
+    id="gameFrame"
+    title="Godot game"
+    src={game_url}
+    allow="autoplay; fullscreen; clipboard-read; clipboard-write; pointer-lock"
+  ></iframe>
+  <div class="hud">
+    <span>{json.dumps(f'Godot {session.session_id}')}</span>
+    <button id="fullscreenButton" type="button">Fullscreen</button>
+    <a class="button" href={game_url} target="_blank" rel="noreferrer">Open direct</a>
+  </div>
+  <div class="hint">
+    Click <strong>Fullscreen</strong> for a UE-style large view, or open the raw Web export directly.
+  </div>
+  <script>
+    const fullscreenButton = document.getElementById("fullscreenButton");
+    fullscreenButton.addEventListener("click", async () => {{
+      try {{
+        await document.documentElement.requestFullscreen();
+      }} catch {{
+        try {{
+          await document.body.requestFullscreen();
+        }} catch {{
+          // ignore; user can still play in the browser window.
+        }}
+      }}
+    }});
+    window.addEventListener("keydown", (event) => {{
+      if (event.key === "F11") {{
+        event.preventDefault();
+        fullscreenButton.click();
+      }}
+    }});
+  </script>
+</body>
+</html>
+"""
+
+    def _open_browser(self, url: str) -> None:
+        try:
+            self._browser_opener(url)
+        except Exception as exc:
+            logger.warning("Godot browser auto-open failed: %s", exc)
+
+    def _wait_for_http(self, url: str) -> None:
+        deadline = time() + self.config.pixel_start_timeout
+        while time() < deadline:
+            if _http_reachable(url, 1.0):
+                return
+            import time as _time
+            _time.sleep(0.5)
+        raise TimeoutError(
+            f"Timed out waiting for Godot Web export: {url}"
+        )
+
     def _refresh_process_state(self) -> None:
         for session in self._sessions.values():
             if (
-                session.godot_game_pid
-                and not session.recovered_external
+                session.http_process is not None
+                and session.http_process.poll() is not None
                 and session.state not in {"DESTROYED", "ERROR"}
             ):
-                try:
-                    import os as _os
-                    _os.kill(session.godot_game_pid, 0)
-                except (ProcessLookupError, PermissionError):
-                    session.state = "ERROR"
-                    session.error = (
-                        f"Godot game process {session.godot_game_pid} "
-                        "is no longer running"
-                    )
+                session.state = "ERROR"
+                session.error = (
+                    f"Godot Web HTTP server exited with code "
+                    f"{session.http_process.returncode}"
+                )
 
     def _require_session(self, session_id: str) -> GodotBrowserSession:
         try:

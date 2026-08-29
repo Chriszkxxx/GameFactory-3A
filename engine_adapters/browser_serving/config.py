@@ -43,6 +43,7 @@ class BrowserServingConfig:
     godot_executable: Path | None = None
     godot_host: str = "127.0.0.1"
     godot_runtime_port: int = 30050
+    godot_auto_open_browser: bool = False
     runtime_host: str = "127.0.0.1"
     base_runtime_port: int = 31020
     pixel_host: str = "127.0.0.1"
@@ -122,6 +123,10 @@ class BrowserServingConfig:
             ),
             godot_runtime_port=int(
                 os.environ.get("A3GAME_GODOT_RUNTIME_PORT", "30050")
+            ),
+            godot_auto_open_browser=_flag(
+                "A3GAME_GODOT_AUTO_OPEN_BROWSER",
+                False,
             ),
             runtime_host=os.environ.get(
                 "A3GAME_UNITY_RUNTIME_HOST",
