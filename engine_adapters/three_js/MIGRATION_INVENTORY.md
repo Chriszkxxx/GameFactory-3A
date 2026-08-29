@@ -9,16 +9,10 @@ coordinator remain, exactly as for the UE5 adapter.
 
 Reference repositories:
 
-```text
-refer_code/three_js_corr/three.js    # upstream engine baseline (r185)
-refer_code/three_js_corr/ThreeFlow   # Vue3 editor built on three.js
-```
-
-Target repository:
-
-```text
-my_code/3AGameFactory
-```
+- [mrdoob/three.js](https://github.com/mrdoob/three.js) — upstream engine
+  baseline (r185)
+- [zhangbo126/ThreeFlow](https://github.com/zhangbo126/ThreeFlow) — Vue3
+  editor built on three.js
 
 This inventory maps three.js into the 3AGameFactory architecture by
 mirroring the UE5 adapter. It does not change the existing Layer A/B/C,
