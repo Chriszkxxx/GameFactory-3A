@@ -4,17 +4,16 @@ Claims the COMPOSED topology: a receiver plus a barrel plus a magazine, a body
 plus four wheels. Nothing has to exist before anything else, so the whole
 subject is describable and the route is `code`.
 
-WHY THE WORDS LIVE HERE. They used to be a `hard_surface` tuple in a central
-lexicon, which meant a project with its own rigid nouns had to edit a file it
-did not own. They belong beside the mechanism that builds what they name:
-:mod:`..assembly` chains and groups the parts, and this module is what says
-"that subject is one of these". A new rigid domain registers its own strategy
-with its own words and never touches this one.
+The vocabulary lives here rather than in a shared lexicon, so a project with
+its own rigid nouns registers a strategy of its own instead of editing a file
+it does not own. The words sit beside the mechanism that builds what they name:
+:mod:`..assembly` chains and groups the parts, and this module says which
+subject is one of these.
 
 DELIBERATELY THIN. The mechanism is general; part lists are not. A rifle's
 chamber diameter and a car's wheelbase are content belonging to the build that
-wants them, so no part tables are shipped here — worked chains live in
-`test/test_3d_object_spec.py`, which is also where they get exercised.
+wants them, so no part tables are shipped here. What is shipped is the joining
+— see :mod:`..assembly`, whose docstrings carry worked examples.
 """
 
 from __future__ import annotations

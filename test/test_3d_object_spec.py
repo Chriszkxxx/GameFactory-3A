@@ -50,6 +50,8 @@ PASSED: list[str] = []
 FAILED: list[str] = []
 
 
+
+
 def check(name: str, condition: bool, detail: str = "") -> None:
     if condition:
         PASSED.append(name)
@@ -57,8 +59,6 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         return
     FAILED.append(f"{name}: {detail}")
     print(f"  FAIL {name} {detail}")
-
-
 def spec(parts: list[dict], **overrides) -> dict:
     """A minimal valid spec with `parts` swapped in."""
     base = {
@@ -71,18 +71,211 @@ def spec(parts: list[dict], **overrides) -> dict:
     base.update(overrides)
     base["parts"] = parts
     return base
-
-
 def failed_gates(candidate: dict) -> list[str]:
     from operators.gen_3d_object.funcs.code_asset import run_gates, validate_spec
 
     return run_gates(validate_spec(candidate))["failures"]
 
 
-# --------------------------------------------------------------------------
+def _write_textured_fixture(path: Path, png: bytes) -> None:
+    """A minimal GLB: one textured quad, with UVs and a metallic-roughness map.
+
+    Written by hand because the point is to exercise the *reader* against a
+    file this repository's writer did not produce — a fixture round-tripped
+    through our own writer would only prove the two agree, which is exactly
+    the assumption that lets a decoding bug survive.
+    """
+
+    import json as json_module
+    import struct as struct_module
+
+    positions = [(-0.5, -0.5, 0.0), (0.5, -0.5, 0.0),
+                 (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)]
+    normals = [(0.0, 0.0, 1.0)] * 4
+    uvs = [(0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (0.0, 0.0)]
+    indices = [0, 1, 2, 0, 2, 3]
+
+    buffer = bytearray()
+    views: list[dict] = []
+
+    def add(payload: bytes, target: int | None = None) -> int:
+        while len(buffer) % 4:
+            buffer.append(0)
+        view = {"buffer": 0, "byteOffset": len(buffer), "byteLength": len(payload)}
+        if target is not None:
+            view["target"] = target
+        buffer.extend(payload)
+        views.append(view)
+        return len(views) - 1
+
+    position_view = add(b"".join(struct_module.pack("<3f", *p) for p in positions), 34962)
+    normal_view = add(b"".join(struct_module.pack("<3f", *n) for n in normals), 34962)
+    uv_view = add(b"".join(struct_module.pack("<2f", *t) for t in uvs), 34962)
+    index_view = add(b"".join(struct_module.pack("<H", i) for i in indices), 34963)
+    image_view = add(png)
+
+    document = {
+        "asset": {"version": "2.0", "generator": "test fixture"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        # A node transform, so the reader has to apply one.
+        "nodes": [{"mesh": 0, "translation": [0.0, 0.25, 0.0],
+                   "scale": [2.0, 2.0, 2.0]}],
+        "meshes": [{"primitives": [{
+            "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2},
+            "indices": 3, "material": 0, "mode": 4,
+        }]}],
+        "materials": [{
+            "name": "painted",
+            "pbrMetallicRoughness": {
+                "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+                # The defaults an exporter leaves behind when the channels are
+                # in a map. Inheriting them is the defect under test.
+                "metallicFactor": 1.0,
+                "roughnessFactor": 1.0,
+                "baseColorTexture": {"index": 0},
+                "metallicRoughnessTexture": {"index": 1},
+            },
+        }],
+        "textures": [{"source": 0}, {"source": 0}],
+        "images": [{"bufferView": image_view, "mimeType": "image/png"}],
+        "accessors": [
+            {"bufferView": position_view, "componentType": 5126, "count": 4,
+             "type": "VEC3", "min": [-0.5, -0.5, 0.0], "max": [0.5, 0.5, 0.0]},
+            {"bufferView": normal_view, "componentType": 5126, "count": 4,
+             "type": "VEC3"},
+            {"bufferView": uv_view, "componentType": 5126, "count": 4,
+             "type": "VEC2"},
+            {"bufferView": index_view, "componentType": 5123, "count": 6,
+             "type": "SCALAR"},
+        ],
+        "bufferViews": views,
+        "buffers": [{"byteLength": len(buffer)}],
+    }
+
+    json_chunk = bytearray(json_module.dumps(document).encode("utf-8"))
+    while len(json_chunk) % 4:
+        json_chunk.append(ord(" "))
+    binary_chunk = bytearray(buffer)
+    while len(binary_chunk) % 4:
+        binary_chunk.append(0)
+
+    total = 12 + 8 + len(json_chunk) + 8 + len(binary_chunk)
+    with open(path, "wb") as handle:
+        handle.write(struct_module.pack("<4sII", b"glTF", 2, total))
+        handle.write(struct_module.pack("<I4s", len(json_chunk), b"JSON"))
+        handle.write(json_chunk)
+        handle.write(struct_module.pack("<I4s", len(binary_chunk), b"BIN\x00"))
+        handle.write(binary_chunk)
 
 
-def test_validation() -> None:
+# ---- spec: what a valid spec is ---------------------------------------------
+
+
+def test_spec_correction_terminates() -> None:
+    print("\nbounded correction loop")
+    from operators.gen_3d_object.funcs.code_asset import correct_spec, validate_spec
+
+    def wrong(height: float = 3.0) -> dict:
+        return validate_spec(spec(
+            [{"id": "b", "kind": "box", "size": [0.5, height, 0.5], "at": [0, height / 2, 0]}],
+            height_metres=1.0,
+        ))
+
+    fixed = correct_spec(wrong(), lambda current, _f: {**current, "height_metres": 3.0})
+    check("a reviser that fixes the defect passes", fixed["ok"] and fixed["stop_reason"] == "passed")
+
+    # THE RECORDED FAILURE. An unbounded loop spent 45 minutes recording a car
+    # that never moved, because a lookup returned None and nothing raised.
+    # Each of these is a way that loop fails to converge, and each must stop.
+    stuck = correct_spec(wrong(), lambda current, _f: current)
+    check(
+        "a reviser that changes nothing stops as `repeating`",
+        stuck["stop_reason"] == "repeating",
+        f"got {stuck['stop_reason']}",
+    )
+
+    def raiser(_current: dict, _failures: list[str]) -> dict:
+        raise KeyError("vehicle")
+
+    broke = correct_spec(wrong(), raiser)
+    check(
+        "a reviser that raises is reported, not swallowed",
+        broke["stop_reason"] == "revise_failed" and "KeyError" in broke["detail"],
+        f"got {broke}",
+    )
+
+    state = {"n": 0}
+
+    def swap(current: dict, _failures: list[str]) -> dict:
+        state["n"] += 1
+        height = 3.0 if state["n"] % 2 else 4.0
+        return {
+            **current,
+            "parts": [{"id": "b", "kind": "box", "size": [0.5, height, 0.5],
+                       "at": [0, height / 2, 0]}],
+        }
+
+    stalled = correct_spec(wrong(), swap)
+    check(
+        "a reviser that makes no progress stops",
+        stalled["stop_reason"] in ("repeating", "oscillating", "no_progress"),
+        f"got {stalled['stop_reason']}",
+    )
+    check("the stop reason is explained", bool(stalled.get("detail")))
+    check(
+        "the least-broken spec is returned, not the last one",
+        stalled["spec"]["subject"] == "test rig",
+    )
+
+
+def test_spec_rejects_flat_and_misscaled() -> None:
+    print("\nsolidity and scale")
+
+    thin = failed_gates(spec([
+        {"id": "sheet", "kind": "box", "size": [1.0, 1.0, 1e-7], "at": [0, 0.5, 0]},
+    ]))
+    check(
+        "a zero-thickness part is caught",
+        any("edge-on" in message for message in thin),
+        f"got {thin}",
+    )
+
+    # Real sheet metal must still be allowed, or the gate blocks a door panel.
+    plate = failed_gates(spec(
+        [{"id": "panel", "kind": "box", "size": [0.8, 2.0, 0.004], "at": [0, 1.0, 0]}],
+        height_metres=2.0,
+    ))
+    check("4 mm sheet metal passes", not plate, f"got {plate}")
+
+    mismatch = failed_gates(spec(
+        [{"id": "b", "kind": "box", "size": [0.5, 3.0, 0.5], "at": [0, 1.5, 0]}],
+        height_metres=1.0,
+    ))
+    check(
+        "parts disagreeing with the declared height is caught",
+        any("declares" in message for message in mismatch),
+        f"got {mismatch}",
+    )
+
+    decimal = failed_gates(spec(
+        [{"id": "door", "kind": "box", "size": [0.01, 0.008, 0.002], "at": [0, 0.004, 0]}],
+        height_metres=0.008,
+    ))
+    check(
+        "a misplaced decimal point is caught",
+        any("plausible range" in message for message in decimal),
+        f"got {decimal}",
+    )
+
+    agreeing = failed_gates(spec(
+        [{"id": "b", "kind": "box", "size": [0.5, 1.8, 0.5], "at": [0, 0.9, 0]}],
+        height_metres=1.8, asset_type="avatar",
+    ))
+    check("a spec whose size matches its declaration passes", not agreeing, f"got {agreeing}")
+
+
+def test_spec_rejects_malformed() -> None:
     print("\nspec validation")
     from operators.gen_3d_object.funcs.code_asset import SpecError, validate_spec
 
@@ -129,7 +322,102 @@ def test_validation() -> None:
     check("a valid spec normalises", valid["forward"] == "+z" and len(valid["parts"]) == 1)
 
 
-def test_chirality() -> None:
+# ---- gate: the gates, and what each must let through ------------------------
+
+
+def test_gate_budget_and_connectivity() -> None:
+    print("\nbudget and connectivity")
+    from operators.gen_3d_object.funcs.code_asset import (
+        check_connectivity,
+        estimate_triangles,
+        run_gates,
+        validate_spec,
+    )
+
+    fat = failed_gates(spec([
+        {"id": "ball", "kind": "sphere", "size": [1, 1, 1], "at": [0, 0.5, 0], "segments": 256},
+    ]))
+    check(
+        "a budget overrun is caught",
+        any("budget" in message for message in fat),
+        f"got {fat}",
+    )
+    check(
+        "the message says to lower segments, not to decimate",
+        any("segments" in message for message in fat),
+    )
+
+    lean = failed_gates(spec([
+        {"id": "ball", "kind": "sphere", "size": [1, 1, 1], "at": [0, 0.5, 0], "segments": 24},
+    ]))
+    check("a spec inside its budget passes", not lean, f"got {lean}")
+
+    # Floating parts are reported and never failed: a hovering crystal is a
+    # design, and failing it would make the gate wrong for a whole class of
+    # asset while catching a misplaced wheel either way.
+    hovering = validate_spec(spec(
+        [
+            {"id": "base", "kind": "box", "size": [0.5, 0.5, 0.5], "at": [0, 0.25, 0]},
+            {"id": "orb", "kind": "sphere", "size": [0.2, 0.2, 0.2], "at": [0, 1.6, 0]},
+        ],
+        height_metres=1.7,
+    ))
+    report = run_gates(hovering)
+    check("a hovering part does not fail the spec", report["ok"], f"got {report['failures']}")
+    check(
+        "a hovering part is reported",
+        any("touch nothing" in message for message in report["warnings"]),
+        f"got {report['warnings']}",
+    )
+
+    connected = check_connectivity(validate_spec(spec([
+        {"id": "body", "kind": "box", "size": [0.5, 0.5, 0.5], "at": [0, 0.25, 0]},
+        {"id": "lid", "kind": "box", "size": [0.5, 0.05, 0.5], "at": [0, 0.52, 0]},
+    ])))
+    check(
+        "touching parts are not reported as isolated",
+        not connected["isolated_parts"],
+        f"got {connected['isolated_parts']}",
+    )
+
+
+def test_gate_budget_matches_writer() -> None:
+    """The budget gate must count what the writer actually emits.
+
+    Pinned per primitive and per segment count because the first draft used
+    `segments ** 2` for the round shapes where the writer rings them at
+    `segments // 2`. That over-counted by exactly 2x, so the budget gate
+    would have rejected meshes that were inside their budget — and a gate
+    that rejects good work gets bypassed, after which it protects nothing.
+    """
+
+    print("\nthe estimate is the mesh")
+    from models.common.glb_writer import build_part
+    from operators.gen_3d_object.funcs.code_asset import estimate_triangles
+
+    profiles = {
+        "lathe": ((0.5, -0.5), (0.4, 0.0), (0.5, 0.5)),
+        "extrude": ((-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (0.0, 0.6), (-0.5, 0.5)),
+    }
+    for kind in ("box", "cylinder", "cone", "sphere", "torus", "lathe", "extrude"):
+        for segments in (3, 8, 12, 16, 32):
+            part = {
+                "id": kind, "kind": kind, "size": (1.0, 1.0, 1.0),
+                "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                "segments": segments, "profile": profiles.get(kind),
+                "material": "default",
+            }
+            _positions, _normals, indices = build_part(part)
+            actual = len(indices) // 3
+            estimated = estimate_triangles({"parts": [part]})
+            check(
+                f"{kind} at {segments} segments: estimate == mesh",
+                actual == estimated,
+                f"estimated {estimated}, wrote {actual}",
+            )
+
+
+def test_gate_chirality() -> None:
     print("\nchirality — the recorded rotation-for-mirror bug")
 
     hull = {"id": "hull", "kind": "box", "size": [0.4, 1.0, 0.4], "at": [0, 0.5, 0]}
@@ -199,247 +487,376 @@ def test_chirality() -> None:
     check("an unpaired part is not treated as half a pair", not unsuffixed, f"got {unsuffixed}")
 
 
-def test_solidity_and_scale() -> None:
-    print("\nsolidity and scale")
+def test_gate_open_mesh_warns_only() -> None:
+    """An unclosed mesh is warned; an unclosed primitive still fails.
 
-    thin = failed_gates(spec([
-        {"id": "sheet", "kind": "box", "size": [1.0, 1.0, 1e-7], "at": [0, 0.5, 0]},
-    ]))
-    check(
-        "a zero-thickness part is caught",
-        any("edge-on" in message for message in thin),
-        f"got {thin}",
-    )
+    The same measurement, two different meanings, and collapsing them
+    either way is wrong. An unclosed *primitive* has a fix in the spec —
+    nearly always a lathe profile that does not return to the axis — so
+    failing it is actionable. An unclosed *generated* mesh is what the
+    generator returned; no spec edit repairs it, and blocking an asset over
+    a few boundary edges on a grip means the gate gets bypassed rather than
+    the mesh improved, and then it protects nothing.
 
-    # Real sheet metal must still be allowed, or the gate blocks a door panel.
-    plate = failed_gates(spec(
-        [{"id": "panel", "kind": "box", "size": [0.8, 2.0, 0.004], "at": [0, 1.0, 0]}],
-        height_metres=2.0,
-    ))
-    check("4 mm sheet metal passes", not plate, f"got {plate}")
+    Measured on a real fetched part: the scope generated for the rifle came
+    back with 103 boundary edges while the grip and stock had none, so this
+    is the common case and not a hypothetical.
+    """
 
-    mismatch = failed_gates(spec(
-        [{"id": "b", "kind": "box", "size": [0.5, 3.0, 0.5], "at": [0, 1.5, 0]}],
-        height_metres=1.0,
-    ))
-    check(
-        "parts disagreeing with the declared height is caught",
-        any("declares" in message for message in mismatch),
-        f"got {mismatch}",
-    )
+    print("\nan unclosed generated part warns but does not block")
+    from models.common import glb_writer
+    from operators.gen_3d_object.funcs.code_asset import MESH_KIND, check_windings
 
-    decimal = failed_gates(spec(
-        [{"id": "door", "kind": "box", "size": [0.01, 0.008, 0.002], "at": [0, 0.004, 0]}],
-        height_metres=0.008,
-    ))
-    check(
-        "a misplaced decimal point is caught",
-        any("plausible range" in message for message in decimal),
-        f"got {decimal}",
-    )
+    with tempfile.TemporaryDirectory() as directory:
+        fixture = glb_writer.write_spec_glb(
+            {
+                "subject": "cube", "units": "metres", "forward": "+z",
+                "height_metres": 1.0, "materials": {},
+                "parts": [{
+                    "id": "c", "kind": "box", "size": (1.0, 1.0, 1.0),
+                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                    "segments": 16, "profile": None, "material": "d",
+                }],
+            },
+            str(Path(directory) / "cube.glb"),
+        )
 
-    agreeing = failed_gates(spec(
-        [{"id": "b", "kind": "box", "size": [0.5, 1.8, 0.5], "at": [0, 0.9, 0]}],
-        height_metres=1.8, asset_type="avatar",
-    ))
-    check("a spec whose size matches its declaration passes", not agreeing, f"got {agreeing}")
-
-
-def test_budget_and_connectivity() -> None:
-    print("\nbudget and connectivity")
-    from operators.gen_3d_object.funcs.code_asset import (
-        check_connectivity,
-        estimate_triangles,
-        run_gates,
-        validate_spec,
-    )
-
-    fat = failed_gates(spec([
-        {"id": "ball", "kind": "sphere", "size": [1, 1, 1], "at": [0, 0.5, 0], "segments": 256},
-    ]))
-    check(
-        "a budget overrun is caught",
-        any("budget" in message for message in fat),
-        f"got {fat}",
-    )
-    check(
-        "the message says to lower segments, not to decimate",
-        any("segments" in message for message in fat),
-    )
-
-    lean = failed_gates(spec([
-        {"id": "ball", "kind": "sphere", "size": [1, 1, 1], "at": [0, 0.5, 0], "segments": 24},
-    ]))
-    check("a spec inside its budget passes", not lean, f"got {lean}")
-
-    # Floating parts are reported and never failed: a hovering crystal is a
-    # design, and failing it would make the gate wrong for a whole class of
-    # asset while catching a misplaced wheel either way.
-    hovering = validate_spec(spec(
-        [
-            {"id": "base", "kind": "box", "size": [0.5, 0.5, 0.5], "at": [0, 0.25, 0]},
-            {"id": "orb", "kind": "sphere", "size": [0.2, 0.2, 0.2], "at": [0, 1.6, 0]},
-        ],
-        height_metres=1.7,
-    ))
-    report = run_gates(hovering)
-    check("a hovering part does not fail the spec", report["ok"], f"got {report['failures']}")
-    check(
-        "a hovering part is reported",
-        any("touch nothing" in message for message in report["warnings"]),
-        f"got {report['warnings']}",
-    )
-
-    connected = check_connectivity(validate_spec(spec([
-        {"id": "body", "kind": "box", "size": [0.5, 0.5, 0.5], "at": [0, 0.25, 0]},
-        {"id": "lid", "kind": "box", "size": [0.5, 0.05, 0.5], "at": [0, 0.52, 0]},
-    ])))
-    check(
-        "touching parts are not reported as isolated",
-        not connected["isolated_parts"],
-        f"got {connected['isolated_parts']}",
-    )
-
-
-def test_correction_loop() -> None:
-    print("\nbounded correction loop")
-    from operators.gen_3d_object.funcs.code_asset import correct_spec, validate_spec
-
-    def wrong(height: float = 3.0) -> dict:
-        return validate_spec(spec(
-            [{"id": "b", "kind": "box", "size": [0.5, height, 0.5], "at": [0, height / 2, 0]}],
-            height_metres=1.0,
-        ))
-
-    fixed = correct_spec(wrong(), lambda current, _f: {**current, "height_metres": 3.0})
-    check("a reviser that fixes the defect passes", fixed["ok"] and fixed["stop_reason"] == "passed")
-
-    # THE RECORDED FAILURE. An unbounded loop spent 45 minutes recording a car
-    # that never moved, because a lookup returned None and nothing raised.
-    # Each of these is a way that loop fails to converge, and each must stop.
-    stuck = correct_spec(wrong(), lambda current, _f: current)
-    check(
-        "a reviser that changes nothing stops as `repeating`",
-        stuck["stop_reason"] == "repeating",
-        f"got {stuck['stop_reason']}",
-    )
-
-    def raiser(_current: dict, _failures: list[str]) -> dict:
-        raise KeyError("vehicle")
-
-    broke = correct_spec(wrong(), raiser)
-    check(
-        "a reviser that raises is reported, not swallowed",
-        broke["stop_reason"] == "revise_failed" and "KeyError" in broke["detail"],
-        f"got {broke}",
-    )
-
-    state = {"n": 0}
-
-    def swap(current: dict, _failures: list[str]) -> dict:
-        state["n"] += 1
-        height = 3.0 if state["n"] % 2 else 4.0
-        return {
-            **current,
-            "parts": [{"id": "b", "kind": "box", "size": [0.5, height, 0.5],
-                       "at": [0, height / 2, 0]}],
+        mesh_part = {
+            "id": "fetched", "kind": MESH_KIND, "source": fixture,
+            "size": (0.3, 0.3, 0.3), "at": (0.0, 0.15, 0.0),
+            "rotation": (0.0, 0.0, 0.0), "segments": 16, "profile": None,
+            "material": "default",
+        }
+        box_part = {
+            "id": "authored", "kind": "box", "size": (0.3, 0.3, 0.3),
+            "at": (0.4, 0.15, 0.0), "rotation": (0.0, 0.0, 0.0),
+            "segments": 16, "profile": None, "material": "default",
+            "chamfer": 0.0,
         }
 
-    stalled = correct_spec(wrong(), swap)
-    check(
-        "a reviser that makes no progress stops",
-        stalled["stop_reason"] in ("repeating", "oscillating", "no_progress"),
-        f"got {stalled['stop_reason']}",
+        # Drop the last triangle of whatever is built, which opens a hole
+        # without touching anything else — same vertices, same bounds.
+        original = glb_writer.build_part
+
+        def holed(part: dict) -> tuple:
+            positions, normals, indices = original(part)
+            return positions, normals, indices[:-3]
+
+        glb_writer.build_part = holed
+        try:
+            report = check_windings({"parts": [mesh_part]})
+            check(
+                "an unclosed generated part does not block",
+                report["ok"] and report["unclosed_generated"]
+                and not report["unclosed"],
+                f"ok={report['ok']}, generated={report['unclosed_generated']}, "
+                f"primitive={report['unclosed']}",
+            )
+            check(
+                "and it is warned about by name",
+                any("fetched" in message for message in report["warnings"]),
+                f"warnings={report['warnings']}",
+            )
+
+            report = check_windings({"parts": [box_part]})
+            check(
+                "an unclosed primitive still fails",
+                not report["ok"] and report["unclosed"]
+                and not report["unclosed_generated"],
+                f"ok={report['ok']}, primitive={report['unclosed']}",
+            )
+        finally:
+            glb_writer.build_part = original
+
+
+def test_gate_orientation() -> None:
+    """A generated part's declared long axis must match where it lands.
+
+    Written after the rifle's grip came out facing across the weapon. The
+    mesh's own longest axis was its x, so `rotation: [-8, 0, 0]` — the
+    intuitive reading of "rake it back" — tilted it in the plane it was
+    already flat in. Every other gate passed: the bounds were right, the
+    winding was right, the scale was right, and the part was sideways.
+
+    The reason no other gate can see this is that nothing in a generated
+    file says which of its axes is length. So the spec has to say, and the
+    check has to be against the placed vertices.
+
+    It is also why the same rotation cannot be carried from one version of a
+    part to the next: regenerating the grip textured produced a file whose
+    correct rotation was `+90` where the previous one needed `-90`. A new
+    file is a new set of axes.
+    """
+
+    print("\nthe orientation gate catches a sideways part")
+    from models.common.glb_writer import write_spec_glb
+    from operators.gen_3d_object.funcs.code_asset import (
+        MESH_KIND, SpecError, check_orientation, validate_spec,
     )
-    check("the stop reason is explained", bool(stalled.get("detail")))
-    check(
-        "the least-broken spec is returned, not the last one",
-        stalled["spec"]["subject"] == "test rig",
-    )
 
-
-def test_routing() -> None:
-    print("\nrouting — declining is a result")
-    from operators.gen_3d_object.funcs.code_asset import suits_code_asset
-
-    crate = suits_code_asset("wooden supply crate")
-    check("a crate routes to code", crate["suitable"] and crate["route"] == "code")
-
-    face = suits_code_asset("human face", asset_type="avatar")
-    check(
-        "a face routes to generation",
-        not face["suitable"] and face["route"] == "generate",
-        f"got {face}",
-    )
-    check("declining says why", "organic" in face["reason"])
-
-    golem = suits_code_asset("stone golem creature")
-    check(
-        "a subject reading both ways is ambiguous, not guessed",
-        golem["route"] == "ambiguous",
-        f"got {golem}",
-    )
-
-    unknown = suits_code_asset("zorblatt")
-    check("an unknown subject is ambiguous", unknown["route"] == "ambiguous")
-
-    # This used to assert a caller could pass a `Vocabulary` of 141 words —
-    # substitution of *content* inside four categories the router had hardcoded,
-    # so a domain that did not fit them had nowhere to go. What is substituted
-    # now is the *judgement*: a strategy says how a subject assembles, and the
-    # route follows.
-    from operators.gen_3d_object.funcs.code_asset_templates import routing
-
-    def zorblatt(subject: str, asset_type: str = "prop"):
-        if "zorblatt" not in routing.words(subject):
-            return None
-        return routing.Claim(
-            topology=routing.COMPOSED,
-            strength=1.0,
-            evidence=("zorblatt",),
-            reason="a zorblatt is a stack of plates",
+    with tempfile.TemporaryDirectory() as directory:
+        # A part that is clearly longest on its own y, so a rotation that
+        # moves it is unambiguous.
+        source = write_spec_glb(
+            {
+                "subject": "post", "units": "metres", "forward": "+z",
+                "height_metres": 1.0, "materials": {},
+                "parts": [{
+                    "id": "p", "kind": "box", "size": (0.2, 1.0, 0.3),
+                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                    "segments": 16, "profile": None, "material": "d",
+                }],
+            },
+            str(Path(directory) / "post.glb"),
         )
 
-    routed = suits_code_asset("zorblatt", strategies=[("zorblatt", zorblatt)])
-    check(
-        "a caller's own strategy decides the route",
-        routed["route"] == "code" and routed["suitable"]
-        and routed["topology"] == routing.COMPOSED,
-        f"got {routed['route']} at {routed['confidence']}",
-    )
-    check(
-        "and passing strategies leaves the registry alone",
-        suits_code_asset("zorblatt")["route"] == "ambiguous"
-        and "zorblatt" not in routing.registered(),
-        "a per-call strategy leaked into the global registry",
-    )
-    # A structural claim is not outvoted by counted evidence, whoever makes it:
-    # the tiering is in the router, not in the shipped strategies.
-    def wyrm(subject: str, asset_type: str = "prop"):
-        if "wyrm" not in routing.words(subject):
-            return None
-        return routing.Claim(
-            topology=routing.NESTED,
-            strength=1.0,
-            evidence=("wyrm",),
-            tier=routing.STRUCTURAL,
-            reason="a wyrm is a host that its barding is fitted to",
+        def spec(rotation: tuple, long_axis: str | None) -> dict:
+            part = {
+                "id": "post", "kind": MESH_KIND, "source": source,
+                "size": (0.5, 0.5, 0.5), "at": (0.0, 0.25, 0.0),
+                "rotation": rotation, "material": "default",
+            }
+            if long_axis:
+                part["long_axis"] = long_axis
+            return validate_spec({
+                "subject": "a post", "units": "metres", "forward": "+z",
+                "parts": [part],
+            })
+
+        report = check_orientation(spec((0.0, 0.0, 0.0), "y"))
+        check(
+            "an upright part declared upright passes",
+            not report["warnings"],
+            f"warnings={report['warnings']}",
         )
 
-    from operators.gen_3d_object.funcs.code_asset_templates import rigid_template
+        # Laid on its side but still claiming y: the defect.
+        report = check_orientation(spec((0.0, 0.0, 90.0), "y"))
+        check(
+            "a part rotated onto its side is caught",
+            any("long_axis" in message for message in report["warnings"]),
+            f"warnings={report['warnings']}",
+        )
+        check(
+            "and the measured axis is reported so the fix is obvious",
+            report["parts_checked"][0]["measured_long_axis"] == "x",
+            f"{report['parts_checked'][0]}",
+        )
 
-    barded = suits_code_asset(
-        "wyrm with steel plate barding", asset_type="avatar",
-        strategies=[("wyrm", wyrm), ("rigid", rigid_template.claim)],
+        # Rotated *and* declared correctly: no warning. Asserting only the
+        # failing case would leave a gate that fires on any rotation at all.
+        report = check_orientation(spec((0.0, 0.0, 90.0), "x"))
+        check(
+            "a part rotated onto its side and declared so passes",
+            not report["warnings"],
+            f"warnings={report['warnings']}",
+        )
+
+        # Undeclared: silent. The field is optional because for a near-cubic
+        # part the longest axis is noise, and a gate that demanded a
+        # declaration nobody could give would be bypassed.
+        report = check_orientation(spec((0.0, 0.0, 90.0), None))
+        check(
+            "an undeclared long axis is not guessed at",
+            not report["warnings"] and report["parts_checked"],
+            f"warnings={report['warnings']}",
+        )
+
+        # A near-cubic part is skipped rather than judged on noise.
+        cube = write_spec_glb(
+            {
+                "subject": "cube", "units": "metres", "forward": "+z",
+                "height_metres": 1.0, "materials": {},
+                "parts": [{
+                    "id": "c", "kind": "box", "size": (1.0, 1.0, 1.0),
+                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                    "segments": 16, "profile": None, "material": "d",
+                }],
+            },
+            str(Path(directory) / "cube.glb"),
+        )
+        report = check_orientation(validate_spec({
+            "subject": "a cube", "units": "metres", "forward": "+z",
+            "parts": [{
+                "id": "cube", "kind": MESH_KIND, "source": cube,
+                "size": (0.5, 0.5, 0.5), "at": (0.0, 0.25, 0.0),
+                "long_axis": "z",
+            }],
+        }))
+        check(
+            "a part with no dominant axis is skipped, not failed on noise",
+            not report["warnings"]
+            and report["parts_checked"][0].get("skipped"),
+            f"{report['parts_checked'][0]}",
+        )
+
+        # Refusals: a bad axis name, and the field on a primitive.
+        for label, part in (
+            ("an unknown axis name", {
+                "id": "p", "kind": MESH_KIND, "source": source,
+                "size": (0.5, 0.5, 0.5), "long_axis": "up"}),
+            ("long_axis on a box", {
+                "id": "p", "kind": "box", "size": (0.5, 0.5, 0.5),
+                "long_axis": "y"}),
+        ):
+            try:
+                validate_spec({
+                    "subject": "x", "units": "metres", "forward": "+z",
+                    "parts": [part],
+                })
+                check(f"{label} is refused", False, "it was accepted")
+            except SpecError:
+                check(f"{label} is refused", True, "")
+
+
+def test_gate_provenance_warns_then_blocks() -> None:
+    """The gate must say what generation bought and what it cost.
+
+    Its job is not to prevent generated parts — it is to keep the trade
+    visible, because after export the two kinds are indistinguishable and
+    only one of them can still be adjusted by editing a number. Two
+    thresholds, and the reason they differ is the point:
+
+    A composition that is mostly generated triangles is warned, since a
+    grip and a stock legitimately outweigh forty small primitives.
+
+    A composition that is mostly generated *parts as well as* triangles is
+    failed, because at that point it is a generated asset with primitives
+    attached, and it would be reported as `verified_by="spec"` while
+    nothing had verified the facing of the mesh carrying it.
+    """
+
+    print("\nthe provenance gate reports the trade")
+    from models.common.glb_writer import write_spec_glb
+    from operators.gen_3d_object.funcs.code_asset import (
+        MESH_KIND, check_provenance, validate_spec,
     )
-    check(
-        "a caller's structural claim outranks counted evidence",
-        barded["route"] == "generate" and barded["topology"] == routing.NESTED,
-        f"got {barded['route']} via {barded['claimed_by']}",
-    )
+
+    with tempfile.TemporaryDirectory() as directory:
+        # A dense fixture, so a single mesh part can dominate a budget the way
+        # a real generated part does.
+        fixture = write_spec_glb(
+            {
+                "subject": "dense", "units": "metres", "forward": "+z",
+                "height_metres": 1.0, "materials": {},
+                "parts": [{
+                    "id": "ball", "kind": "sphere", "size": (1.0, 1.0, 1.0),
+                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
+                    "segments": 48, "profile": None, "material": "d",
+                }],
+            },
+            str(Path(directory) / "dense.glb"),
+        )
+
+        def spec(parts: list[dict]) -> dict:
+            return validate_spec({
+                "subject": "assembly", "units": "metres", "forward": "+z",
+                "asset_type": "prop", "materials": {}, "parts": parts,
+            })
+
+        primitives = [
+            {"id": f"box-{index}", "kind": "box", "size": (0.05, 0.05, 0.05),
+             "at": (index * 0.06, 0.03, 0.0), "material": "default"}
+            for index in range(6)
+        ]
+        mesh_part = {
+            "id": "moulded", "kind": MESH_KIND, "source": fixture,
+            "size": (0.2, 0.2, 0.2), "at": (0.0, 0.2, 0.0),
+            "material": "default",
+        }
+
+        # No generated parts: the gate is silent rather than absent, so a
+        # pure-primitive spec does not pay for a check it does not need.
+        report = check_provenance(spec(primitives))
+        check(
+            "a spec with no generated parts passes silently",
+            report["ok"] and not report["warnings"]
+            and report["generated_triangles"] == 0,
+            f"{report}",
+        )
+
+        # Mostly generated triangles: warned, not failed.
+        report = check_provenance(spec(primitives + [mesh_part]))
+        check(
+            "a composition dominated by generated triangles is warned",
+            report["ok"] and any(
+                "generated" in message for message in report["warnings"]
+            ),
+            f"ok={report['ok']}, warnings={report['warnings']}",
+        )
+        check(
+            "and the per-part cost is reported, not just the total",
+            report["generated_parts"][0]["triangles"] > 0
+            and 0.0 < report["generated_parts"][0]["share"] <= 1.0,
+            f"{report['generated_parts']}",
+        )
+
+        # Mostly generated parts *and* triangles: failed.
+        report = check_provenance(spec([
+            dict(mesh_part, id="moulded-a"),
+            dict(mesh_part, id="moulded-b", at=(0.3, 0.2, 0.0)),
+            {"id": "pin", "kind": "box", "size": (0.01, 0.01, 0.01),
+             "at": (0.0, 0.005, 0.0), "material": "default"},
+        ]))
+        check(
+            "a composition that is really a generated asset is failed",
+            not report["ok"]
+            and any("composition" in message for message in report["failures"]),
+            f"ok={report['ok']}, failures={report['failures']}",
+        )
+
+        # The boundary, pinned. Both conditions are required, and each on its
+        # own would fail work that is correct: a real weapon is 77% generated
+        # triangles because a grip outweighs forty small primitives, and a
+        # bracket is legitimately one plate plus one moulded pad. Asserting
+        # only the failing case would leave the threshold as a claim.
+        report = check_provenance(spec([
+            {"id": "plate", "kind": "box", "size": (0.3, 0.02, 0.3),
+             "at": (0.0, 0.01, 0.0), "material": "default"},
+            {"id": "post", "kind": "cylinder", "size": (0.02, 0.1, 0.02),
+             "at": (0.0, 0.07, 0.0), "material": "default"},
+            dict(mesh_part, id="pad"),
+        ]))
+        check(
+            "two stated parts beside a generated one is a composition, not a "
+            "disguise",
+            report["ok"] and report["generated_share"] > 0.9,
+            f"ok={report['ok']}, share={report['generated_share']}, "
+            f"failures={report['failures']}",
+        )
+        report = check_provenance(spec([
+            {"id": "plate", "kind": "box", "size": (0.3, 0.02, 0.3),
+             "at": (0.0, 0.01, 0.0), "material": "default"},
+            dict(mesh_part, id="pad"),
+        ]))
+        check(
+            "but one stated part beside it is decoration on something fetched",
+            not report["ok"],
+            f"ok={report['ok']}, share={report['generated_share']}",
+        )
+
+        # A non-uniform size is honoured by taking the largest component, and
+        # the gate says so — the author wrote three numbers and got one.
+        report = check_provenance(spec([
+            dict(mesh_part, size=(0.2, 0.05, 0.1)),
+        ]))
+        check(
+            "a non-uniform size on a generated part is called out",
+            any("not uniform" in message for message in report["warnings"]),
+            f"warnings={report['warnings']}",
+        )
+        report = check_provenance(spec([mesh_part]))
+        check(
+            "and a uniform one is not",
+            not any("not uniform" in message for message in report["warnings"]),
+            f"warnings={report['warnings']}",
+        )
 
 
-def test_glb_output() -> None:
+# ---- geom: primitive geometry -----------------------------------------------
+
+
+def test_glb_output_roundtrip() -> None:
     print("\nGLB output")
     from models.common.glb_utils import glb_json_chunk, glb_summary, is_glb
     from operators.gen_3d_object.funcs.code_asset import build_code_asset
@@ -524,7 +941,7 @@ def test_glb_output() -> None:
         )
 
 
-def test_geometry_is_watertight_enough() -> None:
+def test_geom_primitives_are_sane() -> None:
     print("\ngeometry sanity")
     from models.common.glb_writer import build_part, rotated_bounds
 
@@ -620,7 +1037,7 @@ def test_geometry_is_watertight_enough() -> None:
     )
 
 
-def test_chamfered_box_is_still_a_solid() -> None:
+def test_geom_chamfer_keeps_solid_closed() -> None:
     """A chamfer must change the silhouette without breaking the solid.
 
     Three properties, each of which a hand-wound bevel gets wrong in a way
@@ -713,7 +1130,7 @@ def test_chamfered_box_is_still_a_solid() -> None:
             check(f"chamfer {bad} is refused", True, "")
 
 
-def test_every_primitive_is_a_closed_outward_solid() -> None:
+def test_geom_all_primitives_face_outward() -> None:
     """No primitive may be inside-out, and the writer's normals must agree.
 
     Written after the rifle's muzzle kept coming out wrong. The cause was
@@ -823,7 +1240,7 @@ def test_every_primitive_is_a_closed_outward_solid() -> None:
             )
 
 
-def test_a_lathe_profile_that_does_not_close_is_refused() -> None:
+def test_geom_open_profile_refused() -> None:
     """A lathe profile whose ends leave the axis makes an open tube.
 
     This is the mistake the rifle's muzzle kept hitting, and it is easy to
@@ -900,7 +1317,7 @@ def test_a_lathe_profile_that_does_not_close_is_refused() -> None:
         check("a two-point extrude outline is refused", True, "")
 
 
-def test_a_profile_may_be_written_either_way_round() -> None:
+def test_geom_profile_winding_agnostic() -> None:
     """The direction a profile is traced must not change the solid.
 
     A stock outline traced clockwise and the same outline traced
@@ -971,7 +1388,7 @@ def test_a_profile_may_be_written_either_way_round() -> None:
     )
 
 
-def test_the_windings_gate_catches_an_inverted_part() -> None:
+def test_geom_windings_catches_inverted() -> None:
     """The gate must fail a solid that is inside-out, and pass one that is not.
 
     The gate exists because four primitives shipped inverted and every
@@ -1058,7 +1475,10 @@ def test_the_windings_gate_catches_an_inverted_part() -> None:
     )
 
 
-def test_a_generated_mesh_composes_like_a_primitive() -> None:
+# ---- mesh: generated meshes joining as parts --------------------------------
+
+
+def test_mesh_composes_like_primitive() -> None:
     """A `mesh` part must behave as the gates already expect a part to.
 
     The whole value of composing rather than generating whole is that
@@ -1246,233 +1666,93 @@ def test_a_generated_mesh_composes_like_a_primitive() -> None:
                 check(f"{label} is refused", True, "")
 
 
-def test_the_provenance_gate_reports_the_trade() -> None:
-    """The gate must say what generation bought and what it cost.
+def test_mesh_mirror_keeps_faces_outward() -> None:
+    """`mirror` must reflect geometry *and* keep the surface facing outward.
 
-    Its job is not to prevent generated parts — it is to keep the trade
-    visible, because after export the two kinds are indistinguishable and
-    only one of them can still be adjusted by editing a number. Two
-    thresholds, and the reason they differ is the point:
+    A generated pair arrives as one hand. The fetched pauldron's mass leans 0.32
+    of its half-width toward -x — it is a left shoulder — and the same mesh on
+    both shoulders had the right one's lames hanging inboard over the ribs. Every
+    gate passed it: the chirality gate checks that the two *positions* mirror,
+    which they did, so the wrong hand was invisible to everything but a render.
 
-    A composition that is mostly generated triangles is warned, since a
-    grip and a stock legitimately outweigh forty small primitives.
+    Not expressible as a rotation, which is why it is its own field: 180 degrees
+    about y would face the lames outboard and swap front for back as well.
 
-    A composition that is mostly generated *parts as well as* triangles is
-    failed, because at that point it is a generated asset with primitives
-    attached, and it would be reported as `verified_by="spec"` while
-    nothing had verified the facing of the mesh carrying it.
+    The winding is the part that can silently go wrong. A reflection flips
+    handedness, so negating a coordinate without reversing each triangle turns
+    the whole surface inside out — it still builds, still measures the same, and
+    renders as a part lit from within.
     """
 
-    print("\nthe provenance gate reports the trade")
-    from models.common.glb_writer import write_spec_glb
+    print("\na generated pair that arrived as one hand can be mirrored")
     from operators.gen_3d_object.funcs.code_asset import (
-        MESH_KIND, check_provenance, validate_spec,
+        SpecError, build_code_asset, validate_spec)
+
+    # An asymmetric solid, so a mirror is detectable at all: a wedge whose
+    # profile leans one way. A symmetric part would pass either way round.
+    wedge = [[-0.05, 0.0], [0.05, 0.0], [0.02, 0.06], [-0.05, 0.03]]
+
+    from operators.gen_3d_object.funcs.code_asset_templates import compose
+
+    def spec_for(mirror):
+        part = {"id": "wedge", "kind": "extrude", "size": [1.0, 1.0, 0.04],
+                "at": [0.0, 0.03, 0.0], "profile": wedge, "material": "steel",
+                "segments": 8}
+        if mirror:
+            part["mirror"] = mirror
+        return compose.compose(
+            subject="a wedge", body=[part], height_metres=0.06,
+            asset_type="prop",
+            materials={"steel": {"baseColor": [0.6, 0.6, 0.6, 1.0]}})
+
+    from models.common.glb_utils import read_glb_mesh
+
+    def centroid(path):
+        """Mean vertex x. Bounds cannot see a reflection of a centred part —
+        they are identical either way round — so the mass is what to measure."""
+        mesh = read_glb_mesh(Path(path).read_bytes())
+        points = list(mesh["positions"])
+        return round(sum(point[0] for point in points) / len(points), 6)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        plain_path, flipped_path = Path(tmp) / "a.glb", Path(tmp) / "b.glb"
+        plain = build_code_asset(spec_for(None), str(plain_path))
+        flipped = build_code_asset(spec_for("x"), str(flipped_path))
+        plain_lean, flipped_lean = centroid(plain_path), centroid(flipped_path)
+
+    check("a mirrored part builds", flipped["ok"], str(flipped.get("failures")))
+    check(
+        "and the windings gate is satisfied, so the surface still faces out",
+        not any("inward" in str(note).lower() or "inverted" in str(note).lower()
+                for note in flipped.get("failures", [])),
+        f"windings complained: {flipped.get('failures')}",
+    )
+    # The real assertion: a reflection is not a no-op on an asymmetric part.
+    # Bounds are unchanged by design — the profile is centred — so this compares
+    # where the mass went, which is what a mirror actually moves.
+    check(
+        "the two are the same size",
+        [round(v, 6) for v in plain["bounds"]["extents"]]
+        == [round(v, 6) for v in flipped["bounds"]["extents"]],
+        f"{plain['bounds']['extents']} vs {flipped['bounds']['extents']}",
+    )
+    check(
+        "and the mirrored copy's mass leans the other way",
+        plain_lean != 0.0 and abs(plain_lean + flipped_lean) < 1e-9,
+        f"plain leans {plain_lean}, mirrored {flipped_lean} — a mirror that "
+        "changes nothing is a mirror that was not applied",
     )
 
-    with tempfile.TemporaryDirectory() as directory:
-        # A dense fixture, so a single mesh part can dominate a budget the way
-        # a real generated part does.
-        fixture = write_spec_glb(
-            {
-                "subject": "dense", "units": "metres", "forward": "+z",
-                "height_metres": 1.0, "materials": {},
-                "parts": [{
-                    "id": "ball", "kind": "sphere", "size": (1.0, 1.0, 1.0),
-                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
-                    "segments": 48, "profile": None, "material": "d",
-                }],
-            },
-            str(Path(directory) / "dense.glb"),
-        )
-
-        def spec(parts: list[dict]) -> dict:
-            return validate_spec({
-                "subject": "assembly", "units": "metres", "forward": "+z",
-                "asset_type": "prop", "materials": {}, "parts": parts,
-            })
-
-        primitives = [
-            {"id": f"box-{index}", "kind": "box", "size": (0.05, 0.05, 0.05),
-             "at": (index * 0.06, 0.03, 0.0), "material": "default"}
-            for index in range(6)
-        ]
-        mesh_part = {
-            "id": "moulded", "kind": MESH_KIND, "source": fixture,
-            "size": (0.2, 0.2, 0.2), "at": (0.0, 0.2, 0.0),
-            "material": "default",
-        }
-
-        # No generated parts: the gate is silent rather than absent, so a
-        # pure-primitive spec does not pay for a check it does not need.
-        report = check_provenance(spec(primitives))
-        check(
-            "a spec with no generated parts passes silently",
-            report["ok"] and not report["warnings"]
-            and report["generated_triangles"] == 0,
-            f"{report}",
-        )
-
-        # Mostly generated triangles: warned, not failed.
-        report = check_provenance(spec(primitives + [mesh_part]))
-        check(
-            "a composition dominated by generated triangles is warned",
-            report["ok"] and any(
-                "generated" in message for message in report["warnings"]
-            ),
-            f"ok={report['ok']}, warnings={report['warnings']}",
-        )
-        check(
-            "and the per-part cost is reported, not just the total",
-            report["generated_parts"][0]["triangles"] > 0
-            and 0.0 < report["generated_parts"][0]["share"] <= 1.0,
-            f"{report['generated_parts']}",
-        )
-
-        # Mostly generated parts *and* triangles: failed.
-        report = check_provenance(spec([
-            dict(mesh_part, id="moulded-a"),
-            dict(mesh_part, id="moulded-b", at=(0.3, 0.2, 0.0)),
-            {"id": "pin", "kind": "box", "size": (0.01, 0.01, 0.01),
-             "at": (0.0, 0.005, 0.0), "material": "default"},
-        ]))
-        check(
-            "a composition that is really a generated asset is failed",
-            not report["ok"]
-            and any("composition" in message for message in report["failures"]),
-            f"ok={report['ok']}, failures={report['failures']}",
-        )
-
-        # The boundary, pinned. Both conditions are required, and each on its
-        # own would fail work that is correct: a real weapon is 77% generated
-        # triangles because a grip outweighs forty small primitives, and a
-        # bracket is legitimately one plate plus one moulded pad. Asserting
-        # only the failing case would leave the threshold as a claim.
-        report = check_provenance(spec([
-            {"id": "plate", "kind": "box", "size": (0.3, 0.02, 0.3),
-             "at": (0.0, 0.01, 0.0), "material": "default"},
-            {"id": "post", "kind": "cylinder", "size": (0.02, 0.1, 0.02),
-             "at": (0.0, 0.07, 0.0), "material": "default"},
-            dict(mesh_part, id="pad"),
-        ]))
-        check(
-            "two stated parts beside a generated one is a composition, not a "
-            "disguise",
-            report["ok"] and report["generated_share"] > 0.9,
-            f"ok={report['ok']}, share={report['generated_share']}, "
-            f"failures={report['failures']}",
-        )
-        report = check_provenance(spec([
-            {"id": "plate", "kind": "box", "size": (0.3, 0.02, 0.3),
-             "at": (0.0, 0.01, 0.0), "material": "default"},
-            dict(mesh_part, id="pad"),
-        ]))
-        check(
-            "but one stated part beside it is decoration on something fetched",
-            not report["ok"],
-            f"ok={report['ok']}, share={report['generated_share']}",
-        )
-
-        # A non-uniform size is honoured by taking the largest component, and
-        # the gate says so — the author wrote three numbers and got one.
-        report = check_provenance(spec([
-            dict(mesh_part, size=(0.2, 0.05, 0.1)),
-        ]))
-        check(
-            "a non-uniform size on a generated part is called out",
-            any("not uniform" in message for message in report["warnings"]),
-            f"warnings={report['warnings']}",
-        )
-        report = check_provenance(spec([mesh_part]))
-        check(
-            "and a uniform one is not",
-            not any("not uniform" in message for message in report["warnings"]),
-            f"warnings={report['warnings']}",
-        )
+    # An axis that is not an axis, refused where it is written.
+    try:
+        validate_spec(spec_for("sideways"))
+        check("a bad mirror axis is refused", False, "it was accepted")
+    except SpecError as exc:
+        check("a bad mirror axis is refused", "'x', 'y' or 'z'" in str(exc),
+              f"got {exc}")
 
 
-def test_an_unclosed_generated_part_warns_but_does_not_block() -> None:
-    """An unclosed mesh is warned; an unclosed primitive still fails.
-
-    The same measurement, two different meanings, and collapsing them
-    either way is wrong. An unclosed *primitive* has a fix in the spec —
-    nearly always a lathe profile that does not return to the axis — so
-    failing it is actionable. An unclosed *generated* mesh is what the
-    generator returned; no spec edit repairs it, and blocking an asset over
-    a few boundary edges on a grip means the gate gets bypassed rather than
-    the mesh improved, and then it protects nothing.
-
-    Measured on a real fetched part: the scope generated for the rifle came
-    back with 103 boundary edges while the grip and stock had none, so this
-    is the common case and not a hypothetical.
-    """
-
-    print("\nan unclosed generated part warns but does not block")
-    from models.common import glb_writer
-    from operators.gen_3d_object.funcs.code_asset import MESH_KIND, check_windings
-
-    with tempfile.TemporaryDirectory() as directory:
-        fixture = glb_writer.write_spec_glb(
-            {
-                "subject": "cube", "units": "metres", "forward": "+z",
-                "height_metres": 1.0, "materials": {},
-                "parts": [{
-                    "id": "c", "kind": "box", "size": (1.0, 1.0, 1.0),
-                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
-                    "segments": 16, "profile": None, "material": "d",
-                }],
-            },
-            str(Path(directory) / "cube.glb"),
-        )
-
-        mesh_part = {
-            "id": "fetched", "kind": MESH_KIND, "source": fixture,
-            "size": (0.3, 0.3, 0.3), "at": (0.0, 0.15, 0.0),
-            "rotation": (0.0, 0.0, 0.0), "segments": 16, "profile": None,
-            "material": "default",
-        }
-        box_part = {
-            "id": "authored", "kind": "box", "size": (0.3, 0.3, 0.3),
-            "at": (0.4, 0.15, 0.0), "rotation": (0.0, 0.0, 0.0),
-            "segments": 16, "profile": None, "material": "default",
-            "chamfer": 0.0,
-        }
-
-        # Drop the last triangle of whatever is built, which opens a hole
-        # without touching anything else — same vertices, same bounds.
-        original = glb_writer.build_part
-
-        def holed(part: dict) -> tuple:
-            positions, normals, indices = original(part)
-            return positions, normals, indices[:-3]
-
-        glb_writer.build_part = holed
-        try:
-            report = check_windings({"parts": [mesh_part]})
-            check(
-                "an unclosed generated part does not block",
-                report["ok"] and report["unclosed_generated"]
-                and not report["unclosed"],
-                f"ok={report['ok']}, generated={report['unclosed_generated']}, "
-                f"primitive={report['unclosed']}",
-            )
-            check(
-                "and it is warned about by name",
-                any("fetched" in message for message in report["warnings"]),
-                f"warnings={report['warnings']}",
-            )
-
-            report = check_windings({"parts": [box_part]})
-            check(
-                "an unclosed primitive still fails",
-                not report["ok"] and report["unclosed"]
-                and not report["unclosed_generated"],
-                f"ok={report['ok']}, primitive={report['unclosed']}",
-            )
-        finally:
-            glb_writer.build_part = original
-
-
-def test_a_fetched_texture_survives_composition() -> None:
+def test_mesh_texture_survives() -> None:
     """A generated part's UVs and base-colour image must reach the output.
 
     This is most of what a generated part contributes. A grip's stippling
@@ -1663,239 +1943,189 @@ def test_a_fetched_texture_survives_composition() -> None:
         )
 
 
-def _write_textured_fixture(path: Path, png: bytes) -> None:
-    """A minimal GLB: one textured quad, with UVs and a metallic-roughness map.
-
-    Written by hand because the point is to exercise the *reader* against a
-    file this repository's writer did not produce — a fixture round-tripped
-    through our own writer would only prove the two agree, which is exactly
-    the assumption that lets a decoding bug survive.
-    """
-
-    import json as json_module
-    import struct as struct_module
-
-    positions = [(-0.5, -0.5, 0.0), (0.5, -0.5, 0.0),
-                 (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)]
-    normals = [(0.0, 0.0, 1.0)] * 4
-    uvs = [(0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (0.0, 0.0)]
-    indices = [0, 1, 2, 0, 2, 3]
-
-    buffer = bytearray()
-    views: list[dict] = []
-
-    def add(payload: bytes, target: int | None = None) -> int:
-        while len(buffer) % 4:
-            buffer.append(0)
-        view = {"buffer": 0, "byteOffset": len(buffer), "byteLength": len(payload)}
-        if target is not None:
-            view["target"] = target
-        buffer.extend(payload)
-        views.append(view)
-        return len(views) - 1
-
-    position_view = add(b"".join(struct_module.pack("<3f", *p) for p in positions), 34962)
-    normal_view = add(b"".join(struct_module.pack("<3f", *n) for n in normals), 34962)
-    uv_view = add(b"".join(struct_module.pack("<2f", *t) for t in uvs), 34962)
-    index_view = add(b"".join(struct_module.pack("<H", i) for i in indices), 34963)
-    image_view = add(png)
-
-    document = {
-        "asset": {"version": "2.0", "generator": "test fixture"},
-        "scene": 0,
-        "scenes": [{"nodes": [0]}],
-        # A node transform, so the reader has to apply one.
-        "nodes": [{"mesh": 0, "translation": [0.0, 0.25, 0.0],
-                   "scale": [2.0, 2.0, 2.0]}],
-        "meshes": [{"primitives": [{
-            "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2},
-            "indices": 3, "material": 0, "mode": 4,
-        }]}],
-        "materials": [{
-            "name": "painted",
-            "pbrMetallicRoughness": {
-                "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
-                # The defaults an exporter leaves behind when the channels are
-                # in a map. Inheriting them is the defect under test.
-                "metallicFactor": 1.0,
-                "roughnessFactor": 1.0,
-                "baseColorTexture": {"index": 0},
-                "metallicRoughnessTexture": {"index": 1},
-            },
-        }],
-        "textures": [{"source": 0}, {"source": 0}],
-        "images": [{"bufferView": image_view, "mimeType": "image/png"}],
-        "accessors": [
-            {"bufferView": position_view, "componentType": 5126, "count": 4,
-             "type": "VEC3", "min": [-0.5, -0.5, 0.0], "max": [0.5, 0.5, 0.0]},
-            {"bufferView": normal_view, "componentType": 5126, "count": 4,
-             "type": "VEC3"},
-            {"bufferView": uv_view, "componentType": 5126, "count": 4,
-             "type": "VEC2"},
-            {"bufferView": index_view, "componentType": 5123, "count": 6,
-             "type": "SCALAR"},
-        ],
-        "bufferViews": views,
-        "buffers": [{"byteLength": len(buffer)}],
-    }
-
-    json_chunk = bytearray(json_module.dumps(document).encode("utf-8"))
-    while len(json_chunk) % 4:
-        json_chunk.append(ord(" "))
-    binary_chunk = bytearray(buffer)
-    while len(binary_chunk) % 4:
-        binary_chunk.append(0)
-
-    total = 12 + 8 + len(json_chunk) + 8 + len(binary_chunk)
-    with open(path, "wb") as handle:
-        handle.write(struct_module.pack("<4sII", b"glTF", 2, total))
-        handle.write(struct_module.pack("<I4s", len(json_chunk), b"JSON"))
-        handle.write(json_chunk)
-        handle.write(struct_module.pack("<I4s", len(binary_chunk), b"BIN\x00"))
-        handle.write(binary_chunk)
+# ---- route: which route a subject takes -------------------------------------
 
 
-def test_the_orientation_gate_catches_a_sideways_part() -> None:
-    """A generated part's declared long axis must match where it lands.
+def test_route_declines_rather_than_guesses() -> None:
+    print("\nrouting — declining is a result")
+    from operators.gen_3d_object.funcs.code_asset import suits_code_asset
 
-    Written after the rifle's grip came out facing across the weapon. The
-    mesh's own longest axis was its x, so `rotation: [-8, 0, 0]` — the
-    intuitive reading of "rake it back" — tilted it in the plane it was
-    already flat in. Every other gate passed: the bounds were right, the
-    winding was right, the scale was right, and the part was sideways.
+    crate = suits_code_asset("wooden supply crate")
+    check("a crate routes to code", crate["suitable"] and crate["route"] == "code")
 
-    The reason no other gate can see this is that nothing in a generated
-    file says which of its axes is length. So the spec has to say, and the
-    check has to be against the placed vertices.
+    face = suits_code_asset("human face", asset_type="avatar")
+    check(
+        "a face routes to generation",
+        not face["suitable"] and face["route"] == "generate",
+        f"got {face}",
+    )
+    check("declining says why", "organic" in face["reason"])
 
-    It is also why the same rotation cannot be carried from one version of a
-    part to the next: regenerating the grip textured produced a file whose
-    correct rotation was `+90` where the previous one needed `-90`. A new
-    file is a new set of axes.
-    """
-
-    print("\nthe orientation gate catches a sideways part")
-    from models.common.glb_writer import write_spec_glb
-    from operators.gen_3d_object.funcs.code_asset import (
-        MESH_KIND, SpecError, check_orientation, validate_spec,
+    golem = suits_code_asset("stone golem creature")
+    check(
+        "a subject reading both ways is ambiguous, not guessed",
+        golem["route"] == "ambiguous",
+        f"got {golem}",
     )
 
-    with tempfile.TemporaryDirectory() as directory:
-        # A part that is clearly longest on its own y, so a rotation that
-        # moves it is unambiguous.
-        source = write_spec_glb(
-            {
-                "subject": "post", "units": "metres", "forward": "+z",
-                "height_metres": 1.0, "materials": {},
-                "parts": [{
-                    "id": "p", "kind": "box", "size": (0.2, 1.0, 0.3),
-                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
-                    "segments": 16, "profile": None, "material": "d",
-                }],
-            },
-            str(Path(directory) / "post.glb"),
+    unknown = suits_code_asset("zorblatt")
+    check("an unknown subject is ambiguous", unknown["route"] == "ambiguous")
+
+    # This used to assert a caller could pass a `Vocabulary` of 141 words —
+    # substitution of *content* inside four categories the router had hardcoded,
+    # so a domain that did not fit them had nowhere to go. What is substituted
+    # now is the *judgement*: a strategy says how a subject assembles, and the
+    # route follows.
+    from operators.gen_3d_object.funcs.code_asset_templates import routing
+
+    def zorblatt(subject: str, asset_type: str = "prop"):
+        if "zorblatt" not in routing.words(subject):
+            return None
+        return routing.Claim(
+            topology=routing.COMPOSED,
+            strength=1.0,
+            evidence=("zorblatt",),
+            reason="a zorblatt is a stack of plates",
         )
 
-        def spec(rotation: tuple, long_axis: str | None) -> dict:
-            part = {
-                "id": "post", "kind": MESH_KIND, "source": source,
-                "size": (0.5, 0.5, 0.5), "at": (0.0, 0.25, 0.0),
-                "rotation": rotation, "material": "default",
-            }
-            if long_axis:
-                part["long_axis"] = long_axis
-            return validate_spec({
-                "subject": "a post", "units": "metres", "forward": "+z",
-                "parts": [part],
-            })
+    routed = suits_code_asset("zorblatt", strategies=[("zorblatt", zorblatt)])
+    check(
+        "a caller's own strategy decides the route",
+        routed["route"] == "code" and routed["suitable"]
+        and routed["topology"] == routing.COMPOSED,
+        f"got {routed['route']} at {routed['confidence']}",
+    )
+    check(
+        "and passing strategies leaves the registry alone",
+        suits_code_asset("zorblatt")["route"] == "ambiguous"
+        and "zorblatt" not in routing.registered(),
+        "a per-call strategy leaked into the global registry",
+    )
+    # A structural claim is not outvoted by counted evidence, whoever makes it:
+    # the tiering is in the router, not in the shipped strategies.
+    def wyrm(subject: str, asset_type: str = "prop"):
+        if "wyrm" not in routing.words(subject):
+            return None
+        return routing.Claim(
+            topology=routing.NESTED,
+            strength=1.0,
+            evidence=("wyrm",),
+            tier=routing.STRUCTURAL,
+            reason="a wyrm is a host that its barding is fitted to",
+        )
 
-        report = check_orientation(spec((0.0, 0.0, 0.0), "y"))
+    from operators.gen_3d_object.funcs.code_asset_templates import rigid_template
+
+    barded = suits_code_asset(
+        "wyrm with steel plate barding", asset_type="avatar",
+        strategies=[("wyrm", wyrm), ("rigid", rigid_template.claim)],
+    )
+    check(
+        "a caller's structural claim outranks counted evidence",
+        barded["route"] == "generate" and barded["topology"] == routing.NESTED,
+        f"got {barded['route']} via {barded['claimed_by']}",
+    )
+
+
+def test_route_new_domain_registers() -> None:
+    """A domain nobody anticipated must route by *registering*, not by editing.
+
+    The test the previous design could not pass. That version let a caller pass
+    a longer word list, but the four categories those words went into were
+    hardcoded in the function reading them — substituting content inside a fixed
+    taxonomy is not extensibility.
+
+    Nothing in `code_asset.py`, `routing.py` or either `*_template` package is
+    edited to make this work.
+    """
+
+    print("\na new domain routes without editing the router")
+    from operators.gen_3d_object.funcs.code_asset import suits_code_asset
+    from operators.gen_3d_object.funcs.code_asset_templates import routing
+
+    before = routing.registered()
+
+    def submarine(subject: str, asset_type: str = "prop"):
+        seen = routing.words(subject)
+        found = tuple(word for word in ("submarine", "sub", "hull", "conning",
+                                        "periscope", "bathysphere") if word in seen)
+        if not found:
+            return None
+        return routing.Claim(
+            topology=routing.COMPOSED,
+            strength=float(len(found)),
+            evidence=found,
+            builder="fleet.templates.submarine",
+            reason=f"a {found[0]} is a hull with fittings bolted along it",
+        )
+
+    routing.register("submarine", submarine)
+    try:
+        result = suits_code_asset("bathysphere")
         check(
-            "an upright part declared upright passes",
-            not report["warnings"],
-            f"warnings={report['warnings']}",
-        )
-
-        # Laid on its side but still claiming y: the defect.
-        report = check_orientation(spec((0.0, 0.0, 90.0), "y"))
-        check(
-            "a part rotated onto its side is caught",
-            any("long_axis" in message for message in report["warnings"]),
-            f"warnings={report['warnings']}",
+            "a registered domain decides the route",
+            result["route"] == "code" and result["claimed_by"] == "submarine",
+            f"got {result['route']} via {result['claimed_by']}",
         )
         check(
-            "and the measured axis is reported so the fix is obvious",
-            report["parts_checked"][0]["measured_long_axis"] == "x",
-            f"{report['parts_checked'][0]}",
+            "and carries the builder that can make it",
+            result["builder"] == "fleet.templates.submarine",
+            f"got {result['builder']!r}",
         )
 
-        # Rotated *and* declared correctly: no warning. Asserting only the
-        # failing case would leave a gate that fires on any rotation at all.
-        report = check_orientation(spec((0.0, 0.0, 90.0), "x"))
+        # A new domain that changed unrelated routes would be a regression
+        # disguised as a feature.
+        for subject, expected in (("wooden crate", "code"),
+                                  ("oak tree", "generate"),
+                                  ("woman knight", "generate"),
+                                  ("knight helmet", "code")):
+            check(
+                f"registering a domain leaves {subject!r} at {expected}",
+                suits_code_asset(subject)["route"] == expected,
+                f"got {suits_code_asset(subject)['route']}",
+            )
+
+        # Two strategies on one name makes the route depend on import order,
+        # which presents as unstable rather than wrong.
+        try:
+            routing.register("submarine", submarine)
+            check("a duplicate registration is refused", False, "it was accepted")
+        except ValueError as exc:
+            check(
+                "a duplicate registration is refused, and says how to override",
+                "replace=True" in str(exc),
+                f"got {exc}",
+            )
+    finally:
+        routing.unregister("submarine")
+
+    check(
+        "unregistering leaves the registry as it was",
+        routing.registered() == before,
+        f"{before} -> {routing.registered()}",
+    )
+    check(
+        "and the domain stops deciding once withdrawn",
+        suits_code_asset("bathysphere")["route"] == "ambiguous",
+    )
+
+    # A raising strategy must neither decide the route by crashing nor be
+    # swallowed: the failure names it.
+    def broken(subject: str, asset_type: str = "prop"):
+        raise KeyError("chart not loaded")
+
+    try:
+        suits_code_asset("anything", strategies=[("broken", broken)])
+        check("a failing strategy is reported", False, "it passed silently")
+    except RuntimeError as exc:
         check(
-            "a part rotated onto its side and declared so passes",
-            not report["warnings"],
-            f"warnings={report['warnings']}",
+            "a failing strategy is reported with its name",
+            "broken" in str(exc),
+            f"got {exc}",
         )
 
-        # Undeclared: silent. The field is optional because for a near-cubic
-        # part the longest axis is noise, and a gate that demanded a
-        # declaration nobody could give would be bypassed.
-        report = check_orientation(spec((0.0, 0.0, 90.0), None))
-        check(
-            "an undeclared long axis is not guessed at",
-            not report["warnings"] and report["parts_checked"],
-            f"warnings={report['warnings']}",
-        )
 
-        # A near-cubic part is skipped rather than judged on noise.
-        cube = write_spec_glb(
-            {
-                "subject": "cube", "units": "metres", "forward": "+z",
-                "height_metres": 1.0, "materials": {},
-                "parts": [{
-                    "id": "c", "kind": "box", "size": (1.0, 1.0, 1.0),
-                    "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
-                    "segments": 16, "profile": None, "material": "d",
-                }],
-            },
-            str(Path(directory) / "cube.glb"),
-        )
-        report = check_orientation(validate_spec({
-            "subject": "a cube", "units": "metres", "forward": "+z",
-            "parts": [{
-                "id": "cube", "kind": MESH_KIND, "source": cube,
-                "size": (0.5, 0.5, 0.5), "at": (0.0, 0.25, 0.0),
-                "long_axis": "z",
-            }],
-        }))
-        check(
-            "a part with no dominant axis is skipped, not failed on noise",
-            not report["warnings"]
-            and report["parts_checked"][0].get("skipped"),
-            f"{report['parts_checked'][0]}",
-        )
-
-        # Refusals: a bad axis name, and the field on a primitive.
-        for label, part in (
-            ("an unknown axis name", {
-                "id": "p", "kind": MESH_KIND, "source": source,
-                "size": (0.5, 0.5, 0.5), "long_axis": "up"}),
-            ("long_axis on a box", {
-                "id": "p", "kind": "box", "size": (0.5, 0.5, 0.5),
-                "long_axis": "y"}),
-        ):
-            try:
-                validate_spec({
-                    "subject": "x", "units": "metres", "forward": "+z",
-                    "parts": [part],
-                })
-                check(f"{label} is refused", False, "it was accepted")
-            except SpecError:
-                check(f"{label} is refused", True, "")
-
-
-def test_a_wearer_routes_to_generation_but_their_kit_does_not() -> None:
+def test_route_wearer_routes_to_generate() -> None:
     """A figure in armour is a figure; a helmet on its own is a helmet.
 
     Found while building the knight demo. `suits_code_asset("female knight
@@ -1958,7 +2188,10 @@ def test_a_wearer_routes_to_generation_but_their_kit_does_not() -> None:
         )
 
 
-def test_attachment_solves_a_surface_relationship() -> None:
+# ---- assembly: holding parts together ---------------------------------------
+
+
+def test_assembly_attach_solves_faces() -> None:
     """`attach` must put one part's face against another's, and keep it there.
 
     Absolute `at` is the wrong primitive for a relationship, and every gap in
@@ -2043,7 +2276,7 @@ def test_attachment_solves_a_surface_relationship() -> None:
     )
 
 
-def test_nesting_survives_into_the_gltf() -> None:
+def test_assembly_parent_into_nodes() -> None:
     """`parent` must become a glTF child, and must not transform twice.
 
     A named part is of no use to gameplay if rotating the limb leaves its
@@ -2202,7 +2435,7 @@ def test_nesting_survives_into_the_gltf() -> None:
         )
 
 
-def test_an_unresolvable_relation_is_refused() -> None:
+def test_assembly_unresolvable_refused() -> None:
     """A relation with no solution is a spec error, not a placement.
 
     Each of these describes no position at all, so there is nothing for a
@@ -2252,7 +2485,195 @@ def test_an_unresolvable_relation_is_refused() -> None:
             check(f"{label} is refused", True, "")
 
 
-def test_a_body_can_be_armoured_from_templates() -> None:
+def test_assembly_chain_group_mirror() -> None:
+    """`assembly` must chain, group and mirror — the COMPOSED mechanism.
+
+    The part tables are here rather than in `rigid_template` on purpose: a
+    rifle's chamber and a car's wheelbase are content, and shipping them in the
+    package would make the next weapon a copy. The joining is what generalises.
+
+    Absolute placement is what produced every gap in these assets — a muzzle
+    9 mm off its barrel, a sling loop 26 mm past a rail — each fixed with a
+    number that went stale when a neighbour's size changed.
+    """
+
+    print("\nrigid parts are joined by relation, not by coordinate")
+    from operators.gen_3d_object.funcs.code_asset import build_code_asset
+    from operators.gen_3d_object.funcs.code_asset_templates import assembly, compose
+
+    # --- a rifle: a chain, front to back -----------------------------------
+    receiver = {"id": "receiver", "kind": "box", "size": [0.05, 0.09, 0.26],
+                "at": [0.0, 0.20, 0.0], "material": "steel", "chamfer": 0.15}
+    barrel = {"id": "barrel", "kind": "cylinder", "size": [0.022, 0.34, 0.022],
+              "rotation": [90.0, 0.0, 0.0], "material": "steel", "segments": 20}
+    muzzle = {"id": "muzzle", "kind": "cylinder", "size": [0.030, 0.04, 0.030],
+              "rotation": [90.0, 0.0, 0.0], "material": "steel", "segments": 20}
+    # Stated, not chained: a magazine hangs *under* the receiver, and `chain`
+    # leaves it alone. That is what lets one chain carry a branch.
+    magazine = {"id": "magazine", "kind": "box", "size": [0.028, 0.13, 0.075],
+                "material": "steel", "chamfer": 0.10,
+                "attach": {"to": "receiver", "axis": "y", "my": "max",
+                           "their": "min"}}
+
+    parts = assembly.chain([receiver, barrel, muzzle], axis="z")
+    check(
+        "the first part anchors and keeps its own placement",
+        "attach" not in parts[0] and parts[0]["at"] == [0.0, 0.20, 0.0],
+    )
+    check(
+        "each later part attaches to the one before it",
+        parts[1]["attach"]["to"] == "receiver"
+        and parts[2]["attach"]["to"] == "barrel",
+        f"got {[p.get('attach', {}).get('to') for p in parts]}",
+    )
+    parts = parts + assembly.chain([magazine])
+    check(
+        "a part that states its own relation is left alone",
+        parts[3]["attach"]["their"] == "min",
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rifle = build_code_asset(compose.compose(
+            subject="tactical assault rifle",
+            body=parts, height_metres=0.24, asset_type="prop",
+            materials={"steel": {"baseColor": [0.6, 0.62, 0.66, 1.0],
+                                 "metallic": 1.0, "roughness": 0.3}},
+        ), str(Path(tmp) / "rifle.glb"))
+    check("the chained rifle builds", rifle["ok"], str(rifle.get("failures")))
+
+    # Asserted as the actual arithmetic, not as "some offset appeared", because
+    # a wrong offset is also an offset. `attach` survives in the solved spec on
+    # purpose: the resolver rewrites `at` and leaves the declaration, so the
+    # spec still records why the part is where it is.
+    solved = {part["id"]: part for part in rifle["spec"]["parts"]}
+    receiver_end = solved["receiver"]["at"][2] + 0.26 / 2      # box half-depth
+    barrel_half = 0.34 / 2                                     # rotated onto z
+    check(
+        "the barrel was solved onto the receiver's end face",
+        abs(solved["barrel"]["at"][2] - (receiver_end + barrel_half)) < 1e-6,
+        f"barrel at z={solved['barrel']['at'][2]:.4f}, "
+        f"expected {receiver_end + barrel_half:.4f}",
+    )
+    check(
+        "and the muzzle onto the barrel's, so the chain is end to end",
+        abs(solved["muzzle"]["at"][2]
+            - (solved["barrel"]["at"][2] + barrel_half + 0.04 / 2)) < 1e-6,
+        f"muzzle at z={solved['muzzle']['at'][2]:.4f}",
+    )
+    check(
+        "the relation stays in the spec; only the position is derived",
+        solved["barrel"]["attach"]["to"] == "receiver",
+    )
+
+    # --- a car: a mirror, and a group for what a group is actually for ------
+    #
+    # WHEELS ARE NOT GROUPED. `group` states a *face* relation and a wheel has
+    # none: its height comes from its own radius, because it must touch the
+    # ground. Grouping them to the chassis on `y` put them on the roof (the
+    # default faces oppose), and `mid`/`min` instead floated the car 0.17 m up.
+    # Both build cleanly and both are wrong. So the axle height is stated, and
+    # `group` is used for the parts that do butt against the chassis.
+    RADIUS, HALF_TRACK, WHEELBASE = 0.17, 0.86, 1.28
+    chassis = {"id": "chassis", "kind": "box", "size": [1.7, 0.30, 3.4],
+               "at": [0.0, 0.49, 0.0], "material": "paint", "chamfer": 0.2}
+    wheels = [
+        {"id": f"wheel-{end}", "kind": "cylinder",
+         "size": [RADIUS * 2, 0.22, RADIUS * 2], "rotation": [0.0, 0.0, 90.0],
+         "at": [HALF_TRACK, RADIUS, z], "material": "rubber", "segments": 18}
+        for end, z in (("front", WHEELBASE / 2), ("rear", -WHEELBASE / 2))
+    ]
+
+    both = assembly.mirrored(wheels, axis="x")
+    check("mirroring makes both sides", len(both) == 4, f"got {len(both)}")
+    check(
+        "and puts them on opposite sides of the centreline",
+        {round(part["at"][0], 3) for part in both} == {-HALF_TRACK, HALF_TRACK},
+        f"got {sorted({round(p['at'][0], 3) for p in both})}",
+    )
+    check(
+        "with ids that distinguish them",
+        {part["id"] for part in both} == {"wheel-front-l", "wheel-rear-l",
+                                         "wheel-front-r", "wheel-rear-r"},
+        f"got {sorted(part['id'] for part in both)}",
+    )
+    check(
+        "and every wheel still touches the ground",
+        all(abs(part["at"][1] - RADIUS) < 1e-9 for part in both),
+        f"got {sorted({p['at'][1] for p in both})}",
+    )
+
+    # Grouped, not chained: chaining would make the scoop's position depend on
+    # the spoiler, so removing the spoiler would move the scoop.
+    fittings = assembly.group([
+        {"id": "spoiler", "kind": "box", "size": [1.5, 0.06, 0.34],
+         "at": [0.0, 0.0, -1.5], "material": "paint", "chamfer": 0.3},
+        {"id": "scoop", "kind": "box", "size": [0.5, 0.08, 0.6],
+         "at": [0.0, 0.0, 0.7], "material": "paint", "chamfer": 0.25},
+    ], to="chassis", axis="y")
+    check(
+        "every fitting attaches to the hub rather than to another fitting",
+        all(part["attach"]["to"] == "chassis" for part in fittings),
+        f"got {[p['attach']['to'] for p in fittings]}",
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        car = build_code_asset(compose.compose(
+            subject="arcade race car",
+            body=[chassis] + both + fittings,
+            height_metres=0.72, asset_type="vehicle",
+            materials={"paint": {"baseColor": [0.9, 0.2, 0.15, 1.0],
+                                 "metallic": 0.3, "roughness": 0.35},
+                       "rubber": {"baseColor": [0.06, 0.06, 0.07, 1.0],
+                                  "roughness": 0.9}},
+        ), str(Path(tmp) / "car.glb"))
+    check("the grouped car builds", car["ok"], str(car.get("failures")))
+
+    solved = {part["id"]: part for part in car["spec"]["parts"]}
+    check(
+        "the car sits on the ground rather than floating or sinking",
+        abs(car["bounds"]["low"][1]) < 1e-6,
+        f"lowest point at y={car['bounds']['low'][1]}",
+    )
+    check(
+        "and each fitting was solved onto the chassis roof, not onto the other",
+        abs(solved["spoiler"]["at"][1] - solved["scoop"]["at"][1]) > 1e-9
+        and solved["spoiler"]["at"][1] > chassis["at"][1],
+        f"spoiler y={solved['spoiler']['at'][1]:.4f}, "
+        f"scoop y={solved['scoop']['at'][1]:.4f}",
+    )
+
+    # `group` deliberately does not check the hub — it may be defined later — so
+    # the resolver is what must refuse it, by name, with the whole list in hand.
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            build_code_asset(compose.compose(
+                subject="broken car",
+                body=assembly.group(both, to="no-such-chassis"),
+                height_metres=0.34, asset_type="vehicle",
+                materials={"rubber": {"baseColor": [0.1, 0.1, 0.1, 1.0]}},
+            ), str(Path(tmp) / "broken.glb"))
+        check("a missing hub is refused", False, "it was accepted")
+    except Exception as exc:
+        check(
+            "a missing hub is refused, naming it",
+            "no-such-chassis" in str(exc),
+            f"got {str(exc)[:90]}",
+        )
+
+    # An axis that is not an axis, caught where it is written rather than as a
+    # confusing downstream placement.
+    try:
+        assembly.chain([receiver, barrel], axis="w")
+        check("a bad chain axis is refused", False, "it was accepted")
+    except assembly.AssemblyError as exc:
+        check("a bad chain axis is refused", "'x', 'y' or 'z'" in str(exc),
+              f"got {exc}")
+
+
+# ---- human: figures and what they wear --------------------------------------
+
+
+def test_human_construct_kit_follows_limb() -> None:
     """A figure is a body plus what it wears, and the kit must follow the body.
 
     This is the composition the flat parts list could not express. Written
@@ -2385,7 +2806,92 @@ def test_a_body_can_be_armoured_from_templates() -> None:
         check("replacing a part that is not there is refused", True, "")
 
 
-def test_a_figure_is_measured_before_it_is_armoured() -> None:
+def test_human_measure_foot_and_leg_from_geometry() -> None:
+    """Two landmarks that reported the measuring apparatus, not the figure.
+
+    Both produced kit that built cleanly, passed every gate, and was visibly
+    wrong — the kind of defect that only a render or this kind of arithmetic
+    catches.
+
+    `foot_height` was `max(y) - low` over a band defined as the bottom 9% of the
+    figure, so it returned the band's own ceiling: 0.1524 m against a 0.1548 m
+    cutoff. A boot sized to it stood 0.152 m tall on a 0.133 m width and
+    rendered as a cube.
+
+    `leg_x` is read at the thigh and was used to place shin plates. This
+    figure's legs splay, so the greaves sat 0.045 m inboard of the legs — far
+    enough to miss them entirely, which rendered as four limbs: two plates
+    hanging between two bare legs.
+
+    Measures a body produced by an earlier build under `test_data/outputs/`, and
+    skips when there is none: those are build products, not fixtures, so a fresh
+    checkout has nothing to measure.
+    """
+
+    print("\na measurement must measure the body, not the sampling window")
+    from operators.gen_3d_object.funcs.code_asset_templates.human_template import (
+        figure_fit)
+
+    bodies = sorted(Path("test_data/outputs").glob(
+        "*/*/assets/3d_object/*/parts/tpose_body_lo.glb"))
+    if not bodies:
+        print("  .. skipped, no measured body has been built")
+        return
+    body = str(bodies[0])
+
+    height = 1.72
+    marks = figure_fit.landmarks_for(body, height)
+
+    # The band this used to return. A foot is not 9% of a figure tall.
+    band_ceiling = height * 0.09
+    check(
+        "foot height is the foot, not the band it was found in",
+        marks["foot_height"] < band_ceiling * 0.75,
+        f"foot_height {marks['foot_height']:.4f} against a "
+        f"{band_ceiling:.4f} band — it is reporting the window",
+    )
+    # An independent landmark for the same place, measured a different way.
+    check(
+        "and it agrees with the separately measured ankle",
+        abs(marks["foot_height"] - marks["ankle_y"]) < 0.04,
+        f"foot_height {marks['foot_height']:.4f} vs "
+        f"ankle_y {marks['ankle_y']:.4f}",
+    )
+
+    # The leg profile follows the limb down instead of reusing the thigh.
+    shin_y = (marks["knee_y"] + marks["ankle_y"]) / 2.0
+    at_shin = figure_fit.leg_x_at(marks, shin_y)
+    check(
+        "the leg is measured at the height the plate goes",
+        at_shin > marks["leg_x"] * 1.20,
+        f"leg_x_at({shin_y:.3f}) = {at_shin:.4f} vs leg_x {marks['leg_x']:.4f} "
+        "— the profile is not following the splay",
+    )
+    check(
+        "and a body with no profile falls back rather than reporting zero",
+        figure_fit.leg_x_at({"leg_x": 0.33}, 0.5) == 0.33,
+    )
+
+    # Each foot separately, as well as the union. Only having the union forced
+    # every caller to choose between a bulky boot and one that misses a foot.
+    flat = marks["foot_sides"]
+    check("each foot is reported, not just the pair", len(flat) == 4,
+          f"got {len(flat)} values")
+    left_x, right_x = flat[0], flat[2]
+    check(
+        "the two feet are not in the same place, which is why this is needed",
+        abs(abs(left_x) - abs(right_x)) > 0.005,
+        f"left {left_x:+.4f} right {right_x:+.4f}",
+    )
+    check(
+        "and one foot is narrower than the pair's union",
+        0.0 < marks["foot_span"] < marks["foot_width"],
+        f"foot_span {marks['foot_span']:.4f} vs union "
+        f"{marks['foot_width']:.4f}",
+    )
+
+
+def test_human_measure_landmarks_from_vertices() -> None:
     """Landmarks come from the body's vertices, and armour lands on them.
 
     The template this replaces stated where the knee was and then built a leg
@@ -2727,527 +3233,37 @@ def test_a_figure_is_measured_before_it_is_armoured() -> None:
             check("an unknown slot is refused", "wing" in str(exc), str(exc)[:60])
 
 
-def test_estimate_matches_every_primitive() -> None:
-    """The budget gate must count what the writer actually emits.
-
-    Pinned per primitive and per segment count because the first draft used
-    `segments ** 2` for the round shapes where the writer rings them at
-    `segments // 2`. That over-counted by exactly 2x, so the budget gate
-    would have rejected meshes that were inside their budget — and a gate
-    that rejects good work gets bypassed, after which it protects nothing.
-    """
-
-    print("\nthe estimate is the mesh")
-    from models.common.glb_writer import build_part
-    from operators.gen_3d_object.funcs.code_asset import estimate_triangles
-
-    profiles = {
-        "lathe": ((0.5, -0.5), (0.4, 0.0), (0.5, 0.5)),
-        "extrude": ((-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (0.0, 0.6), (-0.5, 0.5)),
-    }
-    for kind in ("box", "cylinder", "cone", "sphere", "torus", "lathe", "extrude"):
-        for segments in (3, 8, 12, 16, 32):
-            part = {
-                "id": kind, "kind": kind, "size": (1.0, 1.0, 1.0),
-                "at": (0.0, 0.0, 0.0), "rotation": (0.0, 0.0, 0.0),
-                "segments": segments, "profile": profiles.get(kind),
-                "material": "default",
-            }
-            _positions, _normals, indices = build_part(part)
-            actual = len(indices) // 3
-            estimated = estimate_triangles({"parts": [part]})
-            check(
-                f"{kind} at {segments} segments: estimate == mesh",
-                actual == estimated,
-                f"estimated {estimated}, wrote {actual}",
-            )
-
-
-def test_a_new_domain_routes_without_editing_the_router() -> None:
-    """A domain nobody anticipated must route by *registering*, not by editing.
-
-    The test the previous design could not pass. That version let a caller pass
-    a longer word list, but the four categories those words went into were
-    hardcoded in the function reading them — substituting content inside a fixed
-    taxonomy is not extensibility.
-
-    Nothing in `code_asset.py`, `routing.py` or either `*_template` package is
-    edited to make this work.
-    """
-
-    print("\na new domain routes without editing the router")
-    from operators.gen_3d_object.funcs.code_asset import suits_code_asset
-    from operators.gen_3d_object.funcs.code_asset_templates import routing
-
-    before = routing.registered()
-
-    def submarine(subject: str, asset_type: str = "prop"):
-        seen = routing.words(subject)
-        found = tuple(word for word in ("submarine", "sub", "hull", "conning",
-                                        "periscope", "bathysphere") if word in seen)
-        if not found:
-            return None
-        return routing.Claim(
-            topology=routing.COMPOSED,
-            strength=float(len(found)),
-            evidence=found,
-            builder="fleet.templates.submarine",
-            reason=f"a {found[0]} is a hull with fittings bolted along it",
-        )
-
-    routing.register("submarine", submarine)
-    try:
-        result = suits_code_asset("bathysphere")
-        check(
-            "a registered domain decides the route",
-            result["route"] == "code" and result["claimed_by"] == "submarine",
-            f"got {result['route']} via {result['claimed_by']}",
-        )
-        check(
-            "and carries the builder that can make it",
-            result["builder"] == "fleet.templates.submarine",
-            f"got {result['builder']!r}",
-        )
-
-        # A new domain that changed unrelated routes would be a regression
-        # disguised as a feature.
-        for subject, expected in (("wooden crate", "code"),
-                                  ("oak tree", "generate"),
-                                  ("woman knight", "generate"),
-                                  ("knight helmet", "code")):
-            check(
-                f"registering a domain leaves {subject!r} at {expected}",
-                suits_code_asset(subject)["route"] == expected,
-                f"got {suits_code_asset(subject)['route']}",
-            )
-
-        # Two strategies on one name makes the route depend on import order,
-        # which presents as unstable rather than wrong.
-        try:
-            routing.register("submarine", submarine)
-            check("a duplicate registration is refused", False, "it was accepted")
-        except ValueError as exc:
-            check(
-                "a duplicate registration is refused, and says how to override",
-                "replace=True" in str(exc),
-                f"got {exc}",
-            )
-    finally:
-        routing.unregister("submarine")
-
-    check(
-        "unregistering leaves the registry as it was",
-        routing.registered() == before,
-        f"{before} -> {routing.registered()}",
-    )
-    check(
-        "and the domain stops deciding once withdrawn",
-        suits_code_asset("bathysphere")["route"] == "ambiguous",
-    )
-
-    # A raising strategy must neither decide the route by crashing nor be
-    # swallowed: the failure names it.
-    def broken(subject: str, asset_type: str = "prop"):
-        raise KeyError("chart not loaded")
-
-    try:
-        suits_code_asset("anything", strategies=[("broken", broken)])
-        check("a failing strategy is reported", False, "it passed silently")
-    except RuntimeError as exc:
-        check(
-            "a failing strategy is reported with its name",
-            "broken" in str(exc),
-            f"got {exc}",
-        )
-
-
-def test_rigid_parts_are_joined_by_relation_not_by_coordinate() -> None:
-    """`assembly` must chain, group and mirror — the COMPOSED mechanism.
-
-    The part tables are here rather than in `rigid_template` on purpose: a
-    rifle's chamber and a car's wheelbase are content, and shipping them in the
-    package would make the next weapon a copy. The joining is what generalises.
-
-    Absolute placement is what produced every gap in these assets — a muzzle
-    9 mm off its barrel, a sling loop 26 mm past a rail — each fixed with a
-    number that went stale when a neighbour's size changed.
-    """
-
-    print("\nrigid parts are joined by relation, not by coordinate")
-    from operators.gen_3d_object.funcs.code_asset import build_code_asset
-    from operators.gen_3d_object.funcs.code_asset_templates import assembly, compose
-
-    # --- a rifle: a chain, front to back -----------------------------------
-    receiver = {"id": "receiver", "kind": "box", "size": [0.05, 0.09, 0.26],
-                "at": [0.0, 0.20, 0.0], "material": "steel", "chamfer": 0.15}
-    barrel = {"id": "barrel", "kind": "cylinder", "size": [0.022, 0.34, 0.022],
-              "rotation": [90.0, 0.0, 0.0], "material": "steel", "segments": 20}
-    muzzle = {"id": "muzzle", "kind": "cylinder", "size": [0.030, 0.04, 0.030],
-              "rotation": [90.0, 0.0, 0.0], "material": "steel", "segments": 20}
-    # Stated, not chained: a magazine hangs *under* the receiver, and `chain`
-    # leaves it alone. That is what lets one chain carry a branch.
-    magazine = {"id": "magazine", "kind": "box", "size": [0.028, 0.13, 0.075],
-                "material": "steel", "chamfer": 0.10,
-                "attach": {"to": "receiver", "axis": "y", "my": "max",
-                           "their": "min"}}
-
-    parts = assembly.chain([receiver, barrel, muzzle], axis="z")
-    check(
-        "the first part anchors and keeps its own placement",
-        "attach" not in parts[0] and parts[0]["at"] == [0.0, 0.20, 0.0],
-    )
-    check(
-        "each later part attaches to the one before it",
-        parts[1]["attach"]["to"] == "receiver"
-        and parts[2]["attach"]["to"] == "barrel",
-        f"got {[p.get('attach', {}).get('to') for p in parts]}",
-    )
-    parts = parts + assembly.chain([magazine])
-    check(
-        "a part that states its own relation is left alone",
-        parts[3]["attach"]["their"] == "min",
-    )
-
-    with tempfile.TemporaryDirectory() as tmp:
-        rifle = build_code_asset(compose.compose(
-            subject="tactical assault rifle",
-            body=parts, height_metres=0.24, asset_type="prop",
-            materials={"steel": {"baseColor": [0.6, 0.62, 0.66, 1.0],
-                                 "metallic": 1.0, "roughness": 0.3}},
-        ), str(Path(tmp) / "rifle.glb"))
-    check("the chained rifle builds", rifle["ok"], str(rifle.get("failures")))
-
-    # Asserted as the actual arithmetic, not as "some offset appeared", because
-    # a wrong offset is also an offset. `attach` survives in the solved spec on
-    # purpose: the resolver rewrites `at` and leaves the declaration, so the
-    # spec still records why the part is where it is.
-    solved = {part["id"]: part for part in rifle["spec"]["parts"]}
-    receiver_end = solved["receiver"]["at"][2] + 0.26 / 2      # box half-depth
-    barrel_half = 0.34 / 2                                     # rotated onto z
-    check(
-        "the barrel was solved onto the receiver's end face",
-        abs(solved["barrel"]["at"][2] - (receiver_end + barrel_half)) < 1e-6,
-        f"barrel at z={solved['barrel']['at'][2]:.4f}, "
-        f"expected {receiver_end + barrel_half:.4f}",
-    )
-    check(
-        "and the muzzle onto the barrel's, so the chain is end to end",
-        abs(solved["muzzle"]["at"][2]
-            - (solved["barrel"]["at"][2] + barrel_half + 0.04 / 2)) < 1e-6,
-        f"muzzle at z={solved['muzzle']['at'][2]:.4f}",
-    )
-    check(
-        "the relation stays in the spec; only the position is derived",
-        solved["barrel"]["attach"]["to"] == "receiver",
-    )
-
-    # --- a car: a mirror, and a group for what a group is actually for ------
-    #
-    # WHEELS ARE NOT GROUPED. `group` states a *face* relation and a wheel has
-    # none: its height comes from its own radius, because it must touch the
-    # ground. Grouping them to the chassis on `y` put them on the roof (the
-    # default faces oppose), and `mid`/`min` instead floated the car 0.17 m up.
-    # Both build cleanly and both are wrong. So the axle height is stated, and
-    # `group` is used for the parts that do butt against the chassis.
-    RADIUS, HALF_TRACK, WHEELBASE = 0.17, 0.86, 1.28
-    chassis = {"id": "chassis", "kind": "box", "size": [1.7, 0.30, 3.4],
-               "at": [0.0, 0.49, 0.0], "material": "paint", "chamfer": 0.2}
-    wheels = [
-        {"id": f"wheel-{end}", "kind": "cylinder",
-         "size": [RADIUS * 2, 0.22, RADIUS * 2], "rotation": [0.0, 0.0, 90.0],
-         "at": [HALF_TRACK, RADIUS, z], "material": "rubber", "segments": 18}
-        for end, z in (("front", WHEELBASE / 2), ("rear", -WHEELBASE / 2))
-    ]
-
-    both = assembly.mirrored(wheels, axis="x")
-    check("mirroring makes both sides", len(both) == 4, f"got {len(both)}")
-    check(
-        "and puts them on opposite sides of the centreline",
-        {round(part["at"][0], 3) for part in both} == {-HALF_TRACK, HALF_TRACK},
-        f"got {sorted({round(p['at'][0], 3) for p in both})}",
-    )
-    check(
-        "with ids that distinguish them",
-        {part["id"] for part in both} == {"wheel-front-l", "wheel-rear-l",
-                                         "wheel-front-r", "wheel-rear-r"},
-        f"got {sorted(part['id'] for part in both)}",
-    )
-    check(
-        "and every wheel still touches the ground",
-        all(abs(part["at"][1] - RADIUS) < 1e-9 for part in both),
-        f"got {sorted({p['at'][1] for p in both})}",
-    )
-
-    # Grouped, not chained: chaining would make the scoop's position depend on
-    # the spoiler, so removing the spoiler would move the scoop.
-    fittings = assembly.group([
-        {"id": "spoiler", "kind": "box", "size": [1.5, 0.06, 0.34],
-         "at": [0.0, 0.0, -1.5], "material": "paint", "chamfer": 0.3},
-        {"id": "scoop", "kind": "box", "size": [0.5, 0.08, 0.6],
-         "at": [0.0, 0.0, 0.7], "material": "paint", "chamfer": 0.25},
-    ], to="chassis", axis="y")
-    check(
-        "every fitting attaches to the hub rather than to another fitting",
-        all(part["attach"]["to"] == "chassis" for part in fittings),
-        f"got {[p['attach']['to'] for p in fittings]}",
-    )
-
-    with tempfile.TemporaryDirectory() as tmp:
-        car = build_code_asset(compose.compose(
-            subject="arcade race car",
-            body=[chassis] + both + fittings,
-            height_metres=0.72, asset_type="vehicle",
-            materials={"paint": {"baseColor": [0.9, 0.2, 0.15, 1.0],
-                                 "metallic": 0.3, "roughness": 0.35},
-                       "rubber": {"baseColor": [0.06, 0.06, 0.07, 1.0],
-                                  "roughness": 0.9}},
-        ), str(Path(tmp) / "car.glb"))
-    check("the grouped car builds", car["ok"], str(car.get("failures")))
-
-    solved = {part["id"]: part for part in car["spec"]["parts"]}
-    check(
-        "the car sits on the ground rather than floating or sinking",
-        abs(car["bounds"]["low"][1]) < 1e-6,
-        f"lowest point at y={car['bounds']['low'][1]}",
-    )
-    check(
-        "and each fitting was solved onto the chassis roof, not onto the other",
-        abs(solved["spoiler"]["at"][1] - solved["scoop"]["at"][1]) > 1e-9
-        and solved["spoiler"]["at"][1] > chassis["at"][1],
-        f"spoiler y={solved['spoiler']['at'][1]:.4f}, "
-        f"scoop y={solved['scoop']['at'][1]:.4f}",
-    )
-
-    # `group` deliberately does not check the hub — it may be defined later — so
-    # the resolver is what must refuse it, by name, with the whole list in hand.
-    try:
-        with tempfile.TemporaryDirectory() as tmp:
-            build_code_asset(compose.compose(
-                subject="broken car",
-                body=assembly.group(both, to="no-such-chassis"),
-                height_metres=0.34, asset_type="vehicle",
-                materials={"rubber": {"baseColor": [0.1, 0.1, 0.1, 1.0]}},
-            ), str(Path(tmp) / "broken.glb"))
-        check("a missing hub is refused", False, "it was accepted")
-    except Exception as exc:
-        check(
-            "a missing hub is refused, naming it",
-            "no-such-chassis" in str(exc),
-            f"got {str(exc)[:90]}",
-        )
-
-    # An axis that is not an axis, caught where it is written rather than as a
-    # confusing downstream placement.
-    try:
-        assembly.chain([receiver, barrel], axis="w")
-        check("a bad chain axis is refused", False, "it was accepted")
-    except assembly.AssemblyError as exc:
-        check("a bad chain axis is refused", "'x', 'y' or 'z'" in str(exc),
-              f"got {exc}")
-
-
-def test_a_measurement_must_measure_the_body_not_the_sampling_window() -> None:
-    """Two landmarks that reported the measuring apparatus, not the figure.
-
-    Both produced kit that built cleanly, passed every gate, and was visibly
-    wrong — the kind of defect that only a render or this kind of arithmetic
-    catches.
-
-    `foot_height` was `max(y) - low` over a band defined as the bottom 9% of the
-    figure, so it returned the band's own ceiling: 0.1524 m against a 0.1548 m
-    cutoff. A boot sized to it stood 0.152 m tall on a 0.133 m width and
-    rendered as a cube.
-
-    `leg_x` is read at the thigh and was used to place shin plates. This
-    figure's legs splay, so the greaves sat 0.045 m inboard of the legs — far
-    enough to miss them entirely, which rendered as four limbs: two plates
-    hanging between two bare legs.
-
-    Measures a body produced by an earlier build under `test_data/outputs/`, and
-    skips when there is none: those are build products, not fixtures, so a fresh
-    checkout has nothing to measure.
-    """
-
-    print("\na measurement must measure the body, not the sampling window")
-    from operators.gen_3d_object.funcs.code_asset_templates.human_template import (
-        figure_fit)
-
-    bodies = sorted(Path("test_data/outputs").glob(
-        "*/*/assets/3d_object/*/parts/tpose_body_lo.glb"))
-    if not bodies:
-        print("  .. skipped, no measured body has been built")
-        return
-    body = str(bodies[0])
-
-    height = 1.72
-    marks = figure_fit.landmarks_for(body, height)
-
-    # The band this used to return. A foot is not 9% of a figure tall.
-    band_ceiling = height * 0.09
-    check(
-        "foot height is the foot, not the band it was found in",
-        marks["foot_height"] < band_ceiling * 0.75,
-        f"foot_height {marks['foot_height']:.4f} against a "
-        f"{band_ceiling:.4f} band — it is reporting the window",
-    )
-    # An independent landmark for the same place, measured a different way.
-    check(
-        "and it agrees with the separately measured ankle",
-        abs(marks["foot_height"] - marks["ankle_y"]) < 0.04,
-        f"foot_height {marks['foot_height']:.4f} vs "
-        f"ankle_y {marks['ankle_y']:.4f}",
-    )
-
-    # The leg profile follows the limb down instead of reusing the thigh.
-    shin_y = (marks["knee_y"] + marks["ankle_y"]) / 2.0
-    at_shin = figure_fit.leg_x_at(marks, shin_y)
-    check(
-        "the leg is measured at the height the plate goes",
-        at_shin > marks["leg_x"] * 1.20,
-        f"leg_x_at({shin_y:.3f}) = {at_shin:.4f} vs leg_x {marks['leg_x']:.4f} "
-        "— the profile is not following the splay",
-    )
-    check(
-        "and a body with no profile falls back rather than reporting zero",
-        figure_fit.leg_x_at({"leg_x": 0.33}, 0.5) == 0.33,
-    )
-
-    # Each foot separately, as well as the union. Only having the union forced
-    # every caller to choose between a bulky boot and one that misses a foot.
-    flat = marks["foot_sides"]
-    check("each foot is reported, not just the pair", len(flat) == 4,
-          f"got {len(flat)} values")
-    left_x, right_x = flat[0], flat[2]
-    check(
-        "the two feet are not in the same place, which is why this is needed",
-        abs(abs(left_x) - abs(right_x)) > 0.005,
-        f"left {left_x:+.4f} right {right_x:+.4f}",
-    )
-    check(
-        "and one foot is narrower than the pair's union",
-        0.0 < marks["foot_span"] < marks["foot_width"],
-        f"foot_span {marks['foot_span']:.4f} vs union "
-        f"{marks['foot_width']:.4f}",
-    )
-
-
-def test_a_generated_pair_that_arrived_as_one_hand_can_be_mirrored() -> None:
-    """`mirror` must reflect geometry *and* keep the surface facing outward.
-
-    A generated pair arrives as one hand. The fetched pauldron's mass leans 0.32
-    of its half-width toward -x — it is a left shoulder — and the same mesh on
-    both shoulders had the right one's lames hanging inboard over the ribs. Every
-    gate passed it: the chirality gate checks that the two *positions* mirror,
-    which they did, so the wrong hand was invisible to everything but a render.
-
-    Not expressible as a rotation, which is why it is its own field: 180 degrees
-    about y would face the lames outboard and swap front for back as well.
-
-    The winding is the part that can silently go wrong. A reflection flips
-    handedness, so negating a coordinate without reversing each triangle turns
-    the whole surface inside out — it still builds, still measures the same, and
-    renders as a part lit from within.
-    """
-
-    print("\na generated pair that arrived as one hand can be mirrored")
-    from operators.gen_3d_object.funcs.code_asset import (
-        SpecError, build_code_asset, validate_spec)
-
-    # An asymmetric solid, so a mirror is detectable at all: a wedge whose
-    # profile leans one way. A symmetric part would pass either way round.
-    wedge = [[-0.05, 0.0], [0.05, 0.0], [0.02, 0.06], [-0.05, 0.03]]
-
-    from operators.gen_3d_object.funcs.code_asset_templates import compose
-
-    def spec_for(mirror):
-        part = {"id": "wedge", "kind": "extrude", "size": [1.0, 1.0, 0.04],
-                "at": [0.0, 0.03, 0.0], "profile": wedge, "material": "steel",
-                "segments": 8}
-        if mirror:
-            part["mirror"] = mirror
-        return compose.compose(
-            subject="a wedge", body=[part], height_metres=0.06,
-            asset_type="prop",
-            materials={"steel": {"baseColor": [0.6, 0.6, 0.6, 1.0]}})
-
-    from models.common.glb_utils import read_glb_mesh
-
-    def centroid(path):
-        """Mean vertex x. Bounds cannot see a reflection of a centred part —
-        they are identical either way round — so the mass is what to measure."""
-        mesh = read_glb_mesh(Path(path).read_bytes())
-        points = list(mesh["positions"])
-        return round(sum(point[0] for point in points) / len(points), 6)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        plain_path, flipped_path = Path(tmp) / "a.glb", Path(tmp) / "b.glb"
-        plain = build_code_asset(spec_for(None), str(plain_path))
-        flipped = build_code_asset(spec_for("x"), str(flipped_path))
-        plain_lean, flipped_lean = centroid(plain_path), centroid(flipped_path)
-
-    check("a mirrored part builds", flipped["ok"], str(flipped.get("failures")))
-    check(
-        "and the windings gate is satisfied, so the surface still faces out",
-        not any("inward" in str(note).lower() or "inverted" in str(note).lower()
-                for note in flipped.get("failures", [])),
-        f"windings complained: {flipped.get('failures')}",
-    )
-    # The real assertion: a reflection is not a no-op on an asymmetric part.
-    # Bounds are unchanged by design — the profile is centred — so this compares
-    # where the mass went, which is what a mirror actually moves.
-    check(
-        "the two are the same size",
-        [round(v, 6) for v in plain["bounds"]["extents"]]
-        == [round(v, 6) for v in flipped["bounds"]["extents"]],
-        f"{plain['bounds']['extents']} vs {flipped['bounds']['extents']}",
-    )
-    check(
-        "and the mirrored copy's mass leans the other way",
-        plain_lean != 0.0 and abs(plain_lean + flipped_lean) < 1e-9,
-        f"plain leans {plain_lean}, mirrored {flipped_lean} — a mirror that "
-        "changes nothing is a mirror that was not applied",
-    )
-
-    # An axis that is not an axis, refused where it is written.
-    try:
-        validate_spec(spec_for("sideways"))
-        check("a bad mirror axis is refused", False, "it was accepted")
-    except SpecError as exc:
-        check("a bad mirror axis is refused", "'x', 'y' or 'z'" in str(exc),
-              f"got {exc}")
-
-
 def main() -> int:
     print(__doc__.strip().split("\n")[2])
-    test_validation()
-    test_chirality()
-    test_solidity_and_scale()
-    test_budget_and_connectivity()
-    test_correction_loop()
-    test_routing()
-    test_glb_output()
-    test_geometry_is_watertight_enough()
-    test_chamfered_box_is_still_a_solid()
-    test_every_primitive_is_a_closed_outward_solid()
-    test_a_lathe_profile_that_does_not_close_is_refused()
-    test_a_profile_may_be_written_either_way_round()
-    test_the_windings_gate_catches_an_inverted_part()
-    test_a_generated_mesh_composes_like_a_primitive()
-    test_the_provenance_gate_reports_the_trade()
-    test_an_unclosed_generated_part_warns_but_does_not_block()
-    test_a_fetched_texture_survives_composition()
-    test_the_orientation_gate_catches_a_sideways_part()
-    test_a_wearer_routes_to_generation_but_their_kit_does_not()
-    test_a_new_domain_routes_without_editing_the_router()
-    test_rigid_parts_are_joined_by_relation_not_by_coordinate()
-    test_attachment_solves_a_surface_relationship()
-    test_nesting_survives_into_the_gltf()
-    test_an_unresolvable_relation_is_refused()
-    test_a_body_can_be_armoured_from_templates()
-    test_a_figure_is_measured_before_it_is_armoured()
-    test_a_measurement_must_measure_the_body_not_the_sampling_window()
-    test_a_generated_pair_that_arrived_as_one_hand_can_be_mirrored()
-    test_estimate_matches_every_primitive()
+    test_spec_correction_terminates()
+    test_spec_rejects_flat_and_misscaled()
+    test_spec_rejects_malformed()
+    test_gate_budget_and_connectivity()
+    test_gate_budget_matches_writer()
+    test_gate_chirality()
+    test_gate_open_mesh_warns_only()
+    test_gate_orientation()
+    test_gate_provenance_warns_then_blocks()
+    test_glb_output_roundtrip()
+    test_geom_primitives_are_sane()
+    test_geom_chamfer_keeps_solid_closed()
+    test_geom_all_primitives_face_outward()
+    test_geom_open_profile_refused()
+    test_geom_profile_winding_agnostic()
+    test_geom_windings_catches_inverted()
+    test_mesh_composes_like_primitive()
+    test_mesh_mirror_keeps_faces_outward()
+    test_mesh_texture_survives()
+    test_route_declines_rather_than_guesses()
+    test_route_new_domain_registers()
+    test_route_wearer_routes_to_generate()
+    test_assembly_attach_solves_faces()
+    test_assembly_parent_into_nodes()
+    test_assembly_unresolvable_refused()
+    test_assembly_chain_group_mirror()
+    test_human_construct_kit_follows_limb()
+    test_human_measure_foot_and_leg_from_geometry()
+    test_human_measure_landmarks_from_vertices()
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     for failure in FAILED:

@@ -188,18 +188,9 @@ PLAUSIBLE_HEIGHT_M: dict[str, tuple[float, float]] = {
 
 #: Routing strategies, imported for their registration side effect.
 #:
-#: The decision below used to be four tuples of 141 English words — `organic`,
-#: `hard_surface`, `wearers`, `worn_items` — counted against each other. Moving
-#: them into a `routing_vocabulary` module changed nothing that mattered: the
-#: four buckets were still hardcoded in the function reading them, so a new
-#: domain could only ever be a longer word list in somebody else's categories.
-#:
-#: They were also the wrong categories. A rifle and a suit of armour are both
-#: hard-surfaced and route differently, for a structural reason no adjective
-#: captures: the rifle's parts sit beside each other, while the armour's sit on
-#: a host that has to exist and be measured first. Composition versus nesting is
-#: the axis `code_asset_templates.routing` is built on, and each domain package
-#: owns the vocabulary for what it can actually build.
+#: The decision below is delegated to registered strategies, and the packages
+#: that register them own the vocabulary for their own domains. See
+#: `code_asset_templates.routing` for how a claim is made and resolved.
 from operators.gen_3d_object.funcs import code_asset_templates as _templates  # noqa: F401
 from operators.gen_3d_object.funcs.code_asset_templates import routing as _routing
 
@@ -238,19 +229,14 @@ def suits_code_asset(
     in surface — because the caller knows which of the two matters for the
     shot the asset appears in.
 
-    THE DECISION IS DELEGATED, and that is the substance of this function. It
-    used to count 141 English words in four hardcoded buckets — `organic`,
-    `hard_surface`, `wearers`, `worn_items`. Moving those words to their own
-    module left the buckets hardcoded here, so a new domain was still only ever
-    a longer word list in somebody else's categories.
-
-    The buckets were also wrong. A rifle and a suit of armour are both
-    hard-surfaced and route differently, for a structural reason no adjective
-    captures: a rifle's parts sit beside each other in one coordinate system,
-    while armour sits on a host that has to exist and be measured first. So
-    subjects are classified by *assembly topology* — composed, nested, surface —
-    and each domain package owns the vocabulary for what it can build. Adding a
-    domain is registering a strategy, not editing this function.
+    The decision is delegated to registered strategies, which is the substance
+    of this function. A rifle and a suit of armour are both hard-surfaced and
+    route differently, for a structural reason no adjective captures: a rifle's
+    parts sit beside each other in one coordinate system, while armour sits on
+    a host that has to exist and be measured first. So subjects are classified
+    by *assembly topology* — composed, nested, surface — and each domain
+    package owns the vocabulary for what it can build. Adding a domain is
+    registering a strategy, not editing this function.
 
     ``strategies`` is an iterable of ``(name, strategy)`` overriding the
     registry for one call: how a caller routes against its own taxonomy without

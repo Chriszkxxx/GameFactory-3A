@@ -1,23 +1,10 @@
 """How a subject is assembled, and which route that implies.
 
-WHY THIS REPLACED A WORD LIST. The previous version of this decision was four
-tuples of 141 English words — `organic`, `hard_surface`, `wearers`,
-`worn_items` — and `suits_code_asset` counted matches between them. Moving
-those tuples out of `code_asset.py` into a `routing_vocabulary` module changed
-nothing that mattered: the four buckets were still hardcoded in the function
-that read them, so a new domain could only ever be a longer word list. A mecha
-project had the choice of editing a central lexicon or forcing its nouns into
-somebody else's four categories. That is not extensibility, it is the same
-switch statement with the cases spelled differently.
-
-The categories were also the wrong ones. `hard_surface` and `wearers` are not
-opposites: a rifle and a suit of armour are both hard-surfaced, and they route
-differently for a structural reason no adjective captures — the rifle's parts
-sit beside each other in one coordinate system, while the armour's parts sit on
-a host that has to exist and be measured first.
-
-So the axis here is **assembly topology**, which is what actually decides the
-route:
+The axis is **assembly topology**, not adjectives. A rifle and a suit of
+armour are both hard-surfaced and route differently, for a structural reason no
+adjective captures: the rifle's parts sit beside each other in one coordinate
+system, while the armour's parts sit on a host that must exist and be measured
+first.
 
 :data:`COMPOSED`
     Parts sit beside each other, joined by adjacency. A rifle is a receiver
@@ -34,17 +21,19 @@ route:
     No assembly at all. A face, a tree, hair. The surface is the whole point,
     so a spec is the wrong tool.
 
-WHY STRATEGIES OWN THEIR OWN WORDS. A strategy is registered by the package
-that can also *build* the thing it claims. `human_template` knows the word
-"pauldron" because it ships the plate that goes there, the landmarks to measure
-it against, and the fitting code to place it. Vocabulary, anatomy and builder
-live together, so adding a domain is adding a package: register a strategy,
-ship its templates, change nothing here and nothing in `code_asset.py`.
+A strategy is registered by the package that can also *build* what it claims,
+so each package owns the vocabulary for its own domain. `human_template` knows
+the word "pauldron" because it ships the plate that goes there, the landmarks
+to measure it against, and the fitting code to place it. Adding a domain is
+therefore registering a package, not extending a shared list:
 
-That is the test this design has to pass and the old one could not. A caller
-can register a strategy for a domain nobody anticipated and it will change the
-route, without editing a central list — see
-`test_a_new_domain_routes_without_editing_the_router`.
+    routing.register("submarine", claim)
+    suits_code_asset("submarine")     # -> code, claimed_by="submarine"
+    routing.unregister("submarine")
+    suits_code_asset("submarine")     # -> ambiguous, claimed_by=None
+
+`register` refuses a duplicate name unless `replace=True`, because two
+strategies on one name make the route depend on import order.
 """
 
 from __future__ import annotations

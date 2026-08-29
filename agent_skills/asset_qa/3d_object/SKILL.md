@@ -37,6 +37,13 @@ The result also carries `topology`, `claimed_by` and `builder`, which is what
 a hybrid build acts on: a `nested` claim names the module that fits the layers
 onto the generated host.
 
+**Prefer a spec for rigid assemblies** — a race car, a pistol, anything whose
+parts hold a fixed structure. **Generate a figure whole:** composing one burns
+iterations for a worse result — the composed knight took 8 human-agent rounds
+over 12 hours to come out roughly right — so send a character straight to an
+image-to-3D model instead. See
+`<REPO_PATH>/agent_skills/asset_qa/3d_object/composition_examples.md`.
+
 **Adding a domain is registering a strategy, not editing the router.** Each
 package under `funcs/code_asset_templates/` owns the vocabulary for what it can
 build, so a project with its own nouns ships a package instead of editing a
@@ -109,6 +116,9 @@ axes**: the same grip re-fetched needed `+90` where it had needed `-90`.
 
 Consequently `verified_by` drops to `spec+generated` — the placement was
 stated, the mesh inside it asserted.
+
+`<REPO_PATH>/agent_skills/asset_qa/3d_object/composition_examples.md` shows all
+three subjects built both ways, side by side.
 
 ### Textures Come Across
 

@@ -1,16 +1,8 @@
 """Templates the code-asset route reads, organised by how a subject assembles.
 
-WHAT CHANGED AND WHY. This was `operators/gen_3d_object/templates/`, a flat
-directory of one figure and its harness, and the routing decision was a
-`routing_vocabulary` module holding four tuples of English words that
-`code_asset.py` counted against each other. Both had the same fault from
-opposite directions: the templates only ever described a person wearing armour,
-and the router's four buckets — `organic`, `hard_surface`, `wearers`,
-`worn_items` — were hardcoded in the function reading them, so a new domain
-could only be a longer word list in somebody else's categories.
-
-The buckets were also not the right distinction. A rifle and a suit of armour
-are both hard-surfaced, and they route differently for a structural reason:
+The organising axis is assembly topology, because that is what decides the
+route. A rifle and a suit of armour are both hard-surfaced and route
+differently:
 
 * **Composition** — parts sit beside each other, joined by adjacency. A rifle,
   a car. Nothing has to exist first, so it is fully describable: `code`.
@@ -41,9 +33,11 @@ LAYOUT
     build, so it is not a `_template` package.
 
 ADDING A DOMAIN is adding a package: register a strategy that claims what it
-can build, ship the templates that build it, and change nothing here. That is
-the property the word list never had, and
-`test_a_new_domain_routes_without_editing_the_router` is what holds it.
+can build, ship the templates that build it, and change nothing here or in
+`code_asset`:
+
+    routing.register("submarine", claim)
+    suits_code_asset("submarine")     # -> code, claimed_by="submarine"
 
 Importing this package registers the three shipped strategies. `code_asset`
 imports it for exactly that reason, so `suits_code_asset` has something to ask.

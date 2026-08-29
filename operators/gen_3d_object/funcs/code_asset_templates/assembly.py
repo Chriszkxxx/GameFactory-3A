@@ -2,8 +2,8 @@
 
 The COMPOSED half of the routing split, and deliberately only the mechanism: a
 rifle's part list and a car's wheelbase are content, and they live with the
-build that wants them (see `test/test_3d_object_spec.py` for worked chains).
-What is general is the *joining*.
+build that wants them. What is general is the *joining*. Worked chains are
+below each function, in the examples.
 
 WHY A CHAIN AND NOT A LIST OF POSITIONS. Every gap in the assets here was an
 absolute position that went stale: a muzzle 9 mm off its barrel, a sling loop
