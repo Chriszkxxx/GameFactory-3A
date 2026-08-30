@@ -17,6 +17,8 @@ playable session.
 | `import_generated/import_motion.py` | a `bpy` interpreter | import a retargeted FBX and check pose animation |
 | `render_preview.py` | a `bpy` interpreter | turntable / still render of an asset, headless |
 | `game/` | a `bpy` interpreter | the gameplay kit a generated mechanic is written against |
+| `examples/` | a `bpy` interpreter | genre mechanics (FPS / racing / fighting / RPG) owned by this adapter |
+| `playtest/` | host Python + a `bpy` interpreter | discover actions, drive `Controls`, write `frames/` / `video.mp4` / `report.json` |
 | `runtime/` | a `bpy` interpreter | a live session driven by JSON over UDP — spawn, move, effects, snapshot |
 | `../../scripts/import_generated_asset.py` | host Python | finds Blender, launches the importer, reads the report |
 | `../../scripts/prepare_world_asset.py` | host Python | world export → one continuous `.glb` (needs no Blender) |
@@ -39,6 +41,8 @@ a window from a keyboard rather than baking them. That is not a third
 implementation: it is the same `tick()` at the same fixed timestep, and a played
 session records its input so it can be re-rendered offline into the same run. See
 the two sections below.
+
+`playtest/` is unattended `--play`: discovered keys, then `report.json` + clip.
 
 ## Running
 
@@ -133,9 +137,9 @@ every shot the player fires. `prims.spawn(..., collide=False)` sets
 tracer, spark and viewmodel part is spawned that way.
 
 ```bash
-# run one of the shipped templates directly
-AAAGF_REPO_ROOT=$PWD blender --background --factory-startup \
-    --python operators/gen_mechanic/templates/fps_arena.py -- \
+# run one of the shipped examples directly
+GAMEFACTORY3A_ROOT=$PWD blender --background --factory-startup \
+    --python engine_adapters/blender/examples/FPSExample/game.py -- \
     --out-dir /tmp/fps --duration 8 --no-render      # rules only, seconds
 ```
 
@@ -145,14 +149,32 @@ metrics and a pass/fail verdict the game computes about itself, and **the report
 is the result** — `blender --background --python x.py` exits 0 whatever the
 script did, so a missing report is a failure, not a silent success.
 
+## Playtest
+
+Discovered keys through `Controls`, not the unattended policy:
+
+```python
+from engine_adapters.blender import BlenderClient
+
+BlenderClient(
+    project_path="engine_adapters/blender/examples/FPSExample",
+).playtest.record(
+    output_dir="/tmp/blender_playtest",
+    duration=8,
+    no_render=True,
+)
+```
+
+`no_render=True` skips the Cycles clip. See `blender_api.md` § Playtest.
+
 ## Playing one (`--play`)
 
 The same game, stepped live from a keyboard instead of baked. It needs a real
 Blender window, so no `--background`:
 
 ```bash
-AAAGF_REPO_ROOT=$PWD blender --factory-startup \
-    --python operators/gen_mechanic/templates/racing_circuit.py -- --play
+GAMEFACTORY3A_ROOT=$PWD blender --factory-startup \
+    --python engine_adapters/blender/examples/RacingExample/game.py -- --play
 ```
 
 Generated mechanics get a `play.sh` next to their `launch.sh` that does this with

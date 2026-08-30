@@ -12,6 +12,7 @@ the same video and the same numbers every time.
     materials    cached Principled and emissive materials, plus a palette
     assets       resolving an asset reference to a file, and importing it once
     figures      posing a humanoid model from the numbers the rules compute
+    clips        playing authored glTF actions (walk, punch, death) on a rig
     camera_rigs  first-person, chase and side-on cameras
     hud          screen-space bars, pips, labels and vignettes as camera-parented geometry
     recorder     keyframe baking, Cycles setup, MP4 and thumbnail export
@@ -25,11 +26,11 @@ re-render it offline and get the same run back.
 
 Everything here imports `bpy`, so it only loads inside Blender or a Python with
 the `bpy` wheel. A generated game subclasses `kernel.Game`, and the modules
-above are the vocabulary it writes in — see `operators/gen_mechanic/templates/`
-for three worked examples and `../../../agent_skills/engine_context/blender_api.md`
+above are the vocabulary it writes in — see `../examples/`
+for four worked examples and `../../../agent_skills/engine_context/blender_api.md`
 for the API caveats they were written against.
 """
 from __future__ import annotations
 
-__all__ = ["kernel", "prims", "materials", "assets", "figures", "hud",
+__all__ = ["kernel", "prims", "materials", "assets", "figures", "clips", "hud",
            "camera_rigs", "recorder", "controls", "interactive"]

@@ -117,10 +117,10 @@ import bpy; p = bpy.context.preferences.addons['cycles'].preferences; \\
 print([d.name for d in p.get_devices_for_type('CUDA')])"
 
 Run a mechanic end to end without rendering (needs
-operators/gen_mechanic/templates/):
+engine_adapters/blender/examples/):
 
   "\$BLENDER" -b --factory-startup \\
-      --python operators/gen_mechanic/templates/fps_arena.py -- \\
+      --python engine_adapters/blender/examples/FPSExample/game.py -- \\
       --out-dir /tmp/aaagf_check --no-render
 
 Assets are optional: with no BLENDER_ASSET_ROOT a run logs one

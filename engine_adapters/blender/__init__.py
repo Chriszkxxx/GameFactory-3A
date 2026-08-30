@@ -3,3 +3,7 @@
 Motion retarget lives in ``operators.gen_motion.funcs.retarget_utils``
 (driven by ``retarget_motion.py``), not in this package.
 """
+
+from .blender_client import BlenderClient
+
+__all__ = ["BlenderClient"]

@@ -6,6 +6,9 @@ engine** — the only place in this repo that reads `.ply` and `.usd`, fixes a
 pivot or a scale the generator got wrong, and renders a picture of the result
 without a project, a licence or a GPU.
 
+`blender.playtest.*` is not a benchmark: it records what happened when the
+game was played and makes no pass/fail claim of its own. See **Playtest**.
+
 Reference implementations to extend rather than rewrite:
 `<REPO_PATH>/engine_adapters/blender/`.
 
@@ -405,7 +408,129 @@ sender that retries must not end up with two characters.
 
 ---
 
-## 11. Quick reference
+## 11. Playtest
+
+- `blender.playtest.record` - Drives a `game.py` through discovered actions
+  and writes `frames/`, `video.mp4`, and `report.json`.
+
+This answers a question the game's own `--no-render` run cannot: *does the
+game play*. That run is driven by the unattended policy; a playtest presses
+the keys the game itself declares it listens for and records what happened.
+Use it to confirm a generated mechanic works, and to produce a clip a human
+can watch. It is evidence, not an authoritative benchmark — `checks` in a
+later evaluation report say the recording is intact, and `game_state` is
+what says the game responded.
+
+```python
+from engine_adapters.blender import BlenderClient
+
+BlenderClient(project_path="test_data/outputs/<game>/<run>/mechanic/<task>").playtest.record(
+    output_dir="<out_dir>",
+    duration=10,
+    fps=20,
+    width=640,
+    height=360,
+    no_render=True,   # drop for video.mp4 (Cycles; minutes, not seconds)
+)
+```
+
+The engine switch will live in `pipeline/code_gen/playtest/run.py` when a
+second engine is wired there. Until then the blender adapter is callable
+on its own; add a branch in `run.py` rather than anything to this adapter.
+
+### This Is Not Screen Recording
+
+There is no display on these machines, so EEVEE is not an option: it needs
+a GL/EGL context and fails with a `libEGL` abort rather than an exception.
+The simulation is driven at a **fixed timestep** (that is what `Game.run`
+already does), one tick is one baked frame, and Cycles then renders the
+baked range. The video is smooth at the target frame rate however long each
+frame actually took.
+
+`--play` is a different question: it needs a real window. A playtest does
+not open one. It fills `controls.ScriptedSource` and runs the same loop
+`--replay-input` uses.
+
+### Constraints That Are Not Negotiable
+
+Each was found by failing without it. `playtest/record.py` carries them.
+
+1. **Input is real `Controls`.** Keys go through `ScriptedSource` /
+   `from_held`, which is the table a keyboard session dispatches on.
+   **Nothing reaches in and moves an actor**, because a recording that
+   positioned things directly would be evidence of tweening, not of a
+   playable game. `report.json` `game_state` is what makes the distinction
+   checkable — a real take shows `shots_fired` / `kills` moving, or a car
+   leaving the start line.
+2. **The clock is the tick.** One captured frame is one simulation step.
+   Encoding at that same rate keeps the video honest however long Cycles
+   took. Reading the wall clock to advance the sim is how a slow render
+   teleports everything.
+3. **Exit codes lie.** `blender --background --python x.py` exits 0
+   whatever the script did. The report on disk is the result.
+   `AAAGF_BLENDER_EXIT_ON_DONE` makes the shell see it too.
+4. **Output paths are absolute.** Blender resolves a relative render path
+   against the blend file, and a headless run has none: the render then
+   writes nothing, returns `FINISHED`, and looks like a success.
+5. **The pip wheel has no FFMPEG writer.** A video path must degrade to a
+   PNG sequence rather than assume Blender "bundles ffmpeg". JPEG `frames/`
+   are extracted from the MP4 when `ffmpeg` is on PATH.
+
+**Change the recording, never the game, to make a video look right.** A
+first-person take that stares at a wall needs a look sweep in the recorder,
+not a `player.yaw =` in `tick()`.
+
+### Actions Are Discovered, Not Configured
+
+A recorder that had to be told what to press would need a new script per
+game. Instead the running game is asked, in this order, and
+`report.action_source` says which answered:
+
+| Source | What it yields |
+|---|---|
+| `Game.playtest_actions` | A plan the game declares for itself |
+| `AXIS_BINDINGS` / `BUTTON_BINDINGS` for `genre` | The tables `from_held` dispatches on |
+| built-in fallback | WASD + Space + click, so an unannotated game still records |
+
+Two rules the recorder applies, because getting either wrong records a
+game that appears not to respond:
+
+- **Movement is held; a verb is tapped.** One frame of `forward` moves a
+  character by centimetres. Conversely a discrete verb must be released —
+  a semi-automatic weapon will not fire twice without it.
+- **Duplicate actions are dropped.** Bindings list `W` *and* `UP_ARROW`
+  for forward; pressing each in turn would record the same thing twice.
+
+A game with a specific story to tell should declare `playtest_actions` on
+the `Game` subclass — `{id, keys?, taps?, mouse?, duration?}` — which is
+strictly better than discovery because only the game knows where its
+enemies are. Discovery is the floor, not the ceiling.
+
+### A Silent Early Return Will Waste A Whole Take
+
+Anything that degrades silently needs a path that makes it loud. The
+recorder reports `executed_actions[].ok` and `frames` per action, and
+fails the run when nothing was captured. A custom plan should do the same.
+
+**Do a `--no-render` test take before a real one.** It costs seconds and
+catches an empty `game_state`, which otherwise costs the whole Cycles
+recording.
+
+### Cost
+
+640x360 at 20 fps on Cycles CPU, review samples (8 spp):
+
+| Game | Per frame (order of) | 10 s of video |
+|---|---|---|
+| First-person arena | ~1 s | ~few min |
+| Racing / forest (long view, more geo) | longer | longer |
+
+Default `timeout` is therefore 900 s. `--no-render` is the path that
+belongs in a tight loop.
+
+---
+
+## 12. Quick reference
 
 ```python
 # Empty the file. --factory-startup still ships the default cube.
