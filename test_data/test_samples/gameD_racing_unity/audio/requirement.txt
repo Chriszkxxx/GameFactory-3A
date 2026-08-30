@@ -1,0 +1,7 @@
+# Audio Requirements - gameD_racing_unity
+
+## Status: DEFERRED
+
+Generated engine, tire, crowd, collision and countdown audio is outside the
+first racing MVP. `audio_tasks.jsonl` is intentionally empty. Gameplay must
+work without audio assets.

@@ -1,0 +1,15 @@
+{
+  "schema_version": "gamefactory3a.godot.example.v1",
+  "example_id": "fps_arena_3d",
+  "camera": "first_person",
+  "genre": "fps",
+  "features": [
+    "camera_owned_by_player",
+    "camera_relative_character_body_3d",
+    "physics_hitscan",
+    "damageable_targets",
+    "magazine_and_reload",
+    "crosshair_hud"
+  ],
+  "generated_output": "my_code/AAAGameForge/test_data/outputs/game404/godot"
+}

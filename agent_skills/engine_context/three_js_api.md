@@ -74,6 +74,10 @@ tests.
 renders an artifact on the CPU to inform a decision, produces no
 benchmark claim, and writes nothing a player downloads.
 
+`three.playtest.*` is likewise not a benchmark: it records what happened
+when the game was played and makes no pass/fail claim of its own. See
+**Playtest**.
+
 ## Result Contract
 
 Public operations return JSON-serializable result dictionaries using
@@ -637,6 +641,185 @@ makes `plugin.install` install the framework automatically.
 The runner deletes any prior report, refuses to score a stale report,
 and fails when the report matches zero tests. The game-generation Agent
 must not invoke this namespace.
+
+## Playtest
+
+- `three.playtest.record` - Drives a running game through discovered
+  actions and writes `frames/`, `video.mp4`, and `report.json`.
+
+This answers a question `vitest` cannot: *does the game play*. A unit test
+asserts a method returns what it should; a playtest presses the keys the
+game declares it listens for and records what happened. It is evidence,
+not a benchmark — `checks` say the recording is intact, `game_state` says
+the game responded.
+
+```bash
+python -m pipeline.code_gen.playtest.run \
+    --project test_data/outputs/<game>/<run>/mechanic/<task> \
+    --url http://127.0.0.1:5188 \
+    --recorder-root <recorder_root> \
+    --browser-executable <recorder_root>/browsers/chromium-1234/chrome-linux64/chrome \
+    --ffmpeg /opt/conda/envs/torch-base/bin/ffmpeg \
+    --duration 10 --fps 20
+
+python -m pipeline.code_gen.playtest.eval --report <out_dir>/report.json
+```
+
+`run.py` records and scores nothing; `eval.py` reads a written report and
+records nothing. The engine switch is in `run.py`, so a second engine adds
+a branch there rather than anything to the three.js adapter.
+
+### This Is Not Screen Recording
+
+There is no display and no GPU render node, so WebGL runs on
+**SwiftShader** — 614 ms/frame for a first-person arena at 640x360, up to
+6 s/frame for a long view. `xvfb` + `ffmpeg` has no desktop to capture,
+and real-time recording yields a slideshow.
+
+So the simulation is driven at a **fixed timestep**, exactly one image is
+captured per step, and frames are encoded at that same rate. The video is
+smooth at the target frame rate however long each frame actually took — a
+10 s take costs about 2 minutes of wall clock. This is what
+`A3GameRuntimeHost.tick(forcedDelta)` is for.
+
+### Five Constraints That Are Not Negotiable
+
+Each was found by failing without it.
+
+1. **Only one flag combination reaches SwiftShader.** Chromium finds the
+   NVIDIA card, tries it, and fails *without* falling back to software.
+   `--use-angle=swiftshader --enable-unsafe-swiftshader --in-process-gpu
+   --override-use-software-gl-for-tests` — without `--in-process-gpu`
+   there is no WebGL context at all.
+2. **`--disable-features=CDPScreenshotNewSurface` or the renderer dies.**
+   Playwright enables it by default, and with `--in-process-gpu` it kills
+   the renderer after 40-60 screenshots — fatal, since no separate GPU
+   process is left to restart. `--disable-gpu-watchdog` covers the other
+   end: a SwiftShader frame over a second looks like a hang.
+3. **Stop the host loop, tick inside rAF, capture one frame later.**
+   `host.stop()` hands the frame loop to the recorder, but a stopped rAF
+   loop means the compositor no longer commits and every screenshot
+   blocks ~1.25 s on an internal timeout. Ticking inside a
+   `requestAnimationFrame` and waiting one further frame before capture:
+   **1335 ms/frame becomes 355 ms/frame**, same picture.
+4. **Capture through raw CDP, not `page.screenshot()`.** Playwright waits
+   for a stability condition a stopped rAF loop never satisfies;
+   `Page.captureScreenshot` returns immediately.
+5. **`libopenh264`, bitrate-driven.** No `libx264` here, so no `-crf` and
+   no `-preset`; use `-b:v 2500k`. `-r` must equal the simulation rate or
+   the video plays fast or slow, and `-start_number` stops `ffmpeg`
+   halting at the first gap.
+
+**Chromium is also missing three system libraries** —
+`libatk-bridge-2.0`, `libgbm`, `libatspi` — which cannot be installed on
+this image. They come from a conda prefix prepended to
+`LD_LIBRARY_PATH`, which is what `--recorder-root` wires up. Omitting it
+fails at browser launch and the error names Chromium, not the library.
+
+### Actions Are Discovered, Not Configured
+
+A recorder told what to press would need a new script per game. Instead
+the running game is asked, in this order, and `report.action_source` says
+which answered:
+
+| Source | What it yields |
+|---|---|
+| `__A3GAME_PLAYTEST__` | A plan the game declares for itself |
+| `input.actionBindings` | The game's own verbs — `fire`, `reload`, `draw` |
+| `input.keyBindings` | Movement — `forward`, `left`, `run`, `jump` |
+| `[data-game-action]` | Menu-driven games |
+| built-in fallback | WASD + Space + click, so an unannotated game still records |
+
+`A3GameInputRouter` publishing both tables is what makes this work: they
+are the tables the running game dispatches on, so they cannot drift from
+what it actually listens for. A binding's **`event.code`** is what gets
+sent (`Digit1`, `ShiftLeft`), which is also what Playwright accepts.
+
+Beyond the verb list, three things vary per game and are read from the
+same plan:
+
+- **`sustained`** — what stays pressed for the whole take. A racer whose
+  throttle is released between actions records a car twitching on the
+  start line; the throttle is the condition the rest is demonstrated
+  under, not one of the things being demonstrated.
+- **`warmup`** — how long to tick before capturing. Countdowns, spawn-ins,
+  and a brawler that drops attacks until its round reaches FIGHT would
+  otherwise consume the take on inputs the game ignores.
+- **`look`** — whether sweeping the camera means anything. A static camera
+  in a first-person game records a wall; a side-scroller derives its
+  camera from the fighters and ignores a sweep; under drag-look a sweep
+  fights the game's own opening framing.
+
+Two rules the recorder applies, because getting either wrong records a
+game that appears not to respond:
+
+- **Movement is held; a verb is tapped.** One frame of `forward` moves a
+  character by centimetres, and a charge-and-release verb does nothing if
+  released the same frame. Conversely a discrete verb must be released —
+  a semi-automatic weapon will not fire twice, and a held key auto-repeats.
+- **Duplicate actions are dropped.** The defaults bind `KeyW` *and*
+  `ArrowUp` to `forward`; pressing each would spend half the take twice.
+
+A sustained input also constrains what can be shown alongside it:
+anything that negates it is dropped and named in `excluded_actions`
+(reverse under a held throttle demonstrates neither), and anything that
+discards progress is moved to the end rather than dropped (a respawn is
+worth seeing, one second in it throws away the run).
+
+A game with a specific story to tell should declare
+`window.__A3GAME_PLAYTEST__ = { actions: [...], sustained?, warmup?,
+look? }`, with actions shaped `{id, keys?, taps?, mouse?, click?,
+duration?}`. This is strictly better than discovery because only the game
+knows where its enemies are. Discovery is the floor, not the ceiling.
+
+### Input Must Be Real
+
+Keys go to `window`, where `A3GameInputRouter` listens; pointer events go
+to `host.container`; aiming goes through the router's public `setLook`.
+**Nothing reaches in and moves an entity** — a recording that positioned
+things directly would be evidence of tweening, not of a playable game.
+`report.game_state` makes the distinction checkable: a real take shows
+`shotsFired`/`shotsHit` moving and the player taking damage.
+
+One consequence: a synthetic `pointerdown` does not produce a real
+`click`, so a recording **never enters pointer lock**, and a first-person
+game would sit under its own "click to lock the mouse" prompt for the
+whole video. That prompt is correct for a human, so the game is not
+changed; the recorder hides that one widget for the take, and a result
+banner still re-shows itself through `onStateChanged`. **Change the
+recording, never the game, to make a video look right.**
+
+### A Silent Early Return Will Waste A Whole Take
+
+The most expensive failure here was not a crash. An autopilot read
+`entities.get('player_car')?.vehicle` where the factory stores the vehicle
+itself, so the lookup returned `undefined`, the script early-returned
+`{keys: []}` every frame, and the throttle was never touched. No error, no
+warning — a 45-minute recording of a car sitting on the start line while
+its position dropped from P1 to P4.
+
+So: **anything that degrades silently needs a path that makes it loud.**
+The recorder reports `executed_actions[].ok` and `frames` per action, and
+fails the run when nothing was captured. A custom plan should do the same
+— return a diagnostic field and `throw` if a required entity is still
+missing after the first few frames (allow a couple: entities spawn a frame
+or two after boot).
+
+**Do a 2-3 s test take before a real one.** It costs a minute and catches
+an empty video, which otherwise costs the whole recording.
+
+### Cost
+
+640x360 at 20 fps on SwiftShader, measured:
+
+| Game | Per frame | 10 s of video |
+|---|---|---|
+| First-person arena | ~0.6 s | ~2 min |
+| Racing (track, 4 cars, long view) | ~6 s | ~20 min |
+
+Frames are ~43 KB each and are the bulk of the output; the video is ~0.3
+MB/s. 1280x720 is four times the pixels and roughly four times the cost,
+not worth it for review footage. Default `timeout` is therefore 900 s.
 
 ## Runtime
 
@@ -1607,6 +1790,11 @@ an SSH forward or tunnel produces. Through the adapter the same switch is
 `ThreeClient(host="0.0.0.0")`, or `run.sh --dev-host 0.0.0.0`.
 
 Nothing about this needs a GPU or a display on the server: WebGL runs in
-the reviewer's browser, and the server only serves modules. That is why
-headless verification here is `vitest` plus `vite build`, never a
-screenshot.
+the reviewer's browser, and the server only serves modules. Headless
+verification of *correctness* is therefore `vitest` plus `vite build`,
+never a screenshot.
+
+A **playtest recording** is the separate question of whether the game
+plays, and it does run WebGL on the server — on SwiftShader, at a fraction
+of real time. See **Playtest** above. Keep the two apart: a recording is
+review evidence and a `game_state` snapshot, not a benchmark result.

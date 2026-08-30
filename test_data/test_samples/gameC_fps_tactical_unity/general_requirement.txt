@@ -1,0 +1,95 @@
+================================================================================
+ gameC_fps_tactical_unity — FPS 战术射击 (FPS Tactical Shooter)
+================================================================================
+
+1. 总体要求 (Overall Requirements)
+--------------------------------------------------------------------------------
+- 类型: 第一人称战术射击 (First-Person Tactical Shooter)
+- 视角: 第一人称 (First-Person Camera)
+- 玩法: 在城市场景中执行反恐任务，击杀敌人，拆除炸弹
+  (Execute counter-terrorism missions in an urban environment: eliminate
+  enemies and defuse the bomb.)
+- 画质参考: 使命召唤 (Call of Duty) — 写实军事风格
+- 引擎: Unity3D 2022.3 URP
+- 目标平台: PC (Windows)
+
+2. 核心玩法循环 (Core Gameplay Loop)
+--------------------------------------------------------------------------------
+  Launch → Spawn → Find Enemy → Combat → Clear Area → Find Bomb →
+  Defuse (Hold E) → Mission Complete
+
+  闭环中的每个节点都必须有可验证的通过条件。如果任何节点断裂，Pipeline 应
+  报告失败并触发 Repair。
+
+3. 资产生成清单 (Asset Generation Checklist)
+--------------------------------------------------------------------------------
+  3D Object:
+    - 武器: 手枪 (pistol), 突击步枪 (assault rifle), 霰弹枪 (shotgun)
+    - 敌人角色: 恐怖分子 (terrorist fighter, T-pose)
+    - 道具: 炸弹 (bomb/IED), 弹药箱 (ammo crate)
+
+  T-pose Image:
+    - 恐怖分子角色 T-pose 参考图 → 用于 3D 模型生成
+
+  3D Scene:
+    - 城市巷战环境 (urban warfare): 主街道 + 窄巷 + 仓库
+
+  Motion:
+    - 敌人: idle, walk, run, shoot, hit_react, death_fall_forward, death_fall_back
+    - 玩家手部: pistol_idle/shoot/reload, rifle_idle/shoot/reload,
+                shotgun_idle/pump, weapon_switch
+
+  CG Video:
+    - CG-3 反恐突击仓库 (counter-terrorism warehouse assault, 20-30s)
+
+  Audio:
+    - 枪声: 手枪/步枪/霰弹枪射击音效
+    - 爆炸: 手榴弹/C4 爆炸音效
+    - 无线电通讯: 任务指令语音 (dialogue/TTS)
+
+  Mechanic Code:
+    - FPSPlayerController, WeaponSystem, WeaponSwitchSystem, FPSHitSystem,
+      EnemyAI, EnemySpawner, BombObjective, FPSDamageSystem, FPSHUDController
+
+  UI:
+    - 准星 (crosshair), 弹药 (ammo), 血量 (health), 武器栏 (weapon wheel),
+      任务信息 (mission info), 击杀提示 (kill notification), 拆弹进度 (defuse progress)
+
+4. 操作方案 (Control Scheme)
+--------------------------------------------------------------------------------
+  | 操作          | 按键          |
+  |---------------|---------------|
+  | 移动          | WASD          |
+  | 跑            | Shift         |
+  | 跳            | Space         |
+  | 射击          | 鼠标左键      |
+  | 瞄准          | 鼠标右键      |
+  | 换弹          | R             |
+  | 切武器        | 1 / 2 / 3     |
+  | 互动/拆弹     | E (按住)      |
+  | 投掷          | G             |
+
+5. 验收标准摘要 (Acceptance Criteria Summary)
+--------------------------------------------------------------------------------
+  - Unity 成功启动，城市场景无编译错误加载
+  - 玩家以第一人称视角出生，武器模型可见
+  - WASD 移动、Shift 奔跑、Space 跳跃、鼠标控制视角
+  - 左键开火有枪口火焰特效，子弹命中环境有弹孔
+  - R 换弹，1/2/3 切换三种武器，每种武器射速/伤害不同
+  - 射击敌人造成伤害，爆头有额外伤害，敌人有受击和死亡动画
+  - 敌人在场景中刷新，巡逻、发现玩家后射击
+  - 任务文本可见，炸弹可交互，按住 E 拆除有进度条
+  - 准星、弹药、血量、武器栏、击杀提示均正常显示和更新
+
+6. Pipeline 执行顺序 (Pipeline Execution Order)
+--------------------------------------------------------------------------------
+  1. 生成 T-pose 参考图 (恐怖分子角色)
+  2. 生成 3D 物体 (武器、敌人、道具)
+  3. 生成动作 (text-to-motion + retarget)
+  4. 生成场景 (城市巷战)
+  5. 生成音频 (枪声、爆炸、语音)
+  6. 生成游戏机制代码 (Agent 调用 tools)
+  7. 生成 UI 代码 (Agent 调用 tools)
+  8. 组装到 Unity 项目 (导入资产 + 编译 + 构建场景)
+  9. 构建并运行
+  10. 生成 CG 视频 (CG-3 反恐突击仓库)

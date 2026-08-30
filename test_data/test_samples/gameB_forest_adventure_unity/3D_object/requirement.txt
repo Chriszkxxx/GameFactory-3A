@@ -1,0 +1,90 @@
+# 3D Object Generation Requirements — gameB_forest_adventure_unity
+
+## 概述
+
+本目录包含 gameB_forest_adventure_unity（自由探索 ARPG）所需的全部 3D 物体生成任务。
+角色和怪物的 3D 模型通过 T-pose 参考图生成（T-pose image → 3D model），
+道具通过参考图生成（ref image → 3D model）。
+
+---
+
+## 生成方式
+
+| 资产类型 | 生成方式 | 模型 | 质量要求 |
+|---------|---------|------|---------|
+| 人物角色 | T-pose image → 3D model | TRELLIS.2 / Hunyuan3D-2.1 | ≤100k tris, PBR 2048 |
+| 怪物 | T-pose image → 3D model | TRELLIS.2 / Hunyuan3D-2.1 | ≤30k tris, PBR 2048 |
+| 道具 | ref image → 3D model | TRELLIS.2 / Hunyuan3D-2.1 | ≤10k tris, PBR 2048 |
+
+---
+
+## 资产清单
+
+### 1. 主角：绿色披风弓手 (demoForest_001)
+- **类型**: T-pose 全身模型
+- **风格**: 写实奇幻风格
+- **描述**: 年轻弓手英雄，身穿绿色披风，头戴皮革冒险帽，背背法杖/弓箭，腰间佩剑，皮甲护胸，皮质长靴，面容年轻坚毅
+- **prompt**: "Young archer hero wearing green hooded cloak and leather adventurer hat, carrying a staff and sword on back, leather chest armor and boots, determined expression, fantasy realistic style, T-pose, game-ready, PBR textures"
+- **面数**: ≤100k tris
+- **纹理**: PBR 2048×2048
+- **输入**: T-pose 参考图 (来自 tpose/ 任务)
+- **decimation_target**: 100000
+- **texture_size**: 2048
+
+### 2. 怪物 A：魔物蝙蝠 (demoForest_002)
+- **类型**: T-pose 全身模型
+- **风格**: 奇幻怪物
+- **描述**: 大型蝙蝠，翼展约 2 米，暗紫色皮肤，红色发光眼睛，獠牙外露
+- **prompt**: "Large demonic bat creature, 2 meter wingspan, dark purple skin, red glowing eyes, fangs, fantasy monster, game-ready, PBR textures"
+- **面数**: ≤30k tris
+- **纹理**: PBR 2048×2048
+- **输入**: T-pose 参考图 (来自 tpose/ 任务)
+- **decimation_target**: 30000
+- **texture_size**: 2048
+
+### 3. 怪物 B：森林哥布林 (demoForest_003)
+- **类型**: T-pose 全身模型
+- **风格**: 奇幻怪物
+- **描述**: 矮小哥布林，绿皮肤，手持木棒，穿破布衣服
+- **prompt**: "Small forest goblin, green skin, holding wooden club, wearing rags, fantasy monster, game-ready, PBR textures"
+- **面数**: ≤30k tris
+- **纹理**: PBR 2048×2048
+- **输入**: T-pose 参考图 (来自 tpose/ 任务)
+- **decimation_target**: 30000
+- **texture_size**: 2048
+
+### 4. 道具：宝箱 (demoForest_004)
+- **类型**: ref image → 3D model
+- **风格**: 奇幻风格
+- **描述**: 木质铁箍宝箱，带锁，需要打开状态和关闭状态
+- **prompt**: "Ornate wooden treasure chest with iron bands and lock, fantasy style, game-ready, PBR textures"
+- **面数**: ≤10k tris
+- **纹理**: PBR 2048×2048
+- **输入**: 参考图
+- **decimation_target**: 10000
+- **texture_size**: 2048
+
+---
+
+## 输出路径
+
+所有生成的 3D 物体输出到:
+```
+outputs/gameB_forest_adventure_unity/3D_object/<task_id>/
+  ├── model.glb
+  ├── model.obj
+  ├── textures/
+  │   ├── albedo.png
+  │   ├── normal.png
+  │   ├── metallic.png
+  │   └── roughness.png
+  └── preview.png
+```
+
+## 注意事项
+
+1. 角色/怪物模型必须包含标准 Humanoid 骨骼绑定，以便后续 MoMask 动作 retarget
+2. 宝箱模型需要支持开合动画（分为箱体和箱盖两部分）
+3. 所有模型必须使用 PBR 纹理流程（Albedo, Normal, Metallic, Roughness）
+4. UV 必须无重叠，纹理分辨率统一为 2048×2048
+5. 模型朝向：面朝 +Z 方向，T-pose 手臂沿 X 轴水平展开
