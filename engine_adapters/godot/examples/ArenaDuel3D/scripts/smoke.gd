@@ -14,6 +14,14 @@ func _run() -> void:
 	root.add_child(game)
 	for _frame in range(120):
 		await physics_frame
+	var ui := game.get_node_or_null("CombatUI")
+	if ui == null or not (ui is CanvasLayer):
+		_fail("composition root is missing the independent CombatUI module")
+		return
+	var runtime: Node = root.get_node_or_null("ArenaDuelRuntime")
+	if runtime == null or not runtime.has_method("get_state_snapshot"):
+		_fail("mechanic runtime bridge is not installed")
+		return
 	var first: Dictionary = game.smoke_snapshot()
 	for _frame in range(180):
 		await physics_frame

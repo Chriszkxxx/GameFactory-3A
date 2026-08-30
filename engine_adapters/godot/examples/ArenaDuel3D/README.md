@@ -4,7 +4,15 @@ A second-person combat reference matching Three.js `arena-fighter-example`:
 the match owns a camera that frames both fighters, neither fighter may steer it,
 and locomotion/facing stay locked to the opponent axis. The project adds live
 character collision, attack windows, cooldowns, health, knockback, round reset,
-score HUD, deterministic AI-versus-AI validation, and manual A/D/space control.
+score state, deterministic AI-versus-AI validation, and manual A/D/space control.
+
+The example is intentionally asset-free. Its module boundary mirrors a Unity
+assembly or Unreal feature module:
+
+- `mechanic/` owns the fighters, arena, combat loop, camera, and runtime bridge.
+- `ui/` owns the screen-space HUD and depends only on the runtime bridge.
+- `main.tscn` is the composition root; `scripts/main.gd` is a compatibility
+  entry point that delegates to `mechanic/main.gd`.
 
 ```bash
 godot4 --headless --path . --import
