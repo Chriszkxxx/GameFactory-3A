@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 import webbrowser
 from dataclasses import dataclass, field
+from pathlib import Path
 from threading import RLock
 from time import time
 from typing import Any, Callable, Mapping
@@ -1159,13 +1160,15 @@ class GodotExampleBackend:
                     "dry_run": True,
                 },
             }
-        # Build Web export if not already present
+        # Build Web export when missing or older than the Godot project. This
+        # is important for generated demos: assets/scripts may be regenerated
+        # after the previous web.pck was written.
         web_build_dir = self._web_build_dir(session)
         # Godot names the HTML after the preset: web.html or index.html
         web_html = web_build_dir / "web.html"
         if not web_html.is_file():
             web_html = web_build_dir / "index.html"
-        if not web_html.is_file():
+        if self._web_build_is_stale(web_build_dir, web_html):
             build_result = session.client.build.project(
                 preset="Web",
                 output_path=str(web_build_dir),
@@ -1246,10 +1249,38 @@ class GodotExampleBackend:
                 process.wait(timeout=5)
 
     def _web_build_dir(self, session: GodotBrowserSession) -> Path:
-        from pathlib import Path as _Path
         if self.config.godot_project is None:
             raise ValueError("A3GAME_GODOT_PROJECT is not configured")
-        return _Path(self.config.godot_project) / "builds"
+        return Path(self.config.godot_project) / "builds"
+
+    def _web_build_is_stale(self, web_build_dir: Path, web_html: Path) -> bool:
+        required = [
+            web_html,
+            web_build_dir / "web.pck",
+            web_build_dir / "web.js",
+            web_build_dir / "web.wasm",
+        ]
+        if any(not path.is_file() for path in required):
+            return True
+        build_mtime = min(path.stat().st_mtime_ns for path in required)
+        if self.config.godot_project is None:
+            return False
+        project_root = Path(self.config.godot_project)
+        # Ignore generated Godot caches and the export directory itself. All
+        # authored scenes, scripts, settings, and imported Meshy source files
+        # participate in freshness checks.
+        for path in project_root.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                relative = path.relative_to(project_root)
+            except ValueError:
+                continue
+            if relative.parts and relative.parts[0] in {".godot", "builds"}:
+                continue
+            if path.stat().st_mtime_ns > build_mtime:
+                return True
+        return False
 
     def _start_http_server(
         self,
@@ -1402,6 +1433,27 @@ class GodotExampleBackend:
     Click <strong>Fullscreen</strong> for a UE-style large view, or open the raw Web export directly.
   </div>
   <script>
+    // Forward Godot browser-play input through this wrapper iframe. The outer
+    // serving page and the raw Web export use different ports, so the wrapper
+    // is the bridge between them. Queue the latest message until the game has
+    // finished loading; otherwise the first keyboard packet can be lost.
+    const gameFrame = document.getElementById("gameFrame");
+    let pendingGameMessage = null;
+    function forwardGameMessage(data) {{
+      pendingGameMessage = data;
+      if (gameFrame && gameFrame.contentWindow) {{
+        gameFrame.contentWindow.postMessage(data, "*");
+      }}
+    }}
+    window.addEventListener("message", (event) => {{
+      if (typeof event.data === "string") forwardGameMessage(event.data);
+    }});
+    gameFrame.addEventListener("load", () => {{
+      if (pendingGameMessage !== null) {{
+        gameFrame.contentWindow.postMessage(pendingGameMessage, "*");
+      }}
+    }});
+
     const fullscreenButton = document.getElementById("fullscreenButton");
     fullscreenButton.addEventListener("click", async () => {{
       try {{
