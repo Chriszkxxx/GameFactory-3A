@@ -11,5 +11,5 @@
     "stamina_gated_sprint",
     "native_gltf_mesh_skin_and_motion_import"
   ],
-  "generated_output": "my_code/AAAGameForge/test_data/outputs/game606/godot"
+  "generated_output": "test_data/outputs/game606/godot"
 }

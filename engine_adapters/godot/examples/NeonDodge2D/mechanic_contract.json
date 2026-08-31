@@ -11,5 +11,5 @@
     "hud",
     "state_and_restart_loop"
   ],
-  "generated_output": "my_code/AAAGameForge/test_data/outputs/game101/godot"
+  "generated_output": "test_data/outputs/game101/godot"
 }

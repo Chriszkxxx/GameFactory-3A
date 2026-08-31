@@ -12,6 +12,7 @@ from .inspection import (
 from .managed_state import (
     atomic_write_bytes,
     atomic_write_text,
+    is_system_directory_alias,
     prepare_managed_file,
     read_managed_bytes,
     read_managed_text,
@@ -48,6 +49,7 @@ __all__ = [
     "inspect_godot_resource",
     "inspection_bone_tracks",
     "inspection_skeleton_paths",
+    "is_system_directory_alias",
     "managed_process_kwargs",
     "parse_godot_version",
     "prepare_managed_file",

@@ -17,10 +17,11 @@ INSPECT_SCRIPT = (
 _IMPORT_ERROR = re.compile(
     r"(?:^|\n)\s*(?:SCRIPT ERROR|ERROR):[^\n]*(?:\bimport(?:ing)?\b|\bresource\b)|"
     r"Error importing|Failed (?:loading|to import) resource|"
-    r"\bERR_(?:FILE_CORRUPT|PARSE_ERROR)\b|"
+    r"\bERR_(?:FILE_CORRUPT|PARSE_ERROR)\b[^\n]*\b(?:image|texture|png)\b|"
+    r"\bERR_(?:FILE_CORRUPT|PARSE_ERROR)\b[^\n]*\b(?:load_mem_png|image_loader|texture_storage)\b|"
     r"(?:^|\n)\s*(?:SCRIPT ERROR|ERROR):[^\n]*"
     r"(?:Could(?:n't| not)|Failed to)\s+(?:load|decode|parse)\b[^\n]*"
-    r"\b(?:image|texture|resource|dependency)\b",
+    r"\b(?:resource|dependency)\b",
     re.IGNORECASE,
 )
 _VERSION = re.compile(r"(?<!\d)(\d+)(?:\.(\d+))?(?:\.(\d+))?")

@@ -11,6 +11,7 @@ from .bindings import GodotBindingsClient
 from .build import GodotBuildClient
 from .config import DEFAULT_API_VERSION, GodotClientConfig
 from .observe import GodotObserveClient
+from .playtest import GodotPlaytestClient
 from .plugin import GodotPluginClient
 from .project import GodotProjectClient
 from .reflection import GodotReflectionClient
@@ -53,6 +54,7 @@ class GodotClient:
         self.world = GodotWorldClient(self._config, self.assets, self.reflection)
         self.runtime = GodotRuntimeClient(self._config, self.assets)
         self.observe = GodotObserveClient(self._config, self.runtime.sessions)
+        self.playtest = GodotPlaytestClient(self._config)
 
     @property
     def api_version(self) -> str:

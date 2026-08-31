@@ -278,7 +278,7 @@ class GodotRuntimeClient:
     @staticmethod
     def _startup_returncode(
         process: subprocess.Popen[Any],
-        grace_period: float = 0.1,
+        grace_period: float = 0.25,
     ) -> int | None:
         """Observe immediate startup failure without blocking a live process."""
 

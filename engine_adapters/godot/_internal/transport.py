@@ -100,7 +100,7 @@ def find_godot_binary(configured: str | Path | None = None) -> Path | None:
     """Resolve an editor build, preferring an explicitly configured path."""
 
     if configured is not None and str(configured).strip():
-        value = Path(configured).expanduser().resolve(strict=False)
+        value = Path(os.path.abspath(str(Path(configured).expanduser())))
         if value.is_file():
             return value
         if value.is_dir():
@@ -115,7 +115,7 @@ def find_godot_binary(configured: str | Path | None = None) -> Path | None:
     for name in ("godot4", "godot", "godot-mono"):
         discovered = shutil.which(name)
         if discovered:
-            return Path(discovered).resolve()
+            return Path(discovered)
     candidates: list[Path] = []
     if platform.system() == "Windows":
         candidates.extend(
@@ -248,7 +248,7 @@ class GodotTransport:
     def version(self, timeout: float = 10.0) -> GodotProcessResult:
         return self.run(
             ["--version"],
-            headless=False,
+            headless=True,
             require_project=False,
             timeout=timeout,
         )

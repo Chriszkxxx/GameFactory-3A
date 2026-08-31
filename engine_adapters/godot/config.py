@@ -119,7 +119,7 @@ class GodotClientConfig:
         )
         unresolved_project = _unresolved_absolute_path(configured_project)
         resolved_project = _optional_path(configured_project)
-        resolved_executable = _optional_path(
+        resolved_executable = _unresolved_absolute_path(
             godot_executable
             or _first_environment_value(
                 "A3GAME_GODOT_EXECUTABLE",

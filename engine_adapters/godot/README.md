@@ -72,6 +72,12 @@ avatars must also expose a skinned mesh and Skeleton3D bones.
 Motion scenes retain their real `PackedScene` class and must expose an animation,
 a Skeleton3D, and a bone-targeted track. An artifact enters the registry only
 after all of those native checks succeed.
+`assets.import_batch()` preflights the same task descriptors and imports them in
+dependency order: avatars and mesh/material inputs first, motions second, then
+scenes, effects, and audio. Batch names default to `task_id`, avoiding collisions
+between generated files commonly named `artifact.glb`. Motion targets may be an
+explicit Skeleton3D NodePath or a registered avatar artifact ID, asset ID, or
+`res://` path; avatar references resolve to the validated native skeleton path.
 Existing project resources can be added with `assets.register_resource()`. The
 operation accepts only a canonical, in-project `res://` file, requires Godot 4
 to load it and satisfy the selected asset type, derives its native class and
@@ -94,7 +100,9 @@ are the actual resources used by later runtime operations.
 
 Builds require a named preset in `export_presets.cfg` and run
 `--export-release`, `--export-debug`, or `--export-pack`; a zero exit code with
-no requested output is a failure. Every export is written to an isolated
+no requested output is a failure. Error diagnostics also fail the build when
+Godot exits zero, so parse/compile errors cannot publish a staged export. Every
+export is written to an isolated
 staging directory first, so a failed Web export cannot overwrite or leave
 partial `.html`, `.wasm`, `.pck`, `.js`, or image companions in an existing
 build. The adapter records content proofs for the committed sibling set in a

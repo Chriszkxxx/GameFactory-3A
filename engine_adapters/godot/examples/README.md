@@ -48,13 +48,46 @@ produce `A3GAME_SMOKE_OK`.
 
 | Reference | Generated demonstration |
 | --- | --- |
-| `NeonDodge2D` | `my_code/AAAGameForge/test_data/outputs/game101/godot/` |
-| `SolarRally3D` | `my_code/AAAGameForge/test_data/outputs/game202/godot/` |
-| `OrbitPinball2D` | `my_code/AAAGameForge/test_data/outputs/game303/godot/` |
-| `FpsArena3D` | `my_code/AAAGameForge/test_data/outputs/game404/godot/` |
-| `ArenaDuel3D` | `my_code/AAAGameForge/test_data/outputs/game505/godot/` |
-| `RpgExplorer3D` | `my_code/AAAGameForge/test_data/outputs/game606/godot/` |
+| `NeonDodge2D` | `test_data/outputs/game101/godot/` |
+| `SolarRally3D` | `test_data/outputs/game202/godot/` |
+| `OrbitPinball2D` | `test_data/outputs/game303/godot/` |
+| `FpsArena3D` | `test_data/outputs/game404/godot/` |
+| `ArenaDuel3D` | `test_data/outputs/game505/godot/` |
+| `RpgExplorer3D` | `test_data/outputs/game606/godot/` |
 
 Generated-output copies are delivery artifacts, not runtime dependencies of
 these references. Reproduce source validation with the native commands above;
 use each contract's `generated_output` value when materializing a reviewer copy.
+
+## Mechanic/UI module boundary
+
+Godot does not provide a direct equivalent of Unity's `.asmdef` or Unreal's
+`.uplugin` module rules. The adapter models the same boundary with two
+artifacts and an explicit product assembly step:
+
+- **Mechanic artifact**: owns gameplay, scenes, physics, input, and the public
+  runtime adapter. It is runnable on its own and contains no HUD or UI scene.
+- **UI artifact**: owns `CombatUI.tscn` and its presentation script. It depends
+  on the mechanic contract and talks to gameplay only through the autoloaded
+  runtime adapter; it does not access fighters, stage nodes, or private fields.
+- **Product composition root**: is generated during assembly as
+  `res://scenes/Main.tscn`, with sibling `Mechanic` and `UI` instances.
+
+Assemble a Godot product without changing Unity, UE, or shared Browser Serving
+code:
+
+```python
+from engine_adapters.godot import GodotClient
+
+client = GodotClient(godot_executable="godot4")
+client.project.assemble_modules(
+    "path/to/mechanic-artifact",
+    "path/to/ui-artifact",
+    "path/to/product-project",
+    overwrite=True,
+)
+```
+
+The resulting `assembly_manifest.json` records the dependency direction
+`ui -> mechanic -> runtime_framework`, and `browser_play/launch.sh` should point
+at the assembled product project rather than the mechanic artifact alone.

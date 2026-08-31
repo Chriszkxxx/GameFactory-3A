@@ -17,4 +17,4 @@ godot4 --path . -- --manual
 ```
 
 The reviewer demonstration path is
-`my_code/AAAGameForge/test_data/outputs/game606/godot/`.
+`test_data/outputs/game606/godot/`.

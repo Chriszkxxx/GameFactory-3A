@@ -149,8 +149,9 @@ include `replace_existing` and import hints.
 | Call | Purpose and successful return | Failure behavior | Example |
 | --- | --- | --- | --- |
 | `godot.assets.import_asset(source, asset_type, *, destination="", options=None)` | Resolves, stages, imports, natively inspects and registers any supported type; artifact contains real `res://` path/class/capabilities | Unknown type/identity, source escape, format mismatch, conflict, import/load error or native contract mismatch rolls back files/cache/registry | E2 |
+| `godot.assets.import_batch(sources, *, options=None, timeout=None, dry_run=False)` | Preflights descriptors, names them by task ID and imports avatars/meshes before motions and scenes; returns per-item results and all registered artifacts | Invalid descriptors fail before import; execution stops at the first failed item and reports any earlier committed artifacts | E2 |
 | `godot.assets.import_avatar(source, **kwargs)` | Typed `avatar` helper; accepts `destination` and `options`; returns registered skinned `PackedScene` | Requires mesh, Skeleton3D bones and a skeleton-linked skinned mesh | E2 |
-| `godot.assets.import_motion(source, *, skeleton="", destination="", avatar_name="", options=None)` | Typed motion import with optional required live Skeleton3D path/avatar label | Requires a `PackedScene`, animation and bone-targeted track compatible with requested skeleton | E3 |
+| `godot.assets.import_motion(source, *, skeleton="", destination="", avatar_name="", options=None)` | Typed motion import; skeleton accepts a live Skeleton3D NodePath or registered avatar artifact/asset/resource reference | Requires a `PackedScene`, animation and bone-targeted track compatible with the resolved skeleton | E3 |
 | `godot.assets.import_scene(source, **kwargs)` | Typed spawnable scene helper; accepts `destination`/`options` | Native resource must load and instantiate as `PackedScene` | E2 |
 | `godot.assets.import_prop(source, **kwargs)` | Typed prop helper; accepts `destination`/`options` | Requires instantiable `PackedScene` with `MeshInstance3D`; bare OBJ fails | E2 |
 | `godot.assets.import_weapon(source, **kwargs)` | Typed weapon helper; accepts `destination`/`options` | Same spawnable mesh contract as prop | E2 |
@@ -175,9 +176,9 @@ restores replaced source files, adjacent `.import` files, matching
 
 | Call | Purpose and successful return | Failure behavior | Example |
 | --- | --- | --- | --- |
-| `godot.animation.import_motion(source, *, skeleton, destination="", avatar_name="", options=None)` | Imports a motion and requires the named live Skeleton3D NodePath | Empty/missing skeleton, absent animation/bone track or mismatched target fails/rolls back | E3 |
+| `godot.animation.import_motion(source, *, skeleton, destination="", avatar_name="", options=None)` | Imports motion against a live Skeleton3D NodePath or registered avatar reference | Empty/missing skeleton, unknown avatar, absent animation/bone track or mismatched target fails/rolls back | E3 |
 | `godot.animation.resolve_skeleton(avatar)` | Reloads registered avatar and returns live Skeleton3D paths/bones | Unknown/non-avatar/unloadable/unskinned resource fails | E3 |
-| `godot.animation.validate_compatibility(motion, skeleton)` | Reloads motion and verifies animation plus bone track targeting the requested live skeleton | Structural mismatch fails; does not claim visual retargeting quality | E3 |
+| `godot.animation.validate_compatibility(motion, skeleton)` | Reloads motion and verifies animation plus bone track targeting a live skeleton or registered avatar reference | Structural mismatch fails; does not claim visual retargeting quality | E3 |
 | `godot.bindings.bind_pbr_material(*, asset_id, source, mesh_assets, destination="assets/imported/materials", options=None)` | Imports/creates material, applies `material_override` through Godot to every target mesh, saves bound scenes, atomically retargets records and returns manifest/artifacts | Missing target/material, zero changed meshes, engine error, unsafe state, duplicate target or any commit failure restores material/scenes/texture/manifest/registry | E3 |
 
 ### Worlds
@@ -437,7 +438,7 @@ keyboard mode, and a Godot smoke script that advances live physics. The RPG
 smoke also proves that Godot instantiated a mesh and skeleton from glTF and is
 advancing its imported bone animation. Their
 `mechanic_contract.json` maps to reviewer copies under
-`my_code/AAAGameForge/test_data/outputs/gameXXX/godot/`.
+`test_data/outputs/gameXXX/godot/`.
 
 ## 6. Coordinate system
 

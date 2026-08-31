@@ -39,6 +39,11 @@ class BrowserServingConfig:
     unity_host: str = "127.0.0.1"
     unity_port: int = 30010
     unity_webgl_build: Path | None = None
+    godot_project: Path | None = None
+    godot_executable: Path | None = None
+    godot_host: str = "127.0.0.1"
+    godot_runtime_port: int = 30050
+    godot_auto_open_browser: bool = False
     runtime_host: str = "127.0.0.1"
     base_runtime_port: int = 31020
     pixel_host: str = "127.0.0.1"
@@ -109,6 +114,19 @@ class BrowserServingConfig:
             ),
             unity_webgl_build=_path_env(
                 "A3GAME_UNITY_WEBGL_BUILD"
+            ),
+            godot_project=_path_env("A3GAME_GODOT_PROJECT"),
+            godot_executable=_path_env("A3GAME_GODOT_EXECUTABLE"),
+            godot_host=os.environ.get(
+                "A3GAME_GODOT_HOST",
+                "127.0.0.1",
+            ),
+            godot_runtime_port=int(
+                os.environ.get("A3GAME_GODOT_RUNTIME_PORT", "30050")
+            ),
+            godot_auto_open_browser=_flag(
+                "A3GAME_GODOT_AUTO_OPEN_BROWSER",
+                False,
             ),
             runtime_host=os.environ.get(
                 "A3GAME_UNITY_RUNTIME_HOST",

@@ -12,6 +12,7 @@ from .._internal import (
     find_godot_binary,
     godot_4_version_error,
     inspect_godot_resource,
+    is_system_directory_alias,
     parse_godot_version,
 )
 from ..config import GodotClientConfig, normalize_godot_project_directory
@@ -175,6 +176,12 @@ def _assert_directory_chain(path: Path) -> None:
 
     for component in reversed((path, *path.parents)):
         if component.is_symlink():
+            # macOS exposes these stable system directories as top-level
+            # aliases into /private.  tempfile commonly returns /var/..., so
+            # rejecting the alias makes otherwise ordinary project paths
+            # unusable.  Project-local and user-created links remain rejected.
+            if is_system_directory_alias(component):
+                continue
             raise ValueError(
                 f"Godot project path must not contain a symlink: {component}"
             )
@@ -399,6 +406,32 @@ class GodotProjectClient:
             ],
             payload=payload,
         ).to_dict()
+
+    def assemble_modules(
+        self,
+        mechanic_artifact: str | Path,
+        ui_artifact: str | Path,
+        output_project: str | Path,
+        *,
+        overwrite: bool = False,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Assemble independent Mechanic and UI artifacts into a product project."""
+        from .assembly import assemble_godot_modules
+
+        try:
+            return assemble_godot_modules(
+                mechanic_artifact,
+                ui_artifact,
+                output_project,
+                overwrite=overwrite,
+                dry_run=dry_run,
+            )
+        except Exception as exc:
+            return GodotOperationResult.failure(
+                "project.assemble_modules",
+                f"{type(exc).__name__}: {exc}",
+            ).to_dict()
 
     def validate(self, *, check_engine: bool = True) -> dict[str, Any]:
         project_dir = self._config.project_dir

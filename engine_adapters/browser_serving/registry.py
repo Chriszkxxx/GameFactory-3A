@@ -9,6 +9,8 @@ _ALIASES = {
     "ue": "ue5",
     "unreal": "ue5",
     "unreal_engine": "ue5",
+    "godot4": "godot",
+    "godot_engine": "godot",
 }
 
 
