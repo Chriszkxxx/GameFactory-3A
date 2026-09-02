@@ -18,6 +18,7 @@ from pipeline.code_gen.gen_mechanic.artifacts import (
     required_artifact_checks as _required_artifact_checks,
     scan_godot_ui_contamination as _scan_godot_ui_contamination,
     scan_ue_ui_contamination as _scan_ue_ui_contamination,
+    scan_unity_ui_contamination as _scan_unity_ui_contamination,
 )
 from pipeline.code_gen.gen_mechanic.contracts import (
     MECHANIC_CONTRACT_FILENAME,

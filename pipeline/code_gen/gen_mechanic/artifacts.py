@@ -85,6 +85,33 @@ _GODOT_UI_PATH_PARTS = {
     "widgets",
     "overlay",
 }
+_UNITY_ENGINE_IDS = {
+    "unity",
+    "unity3d",
+    "unity_engine",
+}
+_UNITY_SOURCE_SUFFIXES = {
+    ".cs",
+}
+_UNITY_UI_PATTERNS = (
+    ("Canvas", re.compile(r"\bCanvas\b")),
+    ("UnityEngine.UI", re.compile(r"using\s+UnityEngine\.UI\b")),
+    ("Button", re.compile(r"\bButton\b")),
+    ("Text", re.compile(r"\bText\b")),
+    ("Image", re.compile(r"\bImage\b")),
+    ("RectTransform", re.compile(r"\bRectTransform\b")),
+    ("ScrollRect", re.compile(r"\bScrollRect\b")),
+    ("Toggle", re.compile(r"\bToggle\b")),
+    ("Slider", re.compile(r"\bSlider\b")),
+    ("TMP_Text", re.compile(r"\bTMP_Text\b")),
+)
+_UNITY_UI_PATH_PARTS = {
+    "ui",
+    "hud",
+    "widget",
+    "widgets",
+    "overlay",
+}
 
 
 def _has_files(path: Path) -> bool:
@@ -92,6 +119,53 @@ def _has_files(path: Path) -> bool:
         item.is_file()
         for item in path.rglob("*")
     )
+
+
+def scan_unity_ui_contamination(
+    workspace: Path,
+    current_task_files: Mapping[str, Mapping[str, Any]],
+) -> tuple[bool, list[str]]:
+    """Reject native UI implementation accidentally put in a Unity Mechanic."""
+    violations: list[str] = []
+    for relative_path in current_task_files:
+        normalized = PurePosixPath(str(relative_path).replace("\\", "/"))
+        path = workspace.joinpath(*normalized.parts)
+        if (
+            not path.is_file()
+            or path.suffix.lower() not in _UNITY_SOURCE_SUFFIXES
+        ):
+            continue
+        # A generated test may mention UI types while asserting that UI is
+        # absent; only inspect implementation files here.
+        if any("test" in part.lower() for part in normalized.parts):
+            continue
+        if {
+            part.lower() for part in normalized.parts[:-1]
+        } & _UNITY_UI_PATH_PARTS:
+            violations.append(
+                "Unity Mechanic source is under a UI-owned path in "
+                f"{relative_path}"
+            )
+        try:
+            source = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError as exc:
+            violations.append(
+                "Unable to inspect generated Unity Mechanic source "
+                f"{relative_path}: {exc}"
+            )
+            continue
+        matches = [
+            name
+            for name, pattern in _UNITY_UI_PATTERNS
+            if pattern.search(source)
+        ]
+        if matches:
+            violations.append(
+                "Unity Mechanic source contains forbidden UI "
+                f"implementation in {relative_path}: "
+                + ", ".join(matches)
+            )
+    return not violations, violations
 
 
 def scan_ue_ui_contamination(
@@ -314,6 +388,15 @@ def required_artifact_checks(
         errors.extend(contamination_errors)
     else:
         checks["godot_ui_free_source"] = None
+    if engine.strip().lower() in _UNITY_ENGINE_IDS:
+        ui_free, contamination_errors = scan_unity_ui_contamination(
+            workspace,
+            current_task_files,
+        )
+        checks["unity_ui_free_source"] = ui_free
+        errors.extend(contamination_errors)
+    else:
+        checks["unity_ui_free_source"] = None
     return checks, errors, warnings
 
 
