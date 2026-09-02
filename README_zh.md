@@ -63,25 +63,38 @@
   </tr>
 </table>
 
+### Godot 4
+
+下方演示由 Meshy 生成的物体与 Godot 原有资产结合构建。
+
+<table>
+  <tr>
+    <td width="33%">
+      <video src="https://github.com/user-attachments/assets/b02e9b45-aedb-4b62-9e5e-ec5c6534bc6a" width="100%" controls muted playsinline></video>
+    </td>
+    <td width="33%">
+      <video src="https://github.com/user-attachments/assets/532c117c-b5b7-4c14-9af2-e198786b93ea" width="100%" controls muted playsinline></video>
+    </td>
+    <td width="33%">
+      <video src="https://github.com/user-attachments/assets/c31aeb50-f306-47bf-8cf4-04d1bfab57cf" width="100%" controls muted playsinline></video>
+    </td>
+  </tr>
+</table>
+
 ### Blender
 
 对战与赛车游戏均使用下载的简单资产；探索游戏与 FPS 游戏则由下载的场景贴图与 Meshy 生成的物体实现。
 
 <table>
   <tr>
-    <td width="50%">
-      <video src="https://github.com/user-attachments/assets/0c686db2-2ae4-4d3e-9aeb-311bf8616267" width="100%" controls muted playsinline></video>
-    </td>
-    <td width="50%">
+    <td width="33%">
       <video src="https://github.com/user-attachments/assets/f2341548-e484-40fa-9b03-a63ff9f4eee8" width="100%" controls muted playsinline></video>
     </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <video src="https://github.com/user-attachments/assets/0ae06144-28f1-459c-b418-10ef1dc59ae4" width="100%" controls muted playsinline></video>
+    <td width="33%">
+      <video src="https://github.com/user-attachments/assets/0c686db2-2ae4-4d3e-9aeb-311bf8616267" width="100%" controls muted playsinline></video>
     </td>
-    <td width="50%">
-      <video src="https://github.com/user-attachments/assets/713db0bd-0393-445b-b3a1-39863e7df49a" width="100%" controls muted playsinline></video>
+    <td width="33%">
+      <video src="https://github.com/user-attachments/assets/0ae06144-28f1-459c-b418-10ef1dc59ae4" width="100%" controls muted playsinline></video>
     </td>
   </tr>
 </table>
@@ -92,18 +105,13 @@
 
 <table>
   <tr>
-    <td width="50%">
-      <video src="https://github.com/user-attachments/assets/904ccddd-5a51-446e-aa38-bcb4ee8f4e9a" width="100%" controls muted playsinline></video>
-    </td>
-    <td width="50%">
+    <td width="33%">
       <video src="https://github.com/user-attachments/assets/6dc42e07-3b58-43e5-8005-cd83fbce1db4" width="100%" controls muted playsinline></video>
     </td>
-  </tr>
-  <tr>
-    <td width="50%">
+    <td width="33%">
       <video src="https://github.com/user-attachments/assets/3b679c56-7fcd-42aa-985b-3c3cd4e05159" width="100%" controls muted playsinline></video>
     </td>
-    <td width="50%">
+    <td width="33%">
       <video src="https://github.com/user-attachments/assets/12786f57-154c-4b74-b1a0-d68efd21ee50" width="100%" controls muted playsinline></video>
     </td>
   </tr>
