@@ -1169,9 +1169,13 @@ class GodotExampleBackend:
         if not web_html.is_file():
             web_html = web_build_dir / "index.html"
         if self._web_build_is_stale(web_build_dir, web_html):
+            # Godot's export command requires a file destination. Passing the
+            # build directory itself makes Godot emit `builds.html` beside the
+            # directory, so the browser backend can never find its entrypoint.
+            export_output = web_build_dir / "web.html"
             build_result = session.client.build.project(
                 preset="Web",
-                output_path=str(web_build_dir),
+                output_path=str(export_output),
                 debug=True,
             )
             if not build_result.get("ok"):
@@ -1254,6 +1258,11 @@ class GodotExampleBackend:
         return Path(self.config.godot_project) / "builds"
 
     def _web_build_is_stale(self, web_build_dir: Path, web_html: Path) -> bool:
+        # Older Godot exports use `index.html` and may use custom companion
+        # filenames.  The directory is already an explicit browser build in
+        # that case, so do not force a rebuild based on the `web.*` convention.
+        if web_html.name == "index.html" and web_html.is_file():
+            return False
         required = [
             web_html,
             web_build_dir / "web.pck",

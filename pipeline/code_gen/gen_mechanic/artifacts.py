@@ -55,6 +55,36 @@ _UE_UI_PATTERNS = (
     ("UMG", re.compile(r"\bUMG\b")),
     ("Slate", re.compile(r"\bSlate(?:Core)?\b")),
 )
+_GODOT_ENGINE_IDS = {
+    "godot",
+    "godot4",
+    "godot_engine",
+}
+_GODOT_SOURCE_SUFFIXES = {
+    ".gd",
+    ".tscn",
+    ".tres",
+}
+_GODOT_UI_PATTERNS = (
+    ("CanvasLayer", re.compile(r"\bCanvasLayer\b")),
+    ("Control", re.compile(r"\bControl\b")),
+    ("Container", re.compile(r"\b[A-Za-z]*Container\b")),
+    ("Label", re.compile(r"\bLabel\b")),
+    ("Button", re.compile(r"\b(?:BaseButton|Button|TextureButton)\b")),
+    ("Panel", re.compile(r"\b(?:Panel|PanelContainer)\b")),
+    ("ProgressBar", re.compile(r"\bProgressBar\b")),
+    ("ColorRect", re.compile(r"\bColorRect\b")),
+    ("TextureRect", re.compile(r"\bTextureRect\b")),
+    ("CombatUI", re.compile(r"\bCombatUI\b|combat_ui\.gd")),
+    ("res://ui/", re.compile(r"res://ui[\\/]")),
+)
+_GODOT_UI_PATH_PARTS = {
+    "ui",
+    "hud",
+    "widget",
+    "widgets",
+    "overlay",
+}
 
 
 def _has_files(path: Path) -> bool:
@@ -95,6 +125,53 @@ def scan_ue_ui_contamination(
         if matches:
             violations.append(
                 "UE Mechanic source contains forbidden UI "
+                f"implementation in {relative_path}: "
+                + ", ".join(matches)
+            )
+    return not violations, violations
+
+
+def scan_godot_ui_contamination(
+    workspace: Path,
+    current_task_files: Mapping[str, Mapping[str, Any]],
+) -> tuple[bool, list[str]]:
+    """Reject native UI implementation accidentally put in a Godot Mechanic."""
+    violations: list[str] = []
+    for relative_path in current_task_files:
+        normalized = PurePosixPath(str(relative_path).replace("\\", "/"))
+        path = workspace.joinpath(*normalized.parts)
+        if (
+            not path.is_file()
+            or path.suffix.lower() not in _GODOT_SOURCE_SUFFIXES
+        ):
+            continue
+        # A generated test may mention UI types while asserting that UI is
+        # absent; only inspect implementation files here.
+        if any("test" in part.lower() for part in normalized.parts):
+            continue
+        if {
+            part.lower() for part in normalized.parts[:-1]
+        } & _GODOT_UI_PATH_PARTS:
+            violations.append(
+                "Godot Mechanic source is under a UI-owned path in "
+                f"{relative_path}"
+            )
+        try:
+            source = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError as exc:
+            violations.append(
+                "Unable to inspect generated Godot Mechanic source "
+                f"{relative_path}: {exc}"
+            )
+            continue
+        matches = [
+            name
+            for name, pattern in _GODOT_UI_PATTERNS
+            if pattern.search(source)
+        ]
+        if matches:
+            violations.append(
+                "Godot Mechanic source contains forbidden UI "
                 f"implementation in {relative_path}: "
                 + ", ".join(matches)
             )
@@ -228,6 +305,15 @@ def required_artifact_checks(
         errors.extend(contamination_errors)
     else:
         checks["ue_ui_free_source"] = None
+    if engine.strip().lower() in _GODOT_ENGINE_IDS:
+        ui_free, contamination_errors = scan_godot_ui_contamination(
+            workspace,
+            current_task_files,
+        )
+        checks["godot_ui_free_source"] = ui_free
+        errors.extend(contamination_errors)
+    else:
+        checks["godot_ui_free_source"] = None
     return checks, errors, warnings
 
 
