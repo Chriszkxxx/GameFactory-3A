@@ -155,9 +155,15 @@ def evaluate_artifact(
             artifact_checks.get("context_used")
             is True
         )
-        ui_free_source = artifact_checks.get(
-            "ue_ui_free_source"
-        )
+        ui_free_source = artifact_checks.get("ue_ui_free_source")
+        if ui_free_source is None:
+            ui_free_source = artifact_checks.get(
+                "godot_ui_free_source"
+            )
+        if ui_free_source is None:
+            ui_free_source = artifact_checks.get(
+                "unity_ui_free_source"
+            )
         checks["ui_free_source"] = (
             ui_free_source is True
             or ui_free_source is None
