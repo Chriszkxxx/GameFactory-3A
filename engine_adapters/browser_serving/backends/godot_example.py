@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import socket
 import subprocess
 import urllib.error
@@ -26,6 +27,9 @@ from ..contracts import (
     WorldRecord,
     serving_result,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _is_tcp_port_free(host: str, port: int) -> bool:
@@ -188,7 +192,8 @@ class GodotBrowserSession:
     error: str = ""
     last_command: str = ""
     recovered_external: bool = False
-    # Godot Web export — game runs in browser via iframe.
+    # Godot Web export is a browser-native player: the game is served over
+    # HTTP and runs inside an iframe wrapper page.
     runtime_kind: str = "godot_web"
     input_transport: str = "browser_canvas"
     streaming_transport: str = "godot_web_http"
@@ -983,13 +988,9 @@ class GodotExampleBackend:
                 if session is not None
                 else ""
             )
-            reachable = bool(
-                url
-                and (
-                    self.config.dry_run
-                    or True  # desktop game is always "reachable" if running
-                )
-            )
+            # Web export has no stream server to probe; any active session
+            # URL is treated as reachable.
+            reachable = bool(url)
             return serving_result(
                 "debug.pixel_status",
                 engine="godot",
@@ -1160,18 +1161,20 @@ class GodotExampleBackend:
                     "dry_run": True,
                 },
             }
-        # Build Web export when missing or older than the Godot project. This
-        # is important for generated demos: assets/scripts may be regenerated
-        # after the previous web.pck was written.
+        # Rebuild the Web export whenever it is missing or older than the
+        # project. Generated games can regenerate scenes, scripts, and assets
+        # after a previous export, so a stale build would hide those changes
+        # from the browser session.
         web_build_dir = self._web_build_dir(session)
-        # Godot names the HTML after the preset: web.html or index.html
+        # Godot names the exported HTML after the preset ("web.html");
+        # older exports fall back to "index.html".
         web_html = web_build_dir / "web.html"
         if not web_html.is_file():
             web_html = web_build_dir / "index.html"
         if self._web_build_is_stale(web_build_dir, web_html):
-            # Godot's export command requires a file destination. Passing the
-            # build directory itself makes Godot emit `builds.html` beside the
-            # directory, so the browser backend can never find its entrypoint.
+            # Godot's export command requires a file destination: passing
+            # the build directory would emit the export beside it, where the
+            # entry-point lookup below would not find it.
             export_output = web_build_dir / "web.html"
             build_result = session.client.build.project(
                 preset="Web",
@@ -1199,13 +1202,11 @@ class GodotExampleBackend:
         session.stream_url = (
             f"http://{self.config.pixel_host}:{session.http_port}/{wrapper.name}"
         )
-        # Start HTTP server to serve the web build
         session.http_process = self._start_http_server(
             web_build_dir,
             session.http_port,
         )
         session.http_pid = int(session.http_process.pid) if session.http_process else 0
-        # Wait for HTTP to be reachable
         self._wait_for_http(session.stream_url)
         if self.config.godot_auto_open_browser:
             self._open_browser(session.stream_url)
@@ -1228,7 +1229,8 @@ class GodotExampleBackend:
         session: GodotBrowserSession,
         scene_path: str,
     ) -> dict[str, Any]:
-        # Web export doesn't need relaunch — just reload the page
+        # A Web-export session has no separate OS process to relaunch; the
+        # browser reloads the page for a new scene.
         session.updated_at = time()
         return {
             "ok": True,
@@ -1258,9 +1260,9 @@ class GodotExampleBackend:
         return Path(self.config.godot_project) / "builds"
 
     def _web_build_is_stale(self, web_build_dir: Path, web_html: Path) -> bool:
-        # Older Godot exports use `index.html` and may use custom companion
-        # filenames.  The directory is already an explicit browser build in
-        # that case, so do not force a rebuild based on the `web.*` convention.
+        # Older Godot exports use "index.html" with custom companion
+        # filenames. Treat those directories as explicit browser builds and
+        # do not force a rebuild based on the "web.*" naming convention.
         if web_html.name == "index.html" and web_html.is_file():
             return False
         required = [
@@ -1275,9 +1277,9 @@ class GodotExampleBackend:
         if self.config.godot_project is None:
             return False
         project_root = Path(self.config.godot_project)
-        # Ignore generated Godot caches and the export directory itself. All
-        # authored scenes, scripts, settings, and imported Meshy source files
-        # participate in freshness checks.
+        # Ignore generated Godot caches and the export directory itself;
+        # every authored scene, script, setting, and imported source asset
+        # participates in the freshness check.
         for path in project_root.rglob("*"):
             if not path.is_file():
                 continue
@@ -1439,13 +1441,13 @@ class GodotExampleBackend:
     <a class="button" href={game_url} target="_blank" rel="noreferrer">Open direct</a>
   </div>
   <div class="hint">
-    Click <strong>Fullscreen</strong> for a UE-style large view, or open the raw Web export directly.
+    Click <strong>Fullscreen</strong> for a larger view, or open the raw Web export directly.
   </div>
   <script>
-    // Forward Godot browser-play input through this wrapper iframe. The outer
-    // serving page and the raw Web export use different ports, so the wrapper
-    // is the bridge between them. Queue the latest message until the game has
-    // finished loading; otherwise the first keyboard packet can be lost.
+    // The admin page and the raw Web export live on different ports, so
+    // browser-play input is forwarded through this wrapper iframe. Keep the
+    // latest message queued until the game finishes loading; input sent
+    // earlier would be dropped by the not-yet-ready player.
     const gameFrame = document.getElementById("gameFrame");
     let pendingGameMessage = null;
     function forwardGameMessage(data) {{
@@ -1471,7 +1473,7 @@ class GodotExampleBackend:
         try {{
           await document.body.requestFullscreen();
         }} catch {{
-          // ignore; user can still play in the browser window.
+          // Ignored: the user can still play in the browser window.
         }}
       }}
     }});
