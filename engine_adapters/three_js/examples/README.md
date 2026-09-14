@@ -9,6 +9,7 @@ These packages are optional concrete examples built on the public
 | `arena-fighter-example` | Second person | Facing-locked duel movement, light/heavy attacks, arena rules, health HUD |
 | `racing-example` | Third person (chase) | Arcade vehicle steering, boost, handbrake drift, lap and speed HUD |
 | `explorer-example` | Third person (orbit) | Camera-relative movement over a height field, follow camera, charged bow, stamina |
+| `rts-example` | Top-down (orthographic) | Order-driven units, box selection, pan/zoom rig, fog of war, minimap |
 | `motion-vfx-example` | — | Getting motion onto a generated character, and batched particles, beams, and trails |
 
 ## Pick the example by camera, not by genre
@@ -35,11 +36,38 @@ for:
   means "away from the camera", never "along the character's facing". The
   two sub-cases differ in who owns the yaw — a chase camera derives it from
   the vehicle's heading, an orbit camera owns it and the character reads it.
+- **Top-down strategy** — `rts-example`. The camera belongs to *nobody*: it
+  is a window onto the map, and no unit reads it. That removes the hardest
+  part of a third-person camera (keeping camera yaw and body yaw in
+  agreement) and replaces it with a different problem — see below, because
+  this family changes the **input contract**, not just the transform.
 
 Everything else follows from that choice. `explorer-example` is also the
 one to read for **walking on non-flat ground**: its `terrainHeight` is a
 plain function used by both the visible mesh and every ground query, which
 is the only arrangement in which the player cannot walk through a hill.
+
+## The one family that changes the input contract
+
+The first three examples are **frame-driven**: an input frame *is* the
+intent, `moveX/moveY` become the subject's velocity this frame, and one
+controller drives one entity. That model does not survive fifty units,
+because a player has one mouse and cannot author fifty continuous intents.
+
+`rts-example` is **order-driven** instead. Input produces discrete orders
+that are stored on units and outlive the click; `moveX/moveY` pan the camera
+and no unit reads them. Read it before writing anything where the player
+commands a group rather than inhabiting a body — a squad shooter and a city
+builder have the same problem as an RTS, whatever their camera. The three
+things it exists to demonstrate:
+
+- an order **queue** whose orders can complete, so units stop on arrival
+  instead of vibrating, and shift-click appends a waypoint instead of
+  discarding the previous one;
+- **screen-space** box selection, which is the only version that is correct
+  under any camera angle and on raised ground;
+- fog of war with `REMEMBERED` kept distinct from `VISIBLE`, so scouting
+  reveals terrain permanently but not live enemy positions.
 
 They are never installed automatically. Generated games should adapt the
 relevant patterns inside their own Gameplay Package rather than depending
@@ -82,6 +110,12 @@ module for module: `world.js`, `explorer.js`, `arrow.js`, `index.js`.
 
 `arena-fighter-example` predates this convention and still uses
 `entity.js` / `factory.js`; treat `explorer-example` as the model.
+
+`rts-example` follows the convention with one addition: because it is
+order-driven, step 2 splits into `commands.js` (what an order *is* and how a
+click becomes one) and `unit.js` (how a unit executes one), plus
+`selection.js` for who receives it. Read `commands.js` first — it is the
+module that makes the genre different.
 
 ## Installing one as a starting point
 
