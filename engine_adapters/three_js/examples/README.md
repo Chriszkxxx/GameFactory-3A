@@ -9,6 +9,7 @@ These packages are optional concrete examples built on the public
 | `arena-fighter-example` | Second person | Facing-locked duel movement, light/heavy attacks, arena rules, health HUD |
 | `racing-example` | Third person (chase) | Arcade vehicle steering, boost, handbrake drift, lap and speed HUD |
 | `explorer-example` | Third person (orbit) | Camera-relative movement over a height field, follow camera, charged bow, stamina |
+| `rts-example` | Top-down (orthographic) | Order-driven units, box selection, pan/zoom rig, fog of war, minimap |
 | `motion-vfx-example` | — | Getting motion onto a generated character, and batched particles, beams, and trails |
 
 ## Pick the example by camera, not by genre
@@ -35,6 +36,18 @@ for:
   means "away from the camera", never "along the character's facing". The
   two sub-cases differ in who owns the yaw — a chase camera derives it from
   the vehicle's heading, an orbit camera owns it and the character reads it.
+- **Top-down strategy** — `rts-example`. The camera belongs to *nobody*: it
+  is a window onto the map, and no unit reads it. This family is also the
+  only one that changes the **input contract**. The others are
+  frame-driven — an input frame *is* the intent, and one controller drives
+  one entity — which does not survive fifty units, because a player has one
+  mouse and cannot author fifty continuous intents. Here input produces
+  discrete orders that are stored on units and outlive the click, while
+  `moveX/moveY` pan the camera. Read it before writing anything where the
+  player commands a group rather than inhabiting a body; a squad shooter and
+  a city builder have the same problem, whatever their camera. §9 of
+  [`three_js_api.md`](../../../agent_skills/engine_context/three_js_api.md)
+  states the contract.
 
 Everything else follows from that choice. `explorer-example` is also the
 one to read for **walking on non-flat ground**: its `terrainHeight` is a
@@ -82,6 +95,32 @@ module for module: `world.js`, `explorer.js`, `arrow.js`, `index.js`.
 
 `arena-fighter-example` predates this convention and still uses
 `entity.js` / `factory.js`; treat `explorer-example` as the model.
+
+`rts-example` splits step 2, being order-driven: `commands.js` (what an order
+is), `unit.js` (how a unit executes one) and `selection.js` (who receives it).
+Read `commands.js` first.
+
+## Tests
+
+`arena-fighter-example`, `explorer-example` and `rts-example` ship a spec under
+`tests/`. An example carries no runner of its own; the plugin's config already
+includes `../../examples/**/tests/**/*.spec.js`, so they run with the framework
+suite:
+
+```bash
+cd engine_adapters/three_js/plugin/A3GamePlayable && npm test
+```
+
+They cover gameplay logic against the real session/runtime contracts using
+synthetic DOM events, and validate neither WebGL output nor a browser playtest.
+
+`rts-example` scope: real-time and continuous-position, using open terrain and
+direct steering — **not** a pathfinder or crowd-avoidance solver, and grid
+helpers are for placement only. Fog shades terrain and hides live enemies in
+rendering, targeting and the minimap; there is no terrain occlusion, last-seen
+marker system, economy, or network order protocol. Runtime snapshots are full
+diagnostic state, not fog-filtered client messages. The rig clamps its focus,
+not the entire view footprint. Imported Worlds need matching ground queries.
 
 ## Installing one as a starting point
 

@@ -455,6 +455,23 @@ Capture viewport means page size. captureFrame returns a canvas PNG data URL **w
 | Ownership | One camera driver; do not combine controls with independent yaw/pitch writes |
 | Pointer lock | Requires a user gesture |
 
+Choose a reference by camera **and control model**; adapt it inside the generated
+Gameplay Package, not as a dependency. See [examples](../../engine_adapters/three_js/examples/README.md).
+
+| Example | Camera ownership | Input / movement |
+|---|---|---|
+| `fps-example` | First-person player camera | Pointer-lock look, direct movement |
+| `arena-fighter-example` | Shared duel camera (called "second person" in the examples) | Facing-locked duel movement |
+| `racing-example` | Third-person chase | Vehicle steering; camera follows heading |
+| `explorer-example` | Third-person follow/orbit | Camera-relative character movement |
+| `rts-example` | Independent top-down map camera | Pan/zoom; select units and issue queued orders (§9) |
+
+`motion-vfx-example` supplements these with character animation and batched effects.
+RTS may use **orthographic or perspective** projection; this example chooses orthographic.
+Zoom it with `setFrustumHeight`; translating along the view axis does not zoom.
+Choose near/far for camera-space scene depth: negative near is allowed for orthographic,
+not required. Keep one camera driver, update matrices before picking, and bound map panning.
+
 ## 6. Lighting, sky, materials, and texture scale
 
 ```js
@@ -613,7 +630,23 @@ dispose clears input state, not identity or Object3D/GPU resources.
 Use +Y up, metres, radians, seconds, and metres/second. Runtime yaw=0 faces -Z; yaw=PI/2 faces -X.
 Forward is `(-sin(yaw),0,-cos(yaw))`; right is `(cos(yaw),0,-sin(yaw))`.
 moveY=1 means forward and moveX=1 means right. Multiply normalized movement by speed and dt.
-Choose input/camera/body yaw according to FPS, free third-person, or vehicle movement rather than forcing one convention on every game.
+Choose yaw and movement semantics per example (§5), not one convention for every game.
+
+**RTS / order-driven input** (`examples/rts-example`): continuous positions, real-time ticks;
+`moveX/moveY` pan the camera, while selected units execute discrete FIFO orders.
+
+- Keep selection, arrival/stop rules and formation offsets in gameplay. No pathfinder,
+  crowd avoidance, building economy or remote order transport is supplied by this example.
+- Project visible unit centres into canvas pixels for box selection; this works with either
+  projection. Use `raycastFromPointer(event, groundTargets)` for move destinations only.
+- Gate picking, targeting and minimap markers by current vision, not merely explored terrain.
+- Own gestures from canvas press to release/cancel; ignore HUD clicks and reset edge pan on
+  leave/blur. Reserve separate pan/stop keys. No pointer lock; the example uses ALWAYS with
+  pointerSensitivity=0 and samples once for the camera, not also via `pipeToSession`.
+- A commander without a body uses `registerParticipant` + `createController`;
+  `syncSession` always spawns an entity, even in OBSERVING mode. `spawnEntity` alone does not
+  register it: call `session.registerEntity`. The runtime then ticks and disposes it, so give
+  your roster no second lifecycle. Send custom spawn data in `parameters`.
 
 `new A3GameInputRouter({target,controllerId,keyBindings,actionBindings,pointerSensitivity=.0025,
 invertPitch=false,maxPitch=PI/2-.05,lookMode='pointer-lock',gamepadIndex=null})`.
