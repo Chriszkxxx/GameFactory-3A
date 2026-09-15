@@ -89,7 +89,11 @@ see it. Repeated defects, oscillation and plateaus all stop the loop, and
 ``stop_reason`` says which — a loop that gives up loudly costs one message,
 a loop that grinds costs a session.
 
-Pure Python 3.10+ standard library. Nothing to install means nothing to
+The declarative builder is pure Python 3.10+ standard library. The optional
+``fit_wearable_asset`` bridge fits existing continuous garments in an isolated
+Blender worker, preserving their materials and transferring character skin.
+
+Nothing to install for the declarative builder means nothing to
 debug in-context, and ``glb_writer`` is stdlib for the same reason.
 
 [1] https://github.com/img2threejs/img2threejs
@@ -99,7 +103,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 # --------------------------------------------------------------------------
 # Spec vocabulary
@@ -250,6 +254,27 @@ def suits_code_asset(
     """
 
     return _routing.resolve(subject, asset_type, strategies=strategies)
+
+
+def fit_wearable_asset(*, body: str, clothing: str, output: str,
+                       coverage: Literal["full_body", "upper_body"] = "full_body",
+                       sleeve_pose: Literal["down", "a", "t"] = "down",
+                       footwear_mode: Literal["preserve", "replace"] = "preserve",
+                       height_metres: float = 1.75, clearance_metres: float = 0.008,
+                       headwear_offset_metres: float = 0.0,
+                       blender_python: str | None = None,
+                       source_heights: dict[str, float] | None = None,
+                       clothing_rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+                       save_blend: bool = True, timeout: float = 600.0) -> dict[str, Any]:
+    """Fit a continuous garment to a rigged FBX/GLB character."""
+    return _templates.fit_wearable(
+        body=body, clothing=clothing, output=output, coverage=coverage,
+        sleeve_pose=sleeve_pose, footwear_mode=footwear_mode,
+        height_metres=height_metres, clearance_metres=clearance_metres,
+        headwear_offset_metres=headwear_offset_metres,
+        blender_python=blender_python, source_heights=source_heights,
+        clothing_rotation=clothing_rotation, save_blend=save_blend,
+        timeout=timeout)
 
 
 # --------------------------------------------------------------------------
