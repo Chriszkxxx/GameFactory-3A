@@ -1,34 +1,19 @@
 /**
  * Orders, and the queue that holds them.
  *
- * **This module is the reason a strategy game needs its own example.**
+ * Order-driven input: a click produces a discrete order that is stored on the
+ * unit and outlives the click, and the unit re-derives its own velocity each
+ * frame until the order completes. The other examples are frame-driven, where
+ * the input frame itself is the intent.
  *
- * In the other examples an input frame *is* the intent: `moveY = 1` means
- * "this entity walks forward this frame". Stop sending frames and the unit
- * stops. That model does not survive contact with fifty units, because a
- * player has one mouse and cannot author fifty continuous intents.
- *
- * So a strategy game inverts the relationship. Input produces **discrete
- * orders** stored on the unit, which outlive the click that made them:
- *
- *     frame-driven (fps / racing / explorer)
- *         input frame --> velocity --> position, every frame
- *
- *     order-driven (this example)
- *         click --> Order --> queued on unit --> unit re-derives its own
- *                             velocity every frame until the order completes
- *
- * Consequences worth stating, because each is a bug when missed:
- *
- * - An order must be able to **complete**, so it needs a termination test.
- *   A move order with no arrival tolerance makes units vibrate forever.
- * - Orders **queue** (shift-click), so this is FIFO state, not a single
- *   slot. One slot silently discards the previous order.
- * - One right-click means different things by target: ground -> move,
- *   enemy -> attack. Resolving that at *issue* time keeps units dumb.
- * - `moveX/moveY` from the input router are **not** unit movement here.
- *   They pan the camera. Wiring them to a unit is the most common way an
- *   RTS prototype ends up steering one soldier with WASD.
+ * Four rules, each a bug when missed:
+ * - An order must be able to **complete**. A move order without an arrival
+ *   tolerance makes units vibrate on the spot.
+ * - Orders are **FIFO**, not a single slot, so shift-click appends instead of
+ *   discarding the pending order.
+ * - A click resolves to move-or-attack by target at **issue** time, not per
+ *   tick, which keeps units dumb.
+ * - `moveX/moveY` from the input router pan the camera and drive no unit.
  */
 
 /** Order kinds a unit understands. */
@@ -97,6 +82,7 @@ export class OrderQueue {
 
   /** Append an order behind the current one. */
   enqueue(order) {
+    if (order && this.current()?.kind === OrderKind.STOP) this.clear();
     if (order) this.orders.push(order);
     return this;
   }
@@ -142,6 +128,14 @@ export function formationOffsets(count, spacing = 1.7) {
       z: (row - (rows - 1) / 2) * spacing,
     });
   }
+  if (offsets.length) {
+    const centerX = offsets.reduce((sum, offset) => sum + offset.x, 0) / offsets.length;
+    const centerZ = offsets.reduce((sum, offset) => sum + offset.z, 0) / offsets.length;
+    for (const offset of offsets) {
+      offset.x -= centerX;
+      offset.z -= centerZ;
+    }
+  }
   return offsets;
 }
 
@@ -161,8 +155,7 @@ export function issueOrders(intent, units) {
   const receivers = (units ?? []).filter((unit) => unit && unit.alive);
   if (receivers.length === 0) return { kind: 'none', count: 0 };
 
-  // An enemy under the cursor outranks the ground beneath it, which is why
-  // the attack test comes first.
+  // An enemy under the cursor outranks the ground beneath it.
   const target = intent?.target;
   const enemy =
     target && target.alive && target.team !== receivers[0].team ? target : null;

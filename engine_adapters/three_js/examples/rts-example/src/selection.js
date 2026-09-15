@@ -1,24 +1,13 @@
 /**
- * Selection: the other half of the strategy input model.
+ * Selection: who receives an order, where `commands.js` decides what it is.
  *
- * Commands answer "do what", selection answers "who". Together they replace
- * the per-frame steering the other examples use.
- *
- * Two things here are easy to get subtly wrong.
- *
- * **Box select must be done in screen space, not world space.** The
- * tempting version builds a world-space box from the drag's start and end
- * ground points and tests unit positions against it. That version behaves
- * differently depending on camera angle and silently misses units on raised
- * ground, because the ground point under the cursor is not the unit's
- * position. Projecting each unit to normalized device coordinates and
- * testing against the screen rectangle is both simpler and correct: it
- * selects exactly what the player drew a box around.
- *
- * **A drag and a click are the same gesture until they are not.** A press
- * followed by a release within a few pixels is a click (pick one unit);
- * beyond that it is a box. Deciding on `pointerdown` is impossible, so the
- * decision is deferred to `pointerup` and the threshold is explicit.
+ * Two rules:
+ * - Box select tests units **in screen space**. A world-space box built from
+ *   the drag's ground points varies with camera angle and misses units on
+ *   raised ground, because the ground point under the cursor is not the
+ *   unit's position.
+ * - Click and box are the same gesture until release, so the distinction is
+ *   made on `pointerup` against an explicit pixel threshold.
  */
 
 import * as THREE from 'three';
@@ -207,11 +196,14 @@ export function projectToScreen(unit, camera, viewport) {
     unit.position.y + (unit.profile?.height ?? 1.7) * 0.5,
     unit.position.z,
   );
-  _projected.project(camera);
-  // Behind the camera. Orthographic strategy cameras rarely produce this,
-  // but a perspective debug camera will, and it would otherwise select
-  // units the player cannot see.
-  if (_projected.z > 1) return null;
+  if (unit.object?.visible === false) return null;
+  camera.updateMatrixWorld(true);
+  _projected.applyMatrix4(camera.matrixWorldInverse);
+  if (_projected.z >= 0) return null;
+  _projected.applyMatrix4(camera.projectionMatrix);
+  if (![_projected.x, _projected.y, _projected.z].every(Number.isFinite) ||
+      Math.abs(_projected.x) > 1 || Math.abs(_projected.y) > 1 ||
+      Math.abs(_projected.z) > 1) return null;
   return {
     x: ((_projected.x + 1) / 2) * viewport.width,
     y: ((1 - _projected.y) / 2) * viewport.height,
@@ -221,11 +213,9 @@ export function projectToScreen(unit, camera, viewport) {
 /**
  * The unit nearest a screen point, within a pixel radius.
  *
- * Screen-space proximity rather than a raycast against unit meshes, for two
- * reasons: it needs no colliders, and it forgives imprecise clicks on the
- * small silhouettes a zoomed-out strategy camera produces. A raycast
- * demands pixel-accurate hits, which is why click-to-select feels stiff in
- * prototypes that use one.
+ * Screen-space proximity rather than a mesh raycast: it needs no colliders,
+ * and the radius forgives imprecise clicks on the small silhouettes a
+ * zoomed-out strategy camera produces.
  *
  * @returns {object | null}
  */

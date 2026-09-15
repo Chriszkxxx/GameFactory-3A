@@ -37,37 +37,22 @@ for:
   two sub-cases differ in who owns the yaw — a chase camera derives it from
   the vehicle's heading, an orbit camera owns it and the character reads it.
 - **Top-down strategy** — `rts-example`. The camera belongs to *nobody*: it
-  is a window onto the map, and no unit reads it. That removes the hardest
-  part of a third-person camera (keeping camera yaw and body yaw in
-  agreement) and replaces it with a different problem — see below, because
-  this family changes the **input contract**, not just the transform.
+  is a window onto the map, and no unit reads it. This family is also the
+  only one that changes the **input contract**. The others are
+  frame-driven — an input frame *is* the intent, and one controller drives
+  one entity — which does not survive fifty units, because a player has one
+  mouse and cannot author fifty continuous intents. Here input produces
+  discrete orders that are stored on units and outlive the click, while
+  `moveX/moveY` pan the camera. Read it before writing anything where the
+  player commands a group rather than inhabiting a body; a squad shooter and
+  a city builder have the same problem, whatever their camera. §9 of
+  [`three_js_api.md`](../../../agent_skills/engine_context/three_js_api.md)
+  states the contract.
 
 Everything else follows from that choice. `explorer-example` is also the
 one to read for **walking on non-flat ground**: its `terrainHeight` is a
 plain function used by both the visible mesh and every ground query, which
 is the only arrangement in which the player cannot walk through a hill.
-
-## The one family that changes the input contract
-
-The first three examples are **frame-driven**: an input frame *is* the
-intent, `moveX/moveY` become the subject's velocity this frame, and one
-controller drives one entity. That model does not survive fifty units,
-because a player has one mouse and cannot author fifty continuous intents.
-
-`rts-example` is **order-driven** instead. Input produces discrete orders
-that are stored on units and outlive the click; `moveX/moveY` pan the camera
-and no unit reads them. Read it before writing anything where the player
-commands a group rather than inhabiting a body — a squad shooter and a city
-builder have the same problem as an RTS, whatever their camera. The three
-things it exists to demonstrate:
-
-- an order **queue** whose orders can complete, so units stop on arrival
-  instead of vibrating, and shift-click appends a waypoint instead of
-  discarding the previous one;
-- **screen-space** box selection, which is the only version that is correct
-  under any camera angle and on raised ground;
-- fog of war with `REMEMBERED` kept distinct from `VISIBLE`, so scouting
-  reveals terrain permanently but not live enemy positions.
 
 They are never installed automatically. Generated games should adapt the
 relevant patterns inside their own Gameplay Package rather than depending
@@ -111,11 +96,31 @@ module for module: `world.js`, `explorer.js`, `arrow.js`, `index.js`.
 `arena-fighter-example` predates this convention and still uses
 `entity.js` / `factory.js`; treat `explorer-example` as the model.
 
-`rts-example` follows the convention with one addition: because it is
-order-driven, step 2 splits into `commands.js` (what an order *is* and how a
-click becomes one) and `unit.js` (how a unit executes one), plus
-`selection.js` for who receives it. Read `commands.js` first — it is the
-module that makes the genre different.
+`rts-example` splits step 2, being order-driven: `commands.js` (what an order
+is), `unit.js` (how a unit executes one) and `selection.js` (who receives it).
+Read `commands.js` first.
+
+## Tests
+
+`arena-fighter-example`, `explorer-example` and `rts-example` ship a spec under
+`tests/`. An example carries no runner of its own; the plugin's config already
+includes `../../examples/**/tests/**/*.spec.js`, so they run with the framework
+suite:
+
+```bash
+cd engine_adapters/three_js/plugin/A3GamePlayable && npm test
+```
+
+They cover gameplay logic against the real session/runtime contracts using
+synthetic DOM events, and validate neither WebGL output nor a browser playtest.
+
+`rts-example` scope: real-time and continuous-position, using open terrain and
+direct steering — **not** a pathfinder or crowd-avoidance solver, and grid
+helpers are for placement only. Fog shades terrain and hides live enemies in
+rendering, targeting and the minimap; there is no terrain occlusion, last-seen
+marker system, economy, or network order protocol. Runtime snapshots are full
+diagnostic state, not fog-filtered client messages. The rig clamps its focus,
+not the entire view footprint. Imported Worlds need matching ground queries.
 
 ## Installing one as a starting point
 

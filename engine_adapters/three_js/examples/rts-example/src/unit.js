@@ -1,29 +1,24 @@
 /**
  * A unit: the thing that executes orders.
  *
- * Compare with `explorer.js` in the exploration example. That entity reads
- * `moveX/moveY` off an input frame and moves. This one **ignores movement
- * input entirely** and instead re-derives its own velocity from whatever
- * order sits at the head of its queue.
+ * It ignores movement input and re-derives its velocity each frame from the
+ * order at the head of its queue.
  *
- * It still implements `A3GameControllableEntity`, because the runtime
- * subsystem needs a uniform way to spawn, identify, and snapshot entities.
- * But `applyRuntimeInput` deliberately does **not** steer the body: in a
- * strategy game the human's input frame belongs to the camera, and a unit
- * that also consumed it would drift whenever the player panned. The method
- * is kept as the contract's seam for a future scripted or networked
- * controller, and it says so rather than pretending to be unused.
+ * It still implements `A3GameControllableEntity` so the runtime can spawn,
+ * identify and snapshot it uniformly, but `applyRuntimeInput` does not steer
+ * the body: the human's input frame belongs to the camera, and a unit that
+ * also consumed it would drift whenever the player panned. The method remains
+ * as the contract seam for a scripted or networked controller.
  *
- * Combat is deliberately minimal — a cooldown, a range test, a damage
- * number. The point of the example is the control model, and a real damage
- * formula would only obscure it.
+ * Combat is minimal — a cooldown, a range test, a damage number — since the
+ * example exists to show the control model.
  */
 
 import * as THREE from 'three';
 import {
   A3GameControllableEntity,
   createEntitySnapshot,
-  createSurfaceMaterial,
+  createMaterial,
 } from '@a3game/playable';
 import { isPassable, terrainHeight } from './battlefield.js';
 import { ARRIVAL_TOLERANCE, OrderKind, OrderQueue } from './commands.js';
@@ -99,8 +94,7 @@ export class Unit extends A3GameControllableEntity {
         4,
         8,
       ),
-      createSurfaceMaterial({
-        preset: 'metal',
+      createMaterial('metal', {
         color: isPlayer ? 0x4d8fd6 : 0xd05c4a,
         roughness: 0.55,
       }),
@@ -116,7 +110,7 @@ export class Unit extends A3GameControllableEntity {
       new THREE.ConeGeometry(this.profile.radius * 0.55, 0.5, 6),
       body.material,
     );
-    nose.rotation.x = Math.PI / 2;
+    nose.rotation.x = -Math.PI / 2;
     nose.position.set(0, this.profile.height * 0.62, -this.profile.radius - 0.2);
     group.add(nose);
 
@@ -167,6 +161,8 @@ export class Unit extends A3GameControllableEntity {
 
   setRuntimeEntityId(entityId) {
     this.runtimeEntityId = entityId || this.unitId;
+    this.unitId = this.runtimeEntityId;
+    this.object.name = this.unitId;
     return this;
   }
 
@@ -181,7 +177,8 @@ export class Unit extends A3GameControllableEntity {
    */
   applyRuntimeInput(input) {
     this.lastInputSequence = Number(input?.sequence) || 0;
-    return this;
+    this.lastInputTimeSeconds = Number(input?.timestampSeconds) || 0;
+    return false;
   }
 
   /**
@@ -206,7 +203,7 @@ export class Unit extends A3GameControllableEntity {
         },
         rotation: { x: 0, y: this.yaw, z: 0 },
         locomotionState: order?.kind === OrderKind.MOVE ? 'run' : 'idle',
-        lastInputTimeSeconds: this.lastInputSequence ?? 0,
+        lastInputTimeSeconds: this.lastInputTimeSeconds ?? 0,
       }),
       team: this.team,
       health: this.health,
@@ -227,7 +224,7 @@ export class Unit extends A3GameControllableEntity {
    * moving reports arrival one step late and lets the unit overshoot.
    */
   tick(delta) {
-    if (!this.alive) return;
+    if (!this.alive || !Number.isFinite(delta) || delta <= 0) return;
 
     this.attackCooldown = Math.max(0, this.attackCooldown - delta);
 
@@ -250,10 +247,7 @@ export class Unit extends A3GameControllableEntity {
 
     if (!order) return;
 
-    if (order.kind === OrderKind.STOP) {
-      this.orders.complete();
-      return;
-    }
+    if (order.kind === OrderKind.STOP) return;
 
     if (order.kind === OrderKind.ATTACK) {
       this.#tickAttack(order, delta);
@@ -270,7 +264,7 @@ export class Unit extends A3GameControllableEntity {
     const target = this.resolveTarget ? this.resolveTarget(order.targetId) : null;
 
     // A dead or unresolvable target ends the order rather than freezing it.
-    if (!target || !target.alive) {
+    if (!target || !target.alive || (this.canSeeTarget && !this.canSeeTarget(target))) {
       this.orders.complete();
       return;
     }
@@ -316,14 +310,14 @@ export class Unit extends A3GameControllableEntity {
     if (!isPassable(nextX, nextZ)) return true;
 
     position.set(nextX, terrainHeight(nextX, nextZ), nextZ);
-    return false;
+    return distance - travel <= ARRIVAL_TOLERANCE;
   }
 
   /** Rotate toward a world position at a bounded turn rate. */
   #faceToward(x, z, delta) {
     const desired = Math.atan2(
-      x - this.object.position.x,
-      z - this.object.position.z,
+      this.object.position.x - x,
+      this.object.position.z - z,
     );
     // Shortest-arc interpolation. Lerping raw angles spins the long way
     // round whenever the difference crosses PI.
@@ -336,13 +330,14 @@ export class Unit extends A3GameControllableEntity {
 
   /** Apply damage. @returns {boolean} whether this killed the unit. */
   applyDamage(amount, source = null) {
-    if (!this.alive) return false;
-    this.health = Math.max(0, this.health - (Number(amount) || 0));
+    if (!this.alive || !Number.isFinite(amount) || amount <= 0) return false;
+    this.health = Math.max(0, this.health - amount);
 
     // Being shot by something out of sight is the trigger for retaliation,
     // and it is also how an idle defender acquires a target that outranges
     // its own aggro radius.
-    if (source && this.alive && !this.orders.current()) {
+    if (source?.alive && source.team !== this.team && this.health > 0 &&
+        (!this.canSeeTarget || this.canSeeTarget(source)) && !this.orders.current()) {
       this.orders.issue({
         kind: OrderKind.ATTACK,
         x: source.position.x,
@@ -366,10 +361,21 @@ export class Unit extends A3GameControllableEntity {
   }
 
   dispose() {
-    this.body.geometry.dispose();
-    this.body.material.dispose();
-    this.selectionRing.geometry.dispose();
-    this.selectionRing.material.dispose();
+    if (this.disposed) return;
+    this.disposed = true;
+    this.alive = false;
+    this.orders.clear();
+    this.resolveTarget = null;
+    this.findEnemy = null;
+    this.canSeeTarget = null;
+    const geometries = new Set();
+    const materials = new Set();
+    this.object.traverse((child) => {
+      if (child.geometry) geometries.add(child.geometry);
+      if (child.material) materials.add(child.material);
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
     if (this.host?.remove) this.host.remove(this.object);
   }
 }

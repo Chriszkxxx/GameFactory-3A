@@ -1,37 +1,21 @@
 /**
- * The strategy camera: an orthographic rig that belongs to nobody.
+ * Top-down strategy camera: an orthographic rig attached to nothing.
  *
- * This is the fourth camera family in `examples/`, and the one structural
- * difference is ownership. In the other three the camera is attached to
- * something in the fiction:
+ * Unlike the other examples' cameras, this one is owned by no entity and read
+ * by none; it is a window onto the map, moved directly by the player.
  *
- *   first person   the camera *is* the entity
- *   second person  the *match* owns it, framing both fighters
- *   third person   it trails a subject, and publishes the yaw that subject
- *                  moves relative to
+ * Contract:
+ * - `focus` is the ground point at screen centre. The camera sits at a fixed
+ *   offset from it, and clamping applies to the focus, so the map — not the
+ *   camera object — is what stays on screen.
+ * - Zoom via `setFrustumHeight`. Translating an orthographic camera along its
+ *   view axis changes nothing on screen.
+ * - No positional lag, or the cursor aims at ground that is still sliding.
+ * - Fixed angle. Rotating the rig would invalidate the screen-space
+ *   assumptions in `selection.js`.
  *
- * Here it is attached to nothing. It is a **window onto the map**, moved
- * directly by the player, and no unit ever reads it. That single fact
- * removes the hardest part of a third-person camera — keeping camera yaw and
- * body yaw in agreement — and replaces it with a different requirement:
- * the view must stay legible while it moves, which means no lag and hard
- * bounds.
- *
- * Three deliberate choices:
- *
- * - **Orthographic**, not a perspective camera tilted down. Perspective
- *   makes identical units different sizes across the screen and makes the
- *   selection marquee disagree with what it encloses. Orthographic keeps
- *   scale uniform, which is what makes a screen-space box select correct.
- * - **No positional lag.** A trailing strategy camera feels broken: the
- *   player is aiming a cursor at ground that is still sliding.
- * - **Zoom by frustum height, not by moving the camera.** Moving an
- *   orthographic camera along its view axis changes nothing on screen. The
- *   host exposes `setFrustumHeight` precisely for this.
- *
- * The rig keeps a fixed angle. Rotating a strategy camera is a feature that
- * costs a lot — every screen-space assumption above has to survive it — and
- * StarCraft ships without it.
+ * Orthographic keeps unit scale uniform here; perspective is also valid for
+ * RTS, and screen-space selection works with either projection.
  */
 
 import * as THREE from 'three';
@@ -73,7 +57,7 @@ export class StrategyCamera {
     this.pitch = Number(options.pitch ?? 0.95);
     this.yaw = Number(options.yaw ?? Math.PI * 0.25);
 
-    // Slightly inside the map edge, so the player cannot pan into a void.
+    // Clamp the focus, not the entire projected viewport footprint.
     this.bounds = Number(options.bounds ?? MAP_SIZE / 2 - 8);
 
     this.focus = new THREE.Vector3(0, 0, 0);
@@ -90,15 +74,16 @@ export class StrategyCamera {
    * function keeps the whole camera contract in one file.
    */
   attach(focusPoint = { x: 0, z: 0 }) {
+    this.host.detachControls?.();
     this.host.useOrthographicCamera({
-      frustumHeight: this.frustumHeight,
-      near: -400,
+      frustumHeight: THREE.MathUtils.clamp(this.frustumHeight, MIN_FRUSTUM_HEIGHT, MAX_FRUSTUM_HEIGHT),
+      near: 0.1,
       far: 400,
     });
     this.camera = this.host.camera;
-    this.focus.set(Number(focusPoint.x) || 0, 0, Number(focusPoint.z) || 0);
-    this.#apply();
-    return this;
+    this.camera.removeFromParent();
+    this.setFrustumHeight(this.frustumHeight);
+    return this.focusOn(focusPoint);
   }
 
   /**
@@ -123,7 +108,7 @@ export class StrategyCamera {
 
     // Screen-right and screen-up projected onto the ground plane.
     this.focus.x += (dx * cos - dy * sin) * scale;
-    this.focus.z += (dx * sin + dy * cos) * scale;
+    this.focus.z += (-dx * sin - dy * cos) * scale;
 
     this.focus.x = THREE.MathUtils.clamp(this.focus.x, -this.bounds, this.bounds);
     this.focus.z = THREE.MathUtils.clamp(this.focus.z, -this.bounds, this.bounds);
@@ -192,7 +177,7 @@ export class StrategyCamera {
     }
 
     if (x !== 0 || y !== 0) {
-      const length = Math.hypot(x, y) || 1;
+      const length = Math.max(1, Math.hypot(x, y));
       this.pan(x / length, y / length, delta);
     }
     return this;
@@ -209,6 +194,7 @@ export class StrategyCamera {
       this.focus.z + Math.cos(this.yaw) * horizontal,
     );
     this.camera.lookAt(this.focus.x, ground, this.focus.z);
+    this.camera.updateMatrixWorld(true);
   }
 
   /** @returns {{x: number, z: number, frustumHeight: number}} */

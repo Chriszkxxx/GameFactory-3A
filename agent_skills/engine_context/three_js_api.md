@@ -455,27 +455,22 @@ Capture viewport means page size. captureFrame returns a canvas PNG data URL **w
 | Ownership | One camera driver; do not combine controls with independent yaw/pitch writes |
 | Pointer lock | Requires a user gesture |
 
-Camera **ownership** decides more of a game's code than its genre does, and
-there are four families. Pick one before writing movement:
+Choose a reference by camera **and control model**; adapt it inside the generated
+Gameplay Package, not as a dependency. See [examples](../../engine_adapters/three_js/examples/README.md).
 
-| Family | Owner | Projection | Movement basis |
-|---|---|---|---|
-| First person | the entity (camera is parented to it) | perspective | body yaw = camera yaw |
-| Second person | the match, framing two subjects | perspective | axis between the subjects; neither may move the camera |
-| Third person | an independent trailing object | perspective | camera-relative; chase derives yaw from the subject, orbit owns it |
-| Top-down strategy | nobody — a window onto the map | **orthographic** | none; input pans the camera, units take orders |
+| Example | Camera ownership | Input / movement |
+|---|---|---|
+| `fps-example` | First-person player camera | Pointer-lock look, direct movement |
+| `arena-fighter-example` | Shared duel camera (called "second person" in the examples) | Facing-locked duel movement |
+| `racing-example` | Third-person chase | Vehicle steering; camera follows heading |
+| `explorer-example` | Third-person follow/orbit | Camera-relative character movement |
+| `rts-example` | Independent top-down map camera | Pan/zoom; select units and issue queued orders (§9) |
 
-The strategy family is the one that changes the input contract rather than
-just the transform, so it is described in section 9.
-
-For a top-down strategy camera: `useOrthographicCamera({frustumHeight,near,far})`
-with `near` negative (e.g. `-400`) so geometry behind the focus is not clipped,
-zoom with `setFrustumHeight` (never by translating along the view axis, which
-changes nothing under an orthographic projection), and clamp the focus point to
-map bounds. Do not add positional lag: a trailing strategy camera leaves the
-player aiming a cursor at ground that is still sliding. Orthographic is required,
-not stylistic — perspective makes identical units different sizes across the
-screen and makes a screen-space selection box disagree with what it encloses.
+`motion-vfx-example` supplements these with character animation and batched effects.
+RTS may use **orthographic or perspective** projection; this example chooses orthographic.
+Zoom it with `setFrustumHeight`; translating along the view axis does not zoom.
+Choose near/far for camera-space scene depth: negative near is allowed for orthographic,
+not required. Keep one camera driver, update matrices before picking, and bound map panning.
 
 ## 6. Lighting, sky, materials, and texture scale
 
@@ -635,36 +630,23 @@ dispose clears input state, not identity or Object3D/GPU resources.
 Use +Y up, metres, radians, seconds, and metres/second. Runtime yaw=0 faces -Z; yaw=PI/2 faces -X.
 Forward is `(-sin(yaw),0,-cos(yaw))`; right is `(cos(yaw),0,-sin(yaw))`.
 moveY=1 means forward and moveX=1 means right. Multiply normalized movement by speed and dt.
-Choose input/camera/body yaw according to FPS, free third-person, vehicle, or top-down
-strategy movement rather than forcing one convention on every game.
+Choose yaw and movement semantics per example (§5), not one convention for every game.
 
-Two control models exist, and the choice is structural rather than cosmetic:
+**RTS / order-driven input** (`examples/rts-example`): continuous positions, real-time ticks;
+`moveX/moveY` pan the camera, while selected units execute discrete FIFO orders.
 
-- **Frame-driven** (FPS, third person, vehicle): the input frame *is* the
-  intent. `moveX/moveY` become the subject's velocity this frame; stop sending
-  frames and it stops. One controller drives one entity.
-- **Order-driven** (top-down strategy): input produces **discrete orders** that
-  are stored on units and outlive the click. `moveX/moveY` pan the **camera**
-  and no unit reads them; a unit re-derives its own velocity every frame from
-  the order at the head of its queue. One controller commands many entities.
-
-Wiring `moveX/moveY` into units in an order-driven game is the standard failure:
-the whole selection drifts whenever the player pans. Bind the router's axes to
-the camera rig, and keep `applyRuntimeInput` on the entity as a contract seam for
-scripted or networked controllers.
-
-Order-driven games need four things the framework does not provide, because they
-are gameplay: a per-unit FIFO order queue whose orders can **complete** (a move
-order with no arrival tolerance makes units vibrate on the spot); resolution of
-one right-click into move-or-attack at *issue* time, not per tick; formation
-offsets so a group ordered to one point does not contest a single coordinate; and
-selection. Do box selection in **screen space** — project each unit with
-`camera` and test against the drag rectangle in container pixels. A world-space
-box built from the drag's ground points behaves differently per camera angle and
-misses units on raised ground. `host.raycastFromPointer(event, targets)` is for
-the *ground point* of an order; pass only the ground mesh so the ray cannot hit
-units. `A3GameLookMode.ALWAYS` suits strategy input: the cursor is never
-captured and yaw/pitch are unused.
+- Keep selection, arrival/stop rules and formation offsets in gameplay. No pathfinder,
+  crowd avoidance, building economy or remote order transport is supplied by this example.
+- Project visible unit centres into canvas pixels for box selection; this works with either
+  projection. Use `raycastFromPointer(event, groundTargets)` for move destinations only.
+- Gate picking, targeting and minimap markers by current vision, not merely explored terrain.
+- Own gestures from canvas press to release/cancel; ignore HUD clicks and reset edge pan on
+  leave/blur. Reserve separate pan/stop keys. No pointer lock; the example uses ALWAYS with
+  pointerSensitivity=0 and samples once for the camera, not also via `pipeToSession`.
+- A commander without a body uses `registerParticipant` + `createController`;
+  `syncSession` always spawns an entity, even in OBSERVING mode. `spawnEntity` alone does not
+  register it: call `session.registerEntity`. The runtime then ticks and disposes it, so give
+  your roster no second lifecycle. Send custom spawn data in `parameters`.
 
 `new A3GameInputRouter({target,controllerId,keyBindings,actionBindings,pointerSensitivity=.0025,
 invertPitch=false,maxPitch=PI/2-.05,lookMode='pointer-lock',gamepadIndex=null})`.
