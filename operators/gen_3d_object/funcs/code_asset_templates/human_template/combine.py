@@ -1,29 +1,11 @@
-"""Compose a generated figure with segmented armour and socketed weapons.
+"""Compose rigid meshes around measured anatomy using caller-defined attachments.
 
-The layer the single-asset pipeline does not have. ``compose`` assembles a
-*spec* from templates; this assembles a *worn figure* from files:
-
-    body.glb + armour.glb + sword.glb  ->  one GLB, pieces named, sockets recorded
-
-Order, and why it cannot be another order:
-
-1. Measure the body. A plate's size is the limb it covers, and that number
-   does not exist until the figure has been read.
-2. Cut the armour. A fused harness has no parts; the cut is what gives
-   ``fit_armour`` something to parent.
-3. Fit each piece to the body's slot, not the armour's. That is the step
-   a uniform overlay cannot do.
-4. Hang weapons on named sockets. A sword is rigid; it does not need a cut.
-5. Check the result. Scale and AABB overlap, not a renderer.
-
-The body stays one fused mesh — a generated T-pose cannot pose, and
-pretending otherwise by cutting the *body* would throw away the surface
-that was the reason to generate it. Armour is the thing that has to come
-apart, because it is what has to fit a body it was not generated onto.
+Sockets are metadata; this route does not bind meshes to individual bones.
 """
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -37,13 +19,7 @@ class CombineError(ValueError):
 
 def _drop_unpaired(pieces: dict[str, dict[str, Any]],
                    warnings: list[str]) -> dict[str, dict[str, Any]]:
-    """Drop a lateral piece whose opposite side was not cut.
-
-    The chirality gate refuses a ``-l`` without a ``-r``, and it is right
-    to: a single greave is how a missing half of the cut used to ship. A
-    warning names the drop so a sparse mesh is visible rather than silently
-    under-armoured.
-    """
+    """Drop unpaired lateral pieces and record a warning."""
 
     kept = dict(pieces)
     for region, mesh in list(pieces.items()):
@@ -64,17 +40,10 @@ def _weapon_parts(
     weapons: Sequence[dict[str, Any]],
     *,
     body_id: str,
-    landmarks: dict[str, Any],
-    body_origin: Sequence[float],
     socket_at: dict[str, Sequence[float]],
+    grip_templates: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Rigid weapon meshes, parented to the figure at the grip socket.
-
-    Parent is the figure, not the socket node: sockets are not geometry
-    (see ``sockets.py``). The socket translation is applied as ``at`` so
-    the weapon sits where the socket is, and the socket record in extras
-    is what a later bone-bind uses to move it.
-    """
+    """Place rigid assets using explicit parameters or caller-supplied grips."""
 
     parts: list[dict[str, Any]] = []
     for index, weapon in enumerate(weapons):
@@ -84,22 +53,28 @@ def _weapon_parts(
                 f"weapon {index} has no `source`. A weapon without a mesh "
                 "cannot be held."
             )
-        kind = str(weapon.get("kind") or "sword")
-        grip = sockets.grip_for(kind)
-        socket_id = weapon.get("socket") or grip["socket"]
+        kind = weapon.get("kind")
+        grip = sockets.grip_for(kind, templates=grip_templates or {}) if kind else {}
+        settings = {**grip, **weapon}
+        socket_id = settings.get("socket")
         if socket_id not in socket_at:
-            raise CombineError(
-                f"weapon {kind!r} wants {socket_id}, which is not a socket "
-                "on this figure."
-            )
-        length = float(weapon.get("length") or grip["length"])
-        offset = weapon.get("offset") or grip["offset"]
-        rotation = weapon.get("rotation") or grip["rotation"]
+            raise CombineError(f"weapon {index}: unknown socket {socket_id!r}")
+        try:
+            length = float(settings["length"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise CombineError(f"weapon {index}: length must be finite and positive") from exc
+        if not math.isfinite(length) or length <= 0:
+            raise CombineError(f"weapon {index}: length must be finite and positive")
+        axis = settings.get("long_axis")
+        if axis not in ("x", "y", "z"):
+            raise CombineError(f"weapon {index}: long_axis must be x, y or z")
+        offset = sockets.vector3(settings.get("offset", (0, 0, 0)), "weapon offset")
+        rotation = sockets.vector3(settings.get("rotation", (0, 0, 0)), "weapon rotation")
         at = [
             float(socket_at[socket_id][axis]) + float(offset[axis])
             for axis in range(3)
         ]
-        part_id = str(weapon.get("id") or f"weapon-{kind}")
+        part_id = str(weapon.get("id") or f"weapon-{index}")
         parts.append({
             "id": part_id,
             "kind": "mesh",
@@ -107,10 +82,10 @@ def _weapon_parts(
             "size": [length, length, length],
             "at": at,
             "rotation": list(rotation),
-            "material": weapon.get("material") or "steel",
+            "material": settings.get("material", "steel"),
             "parent": body_id,
             "profile": None,
-            "long_axis": weapon.get("long_axis") or grip.get("long_axis") or "y",
+            "long_axis": axis,
         })
     return parts
 
@@ -118,22 +93,13 @@ def _weapon_parts(
 def validate_kit(
     spec: dict[str, Any],
     landmarks: dict[str, Any],
-    sockets_list: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Cheap checks on a composed figure: scale, placement, weapon overlap.
-
-    Not a physics step. An AABB test will not catch a pauldron clipping a
-    gorget, and it is not supposed to: those are millimetre defects a
-    renderer shows. What this catches is the defect that ships as a
-    modelling error — a greave 40 cm off the shin, a sword through the
-    ribcage, a helm twice the head.
-    """
+    """Check landmark placement and approximate weapon/torso overlap."""
 
     from operators.gen_3d_object.funcs.code_asset import part_bounds, validate_spec
 
     placed = validate_spec(spec)
     by_id = {part["id"]: part for part in placed["parts"]}
-    _ = sockets_list
     warnings: list[str] = []
     checks: list[dict[str, Any]] = []
 
@@ -178,10 +144,7 @@ def validate_kit(
             "far": far,
         })
 
-    # A held weapon whose AABB sits mostly inside the torso is going through
-    # the chest, not past it. Reported, not failed: a two-handed sword at
-    # rest across the body is a legitimate pose this cannot tell from a
-    # mis-aimed blade.
+    # AABB overlap is a placement warning, not a collision test.
     figure = by_id.get("figure")
     torso_box = None
     if figure is not None:
@@ -237,18 +200,17 @@ def combine_avatar(
     materials: dict[str, dict[str, Any]] | None = None,
     trim_body: Sequence[float] | None = None,
     trim_armour: Sequence[float] | None = None,
+    socket_definitions: dict[str, dict[str, Any]] | None = None,
+    grip_templates: dict[str, dict[str, Any]] | None = None,
+    slot_definitions: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build a spec that dresses ``body`` in ``armour`` and puts weapons in hand.
+    """Build a rigid composition spec and placement report.
 
-    Returns ``{"spec", "report"}``. The spec is what ``build_code_asset``
-    consumes; the report is what a reviewer reads when the mesh looks wrong
-    — landmarks, per-region triangle counts, socket transforms, and the
-    validation warnings.
-
-    ``segment_armour`` is the whole reason this function exists. Left on,
-    a fused harness is cut and each piece is scaled to this body's limb.
-    Turned off, the harness is overlaid as one mesh at ``height_metres`` —
-    the control that shows why the cut is worth doing.
+    ``socket_definitions`` supplies named attachment points with a measured
+    slot or parent-local position. ``grip_templates`` supplies optional weapon
+    presets; each weapon may override their fields. No sockets or grips are
+    implicit. ``slot_definitions`` overrides anatomical placement formulas.
+    See test/test_3d_object_compose.py for editable example settings.
     """
 
     parts_path = Path(parts_dir)
@@ -262,6 +224,7 @@ def combine_avatar(
     origin = figure["at"]
     socket_records = sockets.sockets_for(
         marks, body_id="figure", body_origin=origin,
+        definitions=socket_definitions or {}, slot_definitions=slot_definitions,
     )
     socket_at = {row["id"]: row["at"] for row in socket_records}
 
@@ -311,13 +274,10 @@ def combine_avatar(
                 })
             worn.extend(armour_fit.fit_armour(
                 body_id="figure", landmarks=marks, pieces=kit,
-                body_origin=origin,
+                body_origin=origin, slots=slot_definitions,
             ))
         else:
-            # One factor, the body's height. ``at`` is world; the writer
-            # parents this node to the figure and subtracts the figure's
-            # translation from the vertices, so the origin here is the
-            # standing pose the figure already occupies.
+            # Overlay the complete shell at the body origin.
             worn.append({
                 "id": "armour-whole",
                 "kind": "mesh",
@@ -334,8 +294,8 @@ def combine_avatar(
 
     if weapons:
         worn.extend(_weapon_parts(
-            weapons, body_id="figure", landmarks=marks,
-            body_origin=origin, socket_at=socket_at,
+            weapons, body_id="figure", socket_at=socket_at,
+            grip_templates=grip_templates,
         ))
 
     spec = compose_mod.compose(
@@ -346,7 +306,7 @@ def combine_avatar(
         asset_type="avatar",
         materials=materials,
         notes=(
-            "Composed by segmenting the armour onto measured landmarks. "
+            "Rigid composition using measured landmarks. "
             "Sockets are recorded in extras, not as geometry."
         ),
     )
@@ -368,7 +328,7 @@ def combine_avatar(
         "warnings": warnings,
     }
     try:
-        report["validation"] = validate_kit(spec, marks, socket_records)
+        report["validation"] = validate_kit(spec, marks)
         report["warnings"].extend(report["validation"].get("warnings") or ())
     except Exception as exc:  # noqa: BLE001 — validation must not sink a build
         report["warnings"].append(f"validation skipped: {exc}")
@@ -379,8 +339,8 @@ def combine_avatar(
         "segmented": report["segmented"],
         "segments": segment_counts,
         "cut_guide": cut_info.get("cut_guide"),
-        "unity_humanoid": {
-            row["id"]: row.get("unity_bone") for row in socket_records
+        "bone_bindings": {
+            row["id"]: row["bone"] for row in socket_records if row.get("bone")
         },
     }
     return {"spec": spec, "report": report}

@@ -4,20 +4,22 @@
 same optional Blender worker. They accept rigged FBX/GLB characters and static
 FBX/GLB garments, keeping the garment's triangles, UVs and material slots.
 The ordinary `build_code_asset` and rigid armour template paths remain available.
+Run the following example from the repository root. Replace the relative asset
+paths and Blender Python environment with your local configuration.
 
 ```python
 from operators.gen_3d_object.funcs.code_asset import fit_wearable_asset
 
 result = fit_wearable_asset(
-    body="/path/Ch24_nonPBR.fbx",
-    clothing="/path/Meshy_AI_Clothe_kurdish_0907122524_texture.glb",
-    output="/path/results/Ch24_kurdish.glb",
+    body="test_data/inputs/character.fbx",
+    clothing="test_data/inputs/garment.glb",
+    output="test_data/outputs/wearable/character_clothed.glb",
     coverage="full_body",       # use upper_body for a jacket/shirt
     sleeve_pose="down",         # source sleeves: down, a, or t
     height_metres=1.75,
     clearance_metres=0.008,
-    headwear_offset_metres=0.05, # optional lift for this outfit's turban
-    blender_python="/path/to/python-with-bpy",
+    headwear_offset_metres=0.0,  # adjust only when the garment includes headwear
+    blender_python=".venv-blender/bin/python",
 )
 print(result["glb_path"], result["report_path"])
 ```
@@ -72,11 +74,10 @@ intersection proof or cloth simulation. It does not detect garment self-collisio
 or add runtime collision handling. Separate rigid plates can continue using
 `armour_fit.fit_armour`; continuous deformation may bend rigid plate shapes.
 
-Regression checks:
+Rigid composition example and spec checks (these do not exercise the Blender worker):
 
 ```sh
-python test/test_wearable_fit.py
-/path/to/python-with-bpy -I test/test_wearable_fit.py
+python test/test_3d_object_compose.py
 python test/test_3d_object_spec.py
 ```
 

@@ -140,6 +140,33 @@ def _resolve(spec: Any, landmarks: dict[str, Any]) -> float:
     return (float(landmarks[first]) + float(landmarks[second])) / 2.0
 
 
+def slot_position(
+    slot: str, landmarks: dict[str, Any], *, side: str | None = None,
+    offset: Sequence[float] | None = None,
+    body_origin: Sequence[float] | None = None,
+    slots: dict[str, dict[str, Any]] | None = None,
+) -> tuple[float, float, float]:
+    """Resolve a measured slot into the body's local coordinates."""
+    from .figure_fit import depth_at, leg_x_at
+
+    if side not in (None, "l", "r"):
+        raise ValueError("side must be l, r or None")
+    row = {**SLOTS, **(slots or {})}.get(slot)
+    if row is None:
+        raise ValueError(f"unknown slot {slot!r}")
+    marks = dict(landmarks)
+    marks.setdefault("instep_y", marks.get("ankle_y", 0.0) * 0.6)
+    height = _resolve(row.get("height"), marks)
+    lateral = row.get("lateral")
+    x = leg_x_at(marks, height) if lateral == "limb" else _resolve(lateral, marks)
+    depth = row.get("depth")
+    z = depth_at(marks, height) if depth == "midline" else _resolve(depth, marks)
+    at = ((-x if side == "l" else x), height, z)
+    origin = body_origin if body_origin is not None else (0.0, 0.0, 0.0)
+    delta = offset if offset is not None else (0.0, 0.0, 0.0)
+    return tuple(float(at[i]) + float(delta[i]) - float(origin[i]) for i in range(3))
+
+
 def fit_armour(
     *,
     body_id: str,
@@ -178,63 +205,11 @@ def fit_armour(
     ankle, which reads as a modelling error rather than a spec error.
     """
 
-    L = dict(landmarks)
     placed: list[dict[str, Any]] = []
-
-    # The instep, so the `foot` row has a height to name. Derived here rather
-    # than in the table because it is the one placement whose y is a fraction
-    # of another landmark, and a table of names should not carry arithmetic.
-    L.setdefault("instep_y", L.get("ankle_y", 0.0) * 0.6)
-
-    # How deep the body is at a given height. A body is not flat: measured on
-    # the T-pose figure, its chest centres at +0.023 and its throat at -0.067,
-    # so a single torso depth reused for every midline slot put the gorget
-    # 0.090 m in front of the neck.
-    from operators.gen_3d_object.funcs.code_asset_templates.human_template.figure_fit import (  # noqa: E501
-        depth_at,
-        leg_x_at,
-    )
-
     for piece in pieces:
-        slot = piece["slot"]
-        row = SLOTS.get(slot) or (slots or {}).get(slot)
-        if row is None:
-            known = ", ".join(sorted(set(SLOTS) | set(slots or {})))
-            raise ValueError(
-                f"{piece['id']}: unknown slot {slot!r}. Known slots: {known}. "
-                "An unplaced piece renders inside the figure's ankle, which "
-                "reads as a modelling error rather than a spec one."
-            )
-
-        side = piece.get("side")
-        sign = -1.0 if side == "l" else 1.0
-
-        height = _resolve(row.get("height"), L)
-        lateral_spec = row.get("lateral")
-        if lateral_spec == "limb":
-            # Read at the height the piece actually occupies, for the same
-            # reason `midline` is: the limb is not where a single number says.
-            lateral = leg_x_at(L, height)
-        else:
-            lateral = _resolve(lateral_spec, L)
-        depth_spec = row.get("depth")
-        if depth_spec == "midline":
-            depth = depth_at(L, height)
-        else:
-            depth = _resolve(depth_spec, L)
-
-        at = (sign * lateral if lateral_spec is not None else 0.0,
-              height, depth)
-
-        offset = piece.get("offset") or (0.0, 0.0, 0.0)
-        at = tuple(at[axis] + offset[axis] for axis in range(3))
-
-        # Into the parent's frame. The resolver adds the parent's translation
-        # back on, so this is the inverse of what it will do — stated as one
-        # subtraction rather than left as a convention two functions have to
-        # agree about silently.
-        origin = tuple(float(v) for v in (body_origin or (0.0, 0.0, 0.0)))
-        at = tuple(at[axis] - origin[axis] for axis in range(3))
+        at = slot_position(piece["slot"], landmarks, side=piece.get("side"),
+                           offset=piece.get("offset"), body_origin=body_origin,
+                           slots=slots)
 
         part: dict[str, Any] = {
             "id": piece["id"],

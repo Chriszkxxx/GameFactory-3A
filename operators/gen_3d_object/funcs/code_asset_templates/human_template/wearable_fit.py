@@ -1,8 +1,6 @@
-"""Fit an existing garment to a rigged character with Blender, retaining skin.
+"""Fit a garment and bind it to a character skeleton in a separate Blender worker.
 
-This is separate from rigid ``armour_fit.fit_armour``: sleeves and trousers
-must deform continuously with the wearer. Blender is an optional worker;
-importing the code-asset templates still needs only the standard library.
+Blender dependencies are loaded only in the worker process.
 """
 from __future__ import annotations
 
