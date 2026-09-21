@@ -81,3 +81,25 @@ each built cleanly and passed every gate before a render caught it:
 
 Prefer a spec for rigid assemblies — vehicles, weapons, architecture — where
 parts must stay separable and dimensions exact. Generate a figure whole.
+
+## Character and Garment Motion
+
+These follow-up experiments fit clothing to an existing rigged character and
+evaluate the combination during walking. Motion exposes sleeve alignment,
+wrist gaps and crotch stretching that a static preview can miss. The results
+remain experimental; they do not establish a general-purpose cloth simulation.
+
+<table>
+  <tr>
+    <td width="50%">
+      <video src="https://github.com/user-attachments/assets/6a9a2f2e-bdee-4d7d-bcf3-2600f04abebc" width="100%" controls muted playsinline></video>
+    </td>
+    <td width="50%">
+      <video src="https://github.com/user-attachments/assets/586052f1-f4fb-4f85-a9fe-29503188aa0c" width="100%" controls muted playsinline></video>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Character and garment composition · Demo 1</sub></td>
+    <td align="center"><sub>Character and garment composition · Demo 2</sub></td>
+  </tr>
+</table>

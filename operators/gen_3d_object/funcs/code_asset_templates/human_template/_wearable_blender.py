@@ -66,8 +66,7 @@ def transform_roots(objects, matrix):
 
 
 def canonical_body(objects, rig, height):
-    # Bone directions establish orientation even when an FBX arrives sideways
-    # or its T-pose wingspan exceeds its standing height.
+    # Derive orientation from bones before normalizing standing height.
     feet = (head(rig, 'foot', 'left') + head(rig, 'foot', 'right')) * .5
     up = head(rig, 'head') - feet
     axis = max(range(3), key=lambda i: abs(up[i]))
@@ -96,7 +95,7 @@ def pose_sleeves(rig, pose):
     else:
         directions = ((.35, 0, -1), (-.12, 0, -1))
     for side in ('left', 'right'):
-        # Side is measured, so mirrored rigs retain their own handedness.
+        # Determine handedness from the bone position.
         sign = 1 if head(rig, 'arm', side).x > 0 else -1
         for name, direction in zip(('arm', 'forearm'), directions):
             pb = bone(rig, name, side)
@@ -149,8 +148,7 @@ def clearance_pass(obj, surface, clearance, height, iterations=2, protected_belo
         inside = near = 0
         next_vertices = vertices.copy()
         for i, point in enumerate(vertices):
-            # Removed footwear leaves an open collision surface: its nearest
-            # normal does not classify points below the cut as inside/outside.
+            # Ignore nearest normals below the open footwear cut.
             if protected_below is not None and original[i, 2] < protected_below:
                 continue
             hit, normal, _, distance = tree.find_nearest(Vector(point), max_search)
@@ -203,8 +201,7 @@ def prepare_garment(objects, config, target, rig):
     meshes = [o for o in objects if o.type == 'MESH']
     if not meshes:
         raise ValueError('Clothing has no meshes')
-    # Bake source transforms/modifiers once. The new mesh retains UV layers
-    # and all material slots; no spatial cuts or material reassignment occur.
+    # Bake transforms and modifiers while retaining UVs and material slots.
     graph = bpy.context.evaluated_depsgraph_get()
     copies = []
     for obj in meshes:
@@ -240,7 +237,7 @@ def prepare_garment(objects, config, target, rig):
     normalized[:, :2] /= span
     vertices[:, :2] *= (top - bottom) / span
     vertices[:, 2] = np.interp(vertices[:, 2], source_z, target_z)
-    # Match the torso's centre depth without moving the feet/hat independently.
+    # Align garment depth with the torso center.
     vertices[:, 1] += target['depth']
     arm_regions = align_sleeves(vertices, normalized, garment.data, config, rig, source_z, target_z, top - bottom, target['depth'])
     vertices[:,2] += config.get('headwear_offset_metres',0.) * smoothstep((normalized[:,2]-source['neck'])/.03)
@@ -347,9 +344,7 @@ def align_sleeves(vertices, source, mesh, config, rig, source_z, target_z, scale
             mapped.append(relative @ rotation.T + ta)
         elbow_blend = smoothstep((ax - ex + .04) / .08) if pose == 't' else smoothstep((ez - source[:, 2] + .035) / .07)
         corrected = mapped[0] * (1 - elbow_blend[:, None]) + mapped[1] * elbow_blend[:, None]
-        # Geodesic separation follows the sewn armhole, including cuffs
-        # below the hem; a height cutoff would leave their bottom rows on the
-        # waist and stretch the sleeve into a strip when the arm rises.
+        # Follow mesh connectivity across UV seams to include low cuffs.
         blend = sleeve_blend * (ax > 0)
         result[:, j] = blend
         vertices[:] += (corrected - vertices) * blend[:, None]
@@ -381,12 +376,7 @@ def regional_surfaces(surface, rig):
 
 
 def expand_envelopes(garment, surface, rig, regions, target, height, clearance):
-    """Expand garment cross sections before the residual collision pass.
-
-    The innermost cloth layer determines a positive radial scale shared by
-    all layers. A shirt and jacket retain their separation and folds rather
-    than both being projected onto the skin.
-    """
+    """Expand garment cross sections using a shared radial scale for all layers."""
     _, body, weights = regional_surfaces(surface, rig)
     vertices = coords(garment)
     original = vertices.copy()
@@ -417,8 +407,7 @@ def expand_envelopes(garment, surface, rig, regions, target, height, clearance):
             if np.count_nonzero(bm)>=3 and np.count_nonzero(cm)>=3:
                 scales[k,j] = np.clip((np.quantile(bd[bm],.95)+clearance*1.5) /
                                       max(np.quantile(cd[cm],.10),height*.015),1,1.45)
-    # Conservative neighbouring maxima avoid narrow underfit bands between
-    # sparse body slices. Bilinear interpolation keeps the deformation smooth.
+    # Neighboring maxima fill sparse slices; bilinear interpolation smooths the scale.
     scales = np.maximum.reduce((scales,np.roll(scales,1,1),np.roll(scales,-1,1)))
     scales[1:-1] = np.maximum.reduce((scales[1:-1],scales[:-2],scales[2:]))
     z = vertices[:,2]
@@ -549,11 +538,10 @@ def validate_motion(garment, rig, weights, rest, regions, target):
 
 
 def replace_body_footwear(meshes, garment, rig, height):
-    """Cut covered feet from output meshes, retaining the separate skin donor.
+    """Cut covered feet while retaining the separate skin-weight donor.
 
-    Explicit opt-in: low garment vertices alone cannot prove closed footwear.
-    The ankle cut sits 2% of body height inside the trouser cuff. Bisecting
-    triangles avoids jagged boundaries and interpolates UVs/deform weights.
+    The cut is 2% of body height above the ankle. Triangle bisection
+    interpolates UVs and deform weights. Requires explicit footwear replacement.
     """
     import bmesh
     points = coords(garment)
@@ -634,8 +622,7 @@ def run(config):
                                   protected_below=footwear.get('cut_height_m'))
     bpy.data.objects.remove(rest_surface, do_unlink=True)
     refresh_normals(garment)
-    # Keep world coordinates when parenting; the armature modifier supplies
-    # deformation, so a parent transform must not be baked into vertices twice.
+    # Preserve world coordinates when parenting; avoid applying the transform twice.
     garment.parent = rig
     garment.matrix_parent_inverse = rig.matrix_world.inverted()
     modifier = garment.modifiers.new('Character skeleton', 'ARMATURE')

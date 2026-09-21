@@ -1,19 +1,4 @@
-"""Parametric T-pose fixtures used to build composition datasets.
-
-No generator, no network. A composition pipeline that can only be exercised
-on a paid mesh cannot be regression-tested, and the thing we need to prove
-— that cutting a fused harness and fitting the pieces beats overlaying it
-whole — is a fact about *proportions*, which primitives state exactly.
-
-Two knobs matter, and they are the two a generated body and a generated
-harness disagree on:
-
-    height          the figure's own metres
-    limb_scale      how much of that height is leg rather than torso
-
-A harness built at 1.60 m with short legs, overlaid on a 1.85 m long-legged
-body, is the case a uniform scale cannot save and a per-slot fit can.
-"""
+"""Generate parametric T-pose bodies, armour shells and weapon fixtures."""
 from __future__ import annotations
 
 from typing import Any
@@ -33,20 +18,16 @@ def tpose_parts(
     shin_length: float | None = None,
     material: str = "skin",
 ) -> list[dict[str, Any]]:
-    """A measurable T-pose: arms along x, legs along y.
+    """Build a T-pose with arms along X and legs along Y.
 
-    Joint heights are fractions of ``height`` so a tall figure and a short
-    one keep their proportions unless ``thigh_length`` / ``shin_length``
-    override them — which is how two fixtures disagree about where the
-    knee is.
+    Joint heights scale with ``height``; explicit thigh/shin lengths override them.
     """
 
     shoulder_y = height * 0.78
     neck_y = height * 0.83
     head_y = height * 0.92
     hip_y = height * 0.44
-    # Default knee at 0.27 of height. Overriding shin/thigh is how the
-    # armour's knee and the body's knee come apart.
+    # Default knee height; explicit shin/thigh lengths override it.
     shin = height * 0.19 if shin_length is None else shin_length
     thigh = height * 0.23 if thigh_length is None else thigh_length
     knee_y = shin + 0.02
@@ -97,12 +78,7 @@ def armour_shell_parts(
     bulk: float = 1.18,
     **body_kwargs: Any,
 ) -> list[dict[str, Any]]:
-    """A fused-looking harness: the same T-pose, thicker, in steel.
-
-    ``bulk`` scales radial sizes so the shell stands off the skin. Joint
-    heights follow ``height`` (and any thigh/shin override), which is how
-    this harness and a body of a different proportion disagree.
-    """
+    """Build a T-pose armour shell; ``bulk`` scales its radial dimensions."""
 
     kwargs = dict(body_kwargs)
     kwargs.setdefault("torso_width", 0.34 * bulk)
@@ -110,8 +86,7 @@ def armour_shell_parts(
     kwargs.setdefault("arm_radius", 0.055 * bulk)
     kwargs.setdefault("leg_spread", 0.11 * bulk)
     parts = tpose_parts(height=height, material="steel", **kwargs)
-    # Names stay unique so a later flatten still has one mesh per node;
-    # the reader then welds them into the fused surface the cut expects.
+    # Preserve unique part names when flattening.
     for part in parts:
         part["id"] = f"plate-{part['id']}"
     return parts
@@ -183,21 +158,16 @@ def _write(subject: str, parts: list[dict[str, Any]],
 
 #: Named bodies / harnesses / weapons the batch runner cross-combines.
 BODIES: dict[str, dict[str, Any]] = {
-    # Long-legged, 1.85 m — the figure a short harness has to be *fitted* to.
     "tall": {"height": 1.85, "thigh_length": 0.48, "shin_length": 0.40,
              "torso_width": 0.32, "leg_spread": 0.13},
-    # Compact, 1.62 m, wider torso.
     "stocky": {"height": 1.62, "thigh_length": 0.32, "shin_length": 0.28,
                "torso_width": 0.40, "torso_depth": 0.24, "leg_spread": 0.12},
-    # Nominal 1.80 m, the fixture the existing tests already measure.
     "nominal": {"height": 1.80},
 }
 
 ARMOURS: dict[str, dict[str, Any]] = {
-    # Built for a shorter, shorter-legged wearer.
     "short_plate": {"height": 1.58, "thigh_length": 0.30, "shin_length": 0.24,
                     "bulk": 1.22},
-    # Built for a taller wearer, bulkier plates.
     "tall_plate": {"height": 1.88, "thigh_length": 0.50, "shin_length": 0.42,
                    "bulk": 1.16},
 }

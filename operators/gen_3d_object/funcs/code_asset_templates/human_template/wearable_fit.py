@@ -29,29 +29,22 @@ def fit_wearable(
     clothing_rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
     save_blend: bool = True, timeout: float = 600.0,
 ) -> dict[str, Any]:
-    """Write a skinned GLB from FBX/GLB inputs and return its fit report.
+    """Fit and skin a garment, exporting GLB and a fit report.
 
-    ``coverage`` is ``full_body`` or ``upper_body``. It is explicit because a
-    jacket's hem must not be aligned to the character's feet. ``sleeve_pose``
-    describes the source garment (``down``, ``a`` or ``t``); the output uses
-    the character's rest pose. The body must provide a humanoid armature,
-    with Mixamo-style or equivalent Head/Arm/ForeArm/Hand/UpLeg/Leg/Foot names.
+    ``coverage`` selects full/upper-body anchors. ``sleeve_pose`` describes
+    the source pose (down/a/t); output uses the character's rest pose.
+    The body needs a humanoid armature with Mixamo-style or equivalent names.
 
-    ``footwear_mode="replace"`` explicitly declares that the garment includes
-    closed shoes and covers the ankles. It removes the original lower foot
-    geometry only in the output, while retaining it as a skin-weight reference.
-    The default ``preserve`` keeps original feet for barefoot/upper garments.
+    ``footwear_mode="replace"`` requires closed shoes covering the ankles.
+    It removes covered feet from the output, retaining an uncut weight donor.
+    ``preserve`` leaves the original feet intact.
 
-    ``source_heights`` overrides source anatomical heights as fractions of
-    the garment's height (e.g. shoulder=.81, waist=.60). ``clothing_rotation``
-    is XYZ degrees in Blender's Z-up frame, for a source facing backwards.
-    The worker preserves materials/UVs, transfers surface-interpolated skin
-    weights and corrects nearby body intersections, rather than shrinkwrapping
-    the entire garment. Loose folds therefore keep their shape.
+    ``source_heights`` contains normalized garment heights.
+    ``clothing_rotation`` is XYZ degrees in Blender's Z-up frame.
+    The worker preserves UVs/materials and transfers interpolated skin weights.
 
-    ``blender_python`` is a Python executable with ``bpy`` and ``numpy``;
-    defaults to BLENDER_PYTHON or this interpreter. The subprocess is isolated
-    from the caller's scene and writes a JSON report beside the output.
+    ``blender_python`` requires bpy and numpy; defaults to BLENDER_PYTHON
+    or this interpreter. The worker runs in a separate process.
     """
     if coverage not in ("full_body", "upper_body"):
         raise WearableFitError("coverage must be 'full_body' or 'upper_body'")
@@ -111,9 +104,7 @@ def fit_wearable(
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise WearableFitError(f"Blender clothing fit failed: {exc}") from exc
-        # A worker records success only after both exports are complete.
-        # Some bpy wheels crash during interpreter shutdown after a successful
-        # export; the completion record, not a stale output file, is decisive.
+        # Trust the completion record: bpy may crash after a successful export.
         done = Path(directory) / "done.json"
         if not done.is_file():
             raise WearableFitError(

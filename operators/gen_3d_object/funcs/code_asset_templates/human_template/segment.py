@@ -1,22 +1,7 @@
-"""Cut a fused T-pose mesh into the anatomical pieces a kit can wear.
+"""Split armour meshes into anatomical regions using measured landmarks.
 
-WHY THIS EXISTS. A generated full-body harness is one surface. Overlaying
-that surface on a different figure — even after a uniform scale — puts the
-greaves where that armour's shins were, not where this body's shins are.
-The two figures disagree by a tenth of a height at the knee, and the plate
-hangs in space or sinks through the calf. Cutting the armour into the same
-slots ``armour_fit`` already knows, then scaling each piece to the limb it
-covers, is what makes a generated harness wearable on a generated body.
-
-WHY THE CUT IS SPATIAL AND NOT SEMANTIC. The mesh has no part names. A
-T-pose is enough: arms run along x, legs along y, and a triangle's
-centroid falls into one slot the way a landmark does. The same
-``figure_fit`` reading that places a plate is the reading that decides
-which triangles belong to it, so the two cannot disagree about where the
-knee is.
-
-A triangle is kept whole. Cutting through a vertex would stretch an edge
-across the joint, which reads as a modelling error rather than a seam.
+Classification uses triangle centroids in normalized Y-up coordinates.
+Triangles are retained whole, with their UVs and materials.
 """
 from __future__ import annotations
 
@@ -27,8 +12,7 @@ from .armour_fit import SLOTS
 
 Vec3 = tuple[float, float, float]
 
-#: Region name -> (slot, side). Slot names are ``armour_fit.SLOTS`` keys so
-#: a piece that comes out of here can go straight into ``fit_armour``.
+#: Region name -> (armour slot, side).
 REGION_SLOTS: dict[str, tuple[str, str | None]] = {
     "head": ("head", None),
     "neck": ("neck", None),
@@ -51,16 +35,14 @@ REGION_SLOTS: dict[str, tuple[str, str | None]] = {
     "foot-r": ("foot", "r"),
 }
 
-#: Longest axis of a piece in each slot, declared so the orientation gate
-#: can check a regenerated cut against the same facing.
+#: Expected longest axis for each slot.
 LONG_AXIS: dict[str, str] = {
     "head": "y", "neck": "y", "torso": "y", "waist": "y", "hip": "y",
     "shoulder": "x", "upperarm": "x", "forearm": "x", "hand": "x",
     "thigh": "y", "shin": "y", "foot": "z",
 }
 
-#: Slots sized by the girth they wrap, not the length they span. A cuirass
-#: scaled to shoulder-to-waist is the right *height* and the wrong *depth*.
+#: Slots sized by body girth.
 WRAP_SLOTS = frozenset({"torso", "waist", "hip", "neck"})
 
 
@@ -69,14 +51,7 @@ class SegmentError(ValueError):
 
 
 def _unusable_for_cut(measured: dict[str, Any]) -> str | None:
-    """Why a self-reading cannot drive a cut, or None if it can.
-
-    A chibi knight still *has* a T-pose — arms out, two legs — so
-    ``measure_figure`` succeeds. Its neck sits at half its height because
-    the helmet is half the mesh, and every torso triangle is then classified
-    as a head. That is a failed reading for cutting, even though it is a
-    successful T-pose detection.
-    """
+    """Return a reason if measured landmarks are unsuitable for segmentation."""
 
     fractions = measured["fractions"]
     if fractions["shoulder_y"] < 0.50:
@@ -94,12 +69,7 @@ def _unusable_for_cut(measured: dict[str, Any]) -> str | None:
 
 def _ctx_from_measured(asset: dict[str, Any], measured: dict[str, Any]
                        ) -> dict[str, Any]:
-    """Landmarks in the same centred, unit-scaled frame as ``asset``.
-
-    Fractions come from ``measured`` — the armour's own reading, or a
-    body's when that reading cannot drive a cut. Applied to *this* mesh's
-    Y-span, so the planes fall on this surface, not on the guide's.
-    """
+    """Map measured landmark fractions onto the asset's centered Y-span."""
 
     positions = asset["positions"]
     low = min(point[1] for point in positions)
@@ -112,22 +82,14 @@ def _ctx_from_measured(asset: dict[str, Any], measured: dict[str, Any]
     fractions = measured["fractions"]
     reach = measured["arm_reach_fraction"] * span
     shoulder_x = measured["shoulder_x_fraction"] * span
-    # A wrist inboard of mid-arm is the coarse-mesh version of the
-    # fingertips-vs-wrist failure: a cylinder has no hand flare, so the
-    # "narrowest" cross-section lands near the shoulder. 0.86 of reach is
-    # where a T-pose wrist actually is, and it is the default
-    # ``measure_figure`` itself uses when the profile is too short to read.
+    # Use the fallback wrist fraction when the profile lacks a hand flare.
     wrist_along = measured["wrist_along_arm"]
     if wrist_along < 0.55 or wrist_along > 0.95:
-        # Too close to the shoulder is a missing hand flare; at 1.0 the
-        # "wrist" is the fingertip, so no triangle is ever a gauntlet.
         wrist_along = 0.86
     wrist_x = reach * wrist_along
     chest_y = at_y(fractions["chest_y"])
     waist_y = at_y(fractions["waist_y"])
-    # The chest's own back, so a cape hanging further posterior can be
-    # dropped instead of being classified as greaves. Enabled only when
-    # the mesh is actually deeper behind than a wrapped plate.
+    # Enable cape separation when the mesh extends behind the chest.
     chest_band = [
         point for point in positions
         if waist_y <= point[1] <= chest_y and abs(point[0]) < shoulder_x
@@ -162,13 +124,7 @@ def _ctx_from_measured(asset: dict[str, Any], measured: dict[str, Any]
 
 def _mesh_space_landmarks(source: str, *, trim: Sequence[float] | None = None
                           ) -> dict[str, Any]:
-    """Landmarks in the same centred, unit-scaled frame ``load_mesh_asset`` uses.
-
-    ``landmarks_for`` returns metres from the ground for a placed figure.
-    Classification has to happen on the vertices as they sit in the file
-    after normalisation — centred, longest axis = 1 — so the numbers here
-    are that frame, not the placed one.
-    """
+    """Return landmarks in the centered, longest-axis-normalized mesh frame."""
 
     from models.common.glb_writer import load_mesh_asset
     from . import figure_fit
@@ -185,9 +141,7 @@ def classify_point(point: Sequence[float], ctx: dict[str, Any]) -> str:
     span = ctx["span"]
     side = "l" if x < 0.0 else "r"
 
-    # A cape is a sheet behind the chest plane, inboard of the arms,
-    # hanging from the waist down. Left in the cut it becomes "shin" by
-    # height and then inflates every greave. Dropped rather than worn.
+    # Exclude cape triangles behind the torso and below the waist.
     if (ctx.get("drop_cape")
             and y < ctx["waist_y"]
             and y > ctx["ankle_y"]
@@ -201,9 +155,7 @@ def classify_point(point: Sequence[float], ctx: dict[str, Any]) -> str:
             and abs(x) < ctx["shoulder_x"] * 0.55):
         return "neck"
 
-    # Outstretched arms: past the torso's own width, and within a band of
-    # the shoulder height. Without the band, a splayed foot at the same x
-    # as a hand would be classified as a gauntlet.
+    # T-pose arms lie outside the torso within the shoulder-height band.
     if (ctx.get("has_arms", True)
             and abs(x) > ctx["shoulder_x"] * 1.12
             and abs(y - ctx["shoulder_y"]) < span * 0.14):
@@ -216,9 +168,7 @@ def classify_point(point: Sequence[float], ctx: dict[str, Any]) -> str:
             return f"upperarm-{side}"
         return f"shoulder-{side}"
 
-    # A-pose: the same outboard mass, but hanging below the T-pose band.
-    # Still an arm — classifying it as a thigh is how a pauldron ends up
-    # on the hip, and how the leftover arm slice gets stretched into a bar.
+    # A-pose arms extend below the shoulder-height band.
     if (ctx.get("has_arms", True)
             and abs(x) > ctx["shoulder_x"] * 1.12
             and y < ctx["shoulder_y"]
@@ -304,14 +254,7 @@ def _extract(asset: dict[str, Any],
 
 def _ensure_outward(positions: list[Vec3], normals: list[Vec3],
                     indices: list[int]) -> None:
-    """Flip a cut whose signed volume is negative.
-
-    A fused mesh is outward. A spatial cut is not a closed solid, but the
-    windings gate still computes a signed volume, and a negative one is
-    reported as inside-out — faces that vanish under backface culling.
-    Flipping here, on the subset, is cheaper than asking the gate to make
-    an exception for every cut.
-    """
+    """Reverse triangle winding when the subset has negative signed volume."""
 
     volume = 0.0
     for triangle in range(len(indices) // 3):
@@ -372,8 +315,7 @@ def _principal_axis(points: Sequence[Vec3]) -> Vec3:
         (cxy * inv, cyy * inv, cyz * inv),
         (cxz * inv, cyz * inv, czz * inv),
     )
-    # Start on the largest diagonal, otherwise a Y-aligned tube with no
-    # X variance keeps the (1,0,0) seed and the iteration collapses to zero.
+    # Seed the power iteration on the largest-variance axis.
     if cyy >= cxx and cyy >= czz:
         axis = (0.0, 1.0, 0.0)
     elif czz >= cxx and czz >= cyy:
@@ -496,20 +438,10 @@ def segment_mesh(
     guide: str | None = None,
     info: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Split ``source`` into named anatomical meshes.
+    """Return region meshes with positions, normals, UVs, indices and triangle counts.
 
-    Returns a dict of region -> mesh dict (positions, normals, uvs, indices,
-    triangles). Regions with fewer than ``min_triangles`` are omitted rather
-    than written as a handful of slivers, which the solidity gate would then
-    refuse as a modelling error.
-
-    Refuses a mesh that is not a T-pose, with the same message
-    ``figure_fit`` uses: the cut is not meaningful without the limb axes.
-
-    ``guide`` is a second T-pose (the body being dressed). When the armour's
-    own reading cannot drive a cut — not a T-pose, or a T-pose whose neck
-    sits at half its height — the guide's fractions are painted onto this
-    mesh's Y-span instead of throwing.
+    Omit regions below ``min_triangles``. If source landmarks are unusable,
+    apply ``guide`` landmark fractions to the source Y-span; fail without a guide.
     """
 
     from models.common.glb_writer import load_mesh_asset
@@ -621,13 +553,7 @@ def write_segments(
 
 def piece_span(slot: str, landmarks: dict[str, Any], source: str,
                *, clearance: float = 1.08) -> float:
-    """How long a fitted piece should be, in metres, on this body.
-
-    Wrap slots are sized to the girth they enclose (see ``span_to_wrap``);
-    limb slots are sized to the bone they cover. Both numbers come from
-    the *body's* landmarks, not the armour's — that is the whole point of
-    cutting the armour up first.
-    """
+    """Compute piece span in metres from body girth or limb length."""
 
     from .armour_fit import span_to_wrap
 
@@ -639,9 +565,7 @@ def piece_span(slot: str, landmarks: dict[str, Any], source: str,
             "hip": {"x": landmarks["hip_width"], "z": landmarks["hip_depth"]},
             "neck": {"x": landmarks["neck_width"], "z": landmarks["neck_depth"]},
         }[slot]
-        # A T-pose measurement that leaked the wingspan into a girth
-        # (neck_width reading 1.06 m on a 1.85 m figure) would scale a
-        # collar into a barrel. Clamp to a body, not a wingspan.
+        # Clamp girth estimates that include the wingspan.
         girth = {
             "x": min(float(girth["x"]), height * 0.38),
             "z": min(float(girth["z"]), height * 0.28),
@@ -668,9 +592,7 @@ def piece_span(slot: str, landmarks: dict[str, Any], source: str,
     return span
 
 
-# Every region here has to name a slot armour_fit can place. A region whose
-# slot is missing from SLOTS would cut cleanly and then fail at fit time
-# with an "unknown slot" that names the wrong layer.
+# Check region slots at import time.
 _MISSING_SLOTS = sorted({
     slot for slot, _side in REGION_SLOTS.values() if slot not in SLOTS
 })
