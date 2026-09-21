@@ -4,8 +4,8 @@ The same three subjects, each built twice: from primitives alone, and with
 generated components composed in. Side by side, because the difference between
 the two routes is easier to see than to describe.
 
-The primitive and generated-component videos include part counts, triangles,
-textures, and height against what the spec asked for.
+Every video carries its own measurements — part count, triangles, textures, and
+height against what the spec asked for.
 
 ## Primitives Only
 
